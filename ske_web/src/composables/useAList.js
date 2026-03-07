@@ -12,7 +12,7 @@ const state = {
 }
 
 /** Authenticate with AList.  Returns the JWT token. */
-export async function login(server, username, password) {
+export async function login(server, username, password, manualBasePath = '') {
     state.server = server.replace(/\/+$/, '')
     const res = await fetch(`${state.server}/api/auth/login`, {
         method: 'POST',
@@ -23,20 +23,30 @@ export async function login(server, username, password) {
     if (json.code !== 200) throw new Error(json.message || 'AList login failed')
     state.token = json.data.token
     
-    // Fetch user profile to get base_path (crucial for sub-accounts)
+    // Auto-detect base_path (Home directory)
+    let detectedBasePath = ''
     try {
-        const meRes = await fetch(`${state.server}/api/me`, {
-            method: 'GET',
-            headers: { 'Authorization': state.token },
-        })
-        const meJson = await meRes.json()
-        if (meJson.code === 200 && meJson.data.base_path) {
-            state.basePath = meJson.data.base_path.replace(/\/+$/, '')
+        // Try /api/me first, then /api/auth/me as fallback
+        const endpoints = [`${state.server}/api/me`, `${state.server}/api/auth/me`]
+        for (const url of endpoints) {
+            const meRes = await fetch(url, {
+                method: 'GET',
+                headers: { 'Authorization': state.token },
+            })
+            const meJson = await meRes.json()
+            if (meJson.code === 200 && meJson.data.base_path) {
+                detectedBasePath = meJson.data.base_path
+                break
+            }
         }
     } catch (e) {
-        console.warn('[AList] Failed to fetch user profile, assuming root /', e)
-        state.basePath = ''
+        console.warn('[AList] Failed to fetch user profile', e)
     }
+
+    // Manual override takes precedence, fallback to detected
+    let finalBase = manualBasePath || detectedBasePath || ''
+    if (finalBase && !finalBase.startsWith('/')) finalBase = '/' + finalBase
+    state.basePath = finalBase.replace(/\/+$/, '')
 
     sessionStorage.setItem('alist_server', state.server)
     sessionStorage.setItem('alist_token', state.token)

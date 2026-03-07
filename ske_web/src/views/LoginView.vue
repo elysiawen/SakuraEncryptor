@@ -34,6 +34,11 @@
             </div>
           </div>
 
+          <div class="form-group">
+            <label for="alist-root">AList 根目录 (可选，例如: /移动家庭云)</label>
+            <input id="alist-root" class="input-field" type="text" v-model="alistRootPath" placeholder="/" />
+          </div>
+
           <div class="divider"></div>
 
           <!-- Master Password -->
@@ -68,6 +73,7 @@ const router = useRouter()
 const alistServer = ref('')
 const alistUser = ref('')
 const alistPass = ref('')
+const alistRootPath = ref('')
 const masterPassword = ref('')
 const loading = ref(false)
 const error = ref('')
@@ -77,9 +83,11 @@ onMounted(() => {
   const savedServer = localStorage.getItem('ske_alist_server')
   const savedUser = localStorage.getItem('ske_alist_user')
   const savedPass = localStorage.getItem('ske_alist_pass')
+  const savedRoot = localStorage.getItem('ske_alist_root')
   if (savedServer) alistServer.value = savedServer
   if (savedUser) alistUser.value = savedUser
   if (savedPass) alistPass.value = savedPass
+  if (savedRoot) alistRootPath.value = savedRoot
 })
 
 async function handleLogin() {
@@ -88,12 +96,13 @@ async function handleLogin() {
 
   try {
     // 1) Login to AList
-    await alistLogin(alistServer.value, alistUser.value, alistPass.value)
+    await alistLogin(alistServer.value, alistUser.value, alistPass.value, alistRootPath.value)
 
     // Save configuration persistently
     localStorage.setItem('ske_alist_server', alistServer.value)
     localStorage.setItem('ske_alist_user', alistUser.value)
     localStorage.setItem('ske_alist_pass', alistPass.value)
+    localStorage.setItem('ske_alist_root', alistRootPath.value)
 
     // 2) Derive key & send to SW (only if password provided)
     if (masterPassword.value) {
