@@ -5,14 +5,12 @@
       <div class="orb orb-1"></div>
       <div class="orb orb-2"></div>
 
+      <div class="login-header">
+        <h1>Sakura Encryptor</h1>
+        <p class="subtitle">极简、美观、安全的高性能流式解密播放器</p>
+      </div>
+
       <div class="login-card glass-card">
-        <div class="login-header">
-          <div class="logo">
-            <img src="/logo.png" alt="Sakura Encryptor Logo" width="64" height="64" />
-          </div>
-          <h1>Sakura Encryptor</h1>
-          <p class="subtitle">极简、美观、安全的高性能流式解密播放器</p>
-        </div>
 
         <!-- Tab Switcher -->
         <div class="tab-switcher">
@@ -79,7 +77,7 @@
 
           <button type="submit" class="btn btn-primary btn-full" :disabled="loading">
             <span v-if="loading" class="spinner"></span>
-            <span v-else>{{ currentTab === 'alist' ? '🔓 登录云端' : '🚀 浏览本地库' }}</span>
+            <span v-else>{{ currentTab === 'alist' ? '🔓 登录' : '🚀 浏览本地库' }}</span>
           </button>
         </form>
       </div>
@@ -292,33 +290,25 @@ async function handleUnifiedSubmit() {
 
 .login-header {
   text-align: center;
-  margin-bottom: 32px;
-}
-
-.logo {
-  display: inline-block;
-  margin-bottom: 16px;
-  animation: pulse-glow 3s ease-in-out infinite;
-}
-@keyframes pulse-glow {
-  0%, 100% { filter: drop-shadow(0 0 8px rgba(139, 92, 246, 0.3)); }
-  50% { filter: drop-shadow(0 0 20px rgba(139, 92, 246, 0.5)); }
+  margin-bottom: 50px;
 }
 
 .login-header h1 {
-  font-size: 28px;
-  font-weight: 700;
+  font-size: 39px;
+  font-weight: 800;
   background: var(--accent-gradient);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
   line-height: 1.2;
+  letter-spacing: -0.02em;
 }
 
 .subtitle {
   color: var(--text-muted);
-  font-size: 13px;
-  margin-top: 8px;
+  font-size: 14px;
+  margin-top: 10px;
+  letter-spacing: 0.05em;
 }
 
 .login-form {
