@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sakura-encryptor"
+version = "1.0.0"
+description = "Zero-knowledge video encryption CLI tool"
+requires-python = ">=3.10"
+dependencies = [
+    "cryptography>=42.0",
+    "click>=8.0",
+    "tkinterdnd2>=0.3.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[project.scripts]
+ske = "ske_cli.cli:main"
+ske-gui = "ske_cli.gui:main"
+
+[tool.setuptools.packages]
+find = { include = ["ske_cli*"] }
