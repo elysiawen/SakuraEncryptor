@@ -8,6 +8,7 @@
 const state = {
     server: '',
     token: '',
+    basePath: '',
 }
 
 /** Authenticate with AList.  Returns the JWT token. */
@@ -21,8 +22,25 @@ export async function login(server, username, password) {
     const json = await res.json()
     if (json.code !== 200) throw new Error(json.message || 'AList login failed')
     state.token = json.data.token
+    
+    // Fetch user profile to get base_path (crucial for sub-accounts)
+    try {
+        const meRes = await fetch(`${state.server}/api/me`, {
+            method: 'GET',
+            headers: { 'Authorization': state.token },
+        })
+        const meJson = await meRes.json()
+        if (meJson.code === 200 && meJson.data.base_path) {
+            state.basePath = meJson.data.base_path.replace(/\/+$/, '')
+        }
+    } catch (e) {
+        console.warn('[AList] Failed to fetch user profile, assuming root /', e)
+        state.basePath = ''
+    }
+
     sessionStorage.setItem('alist_server', state.server)
     sessionStorage.setItem('alist_token', state.token)
+    sessionStorage.setItem('alist_base_path', state.basePath)
     return state.token
 }
 
@@ -30,19 +48,29 @@ export async function login(server, username, password) {
 export function restoreSession() {
     state.server = sessionStorage.getItem('alist_server') || ''
     state.token = sessionStorage.getItem('alist_token') || ''
+    state.basePath = sessionStorage.getItem('alist_base_path') || ''
     return !!(state.server && state.token)
+}
+
+/** Helper to join paths correctly ensuring basePath is prepended if needed */
+function getAbsPath(path) {
+    if (!state.basePath) return path
+    if (path.startsWith(state.basePath)) return path
+    const p = path.startsWith('/') ? path : '/' + path
+    return (state.basePath + p).replace(/\/+$/, '') || '/'
 }
 
 /** List a directory.  Returns { content: FileEntry[], provider: string }. */
 export async function listDir(path = '/') {
     if (!state.server) restoreSession()
+    const absPath = getAbsPath(path)
     const res = await fetch(`${state.server}/api/fs/list`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
             Authorization: state.token,
         },
-        body: JSON.stringify({ path, refresh: false }),
+        body: JSON.stringify({ path: absPath, refresh: false }),
     })
     const json = await res.json()
     if (json.code !== 200) throw new Error(json.message || 'Failed to list directory')
@@ -52,13 +80,14 @@ export async function listDir(path = '/') {
 /** Get a direct (signed) download URL and size for a file. */
 export async function getFileInfo(path) {
     if (!state.server) restoreSession()
+    const absPath = getAbsPath(path)
     const res = await fetch(`${state.server}/api/fs/get`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
             Authorization: state.token,
         },
-        body: JSON.stringify({ path }),
+        body: JSON.stringify({ path: absPath }),
     })
     const json = await res.json()
     if (json.code !== 200) throw new Error(json.message || 'Failed to get file info')
@@ -78,6 +107,8 @@ export function getServer() {
 export function logout() {
     state.server = ''
     state.token = ''
+    state.basePath = ''
     sessionStorage.removeItem('alist_server')
     sessionStorage.removeItem('alist_token')
+    sessionStorage.removeItem('alist_base_path')
 }
