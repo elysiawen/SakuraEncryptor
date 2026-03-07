@@ -28,24 +28,24 @@
             <div class="section-label">AList 连接配置</div>
             <div class="form-group">
               <label for="alist-server">服务器地址</label>
-              <input id="alist-server" class="input-field" type="text" v-model="alistServer"
+              <input id="alist-server" name="alist-server" class="input-field" type="text" v-model="alistServer"
                 placeholder="https://alist.example.com" :required="currentTab === 'alist'" />
             </div>
 
             <div class="form-row">
               <div class="form-group">
                 <label for="alist-user">用户名</label>
-                <input id="alist-user" class="input-field" type="text" v-model="alistUser" placeholder="admin" />
+                <input id="alist-user" name="username" autocomplete="username" class="input-field" type="text" v-model="alistUser" placeholder="admin" />
               </div>
               <div class="form-group">
                 <label for="alist-pass">密码</label>
-                <input id="alist-pass" class="input-field" type="password" v-model="alistPass" placeholder="••••••" />
+                <input id="alist-pass" name="password" autocomplete="current-password" class="input-field" type="password" v-model="alistPass" placeholder="••••••" />
               </div>
             </div>
 
             <div class="form-group">
               <label for="alist-root">AList 根目录 (可选)</label>
-              <input id="alist-root" class="input-field" type="text" v-model="alistRootPath" placeholder="/" />
+              <input id="alist-root" name="alist-root" class="input-field" type="text" v-model="alistRootPath" placeholder="/" />
             </div>
           </div>
 
@@ -69,7 +69,7 @@
           <div class="section-label">加密主密码</div>
           <div class="form-group">
             <label for="master-pw">主密码（解密 .ske 文件必备）</label>
-            <input id="master-pw" class="input-field" type="password" v-model="masterPassword"
+            <input id="master-pw" name="master-pw" autocomplete="current-password" class="input-field" type="password" v-model="masterPassword"
               placeholder="输入加密时使用的密码" />
           </div>
 
