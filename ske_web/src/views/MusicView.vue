@@ -160,6 +160,10 @@ function formatTime(secs) {
 
 function goBack() {
   const segments = filePath.value.split('/').filter(Boolean)
+  if (segments[0] === 'local') {
+    router.push('/local')
+    return
+  }
   segments.pop()
   router.push('/browse/' + segments.join('/'))
 }
@@ -169,6 +173,7 @@ async function initPlayer() {
   try {
     const nameKey = await getNameKeyFromSession()
     const segments = filePath.value.split('/').filter(Boolean)
+    const isLocal = segments[0] === 'local'
     const encFileName = segments[segments.length - 1]
 
     if (nameKey) {
@@ -179,22 +184,40 @@ async function initPlayer() {
       decryptedName.value = encFileName
     }
 
-    const info = await getFileInfo(filePath.value)
-    if (!info.url) throw new Error('无法获取音频链接')
-    fileSize.value = info.size || 0
+    let rawUrl = ''
+    let rawSize = 0
+    let playSrc = ''
+
+    if (isLocal) {
+      const localPath = decodeURIComponent(filePath.value.replace(/^\/?local\//, ''))
+      rawUrl = `/ske-local/${localPath}`
+      playSrc = rawUrl
+    } else {
+      const info = await getFileInfo(filePath.value)
+      if (!info.url) throw new Error('无法获取音频链接')
+      rawUrl = info.url
+      rawSize = info.size || 0
+      playSrc = rawUrl
+    }
+
+    fileSize.value = rawSize
 
     const isEncrypted = encFileName.endsWith('.ske')
-    const sizeParam = info.size ? `&size=${info.size}` : ''
-    
     if (isEncrypted) {
       // Proactively give SW the password before it intercepts
       const pwd = sessionStorage.getItem('ske_password')
       if (pwd && navigator.serviceWorker?.controller) {
         navigator.serviceWorker.controller.postMessage({ type: 'SET_PASSWORD', password: pwd })
       }
-      playUrl.value = `/ske-decrypt/?url=${encodeURIComponent(info.url)}${sizeParam}`
+      
+      if (isLocal) {
+        playUrl.value = rawUrl
+      } else {
+        const sizeParam = rawSize ? `&size=${rawSize}` : ''
+        playUrl.value = `/ske-decrypt/?url=${encodeURIComponent(rawUrl)}${sizeParam}`
+      }
     } else {
-      playUrl.value = info.url
+      playUrl.value = rawUrl
     }
 
     // Assign source to native audio element
@@ -205,7 +228,9 @@ async function initPlayer() {
 
     // Try extracting ID3 Cover Art
     coverUrl.value = ''
-    jsmediatags.read(window.location.origin + playUrl.value, {
+    // For local files, we might need a different approach for jsmediatags, but for now let's use the same logic
+    const mediaTagsUrl = isLocal ? window.location.origin + playUrl.value : window.location.origin + playUrl.value
+    jsmediatags.read(mediaTagsUrl, {
       onSuccess: function(tag) {
         if (tag.tags && tag.tags.picture) {
           const picture = tag.tags.picture

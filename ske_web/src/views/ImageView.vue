@@ -84,8 +84,12 @@ function toggleUI() {
 }
 
 function goBack() {
-  const parts = route.params.path || []
-  const parentPath = parts.slice(0, -1).join('/')
+  const p = route.params.path || []
+  if (p[0] === 'local') {
+    router.push('/local')
+    return
+  }
+  const parentPath = p.slice(0, -1).join('/')
   router.push('/browse/' + parentPath)
 }
 
@@ -157,6 +161,7 @@ async function initViewer() {
     const p = route.params.path
     const fullPath = '/' + (Array.isArray(p) ? p.join('/') : (p || ''))
     const segments = fullPath.split('/').filter(Boolean)
+    const isLocal = segments[0] === 'local'
     const encName = segments[segments.length - 1]
     
     // Decrypt name
@@ -169,18 +174,31 @@ async function initViewer() {
       decryptedName.value = encName
     }
     
-    // Get AList URL
-    const info = await getFileInfo(fullPath)
-    if (!info.url) throw new Error('无法获取文件链接')
+    let rawUrl = ''
+    let rawSize = 0
+    let playSrc = ''
+
+    if (isLocal) {
+      const localPath = decodeURIComponent(fullPath.replace(/^\/?local\//, ''))
+      rawUrl = `/ske-local/${localPath}`
+      playSrc = rawUrl
+    } else {
+      const info = await getFileInfo(fullPath)
+      if (!info.url) throw new Error('无法获取文件链接')
+      rawUrl = info.url
+      rawSize = info.size || 0
+      playSrc = rawUrl
+    }
     
     // Construct Proxy URL
-    // sw-decrypt handles /ske-decrypt/ prefix
     isEncrypted.value = encName.endsWith('.ske')
-    const rawUrl = info.url
-    const sizeParam = info.size ? `&size=${info.size}` : ''
-    
     if (isEncrypted.value) {
-      playUrl.value = `/ske-decrypt/?url=${encodeURIComponent(rawUrl)}${sizeParam}`
+      if (isLocal) {
+        playUrl.value = rawUrl
+      } else {
+        const sizeParam = rawSize ? `&size=${rawSize}` : ''
+        playUrl.value = `/ske-decrypt/?url=${encodeURIComponent(rawUrl)}${sizeParam}`
+      }
     } else {
       playUrl.value = rawUrl
     }

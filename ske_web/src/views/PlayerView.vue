@@ -85,7 +85,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, onBeforeUnmount, computed } from 'vue'
+import { ref, reactive, onMounted, onBeforeUnmount, computed, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import Artplayer from 'artplayer'
 import { getFileInfo } from '../composables/useAList.js'
@@ -247,17 +247,23 @@ const filePath = computed(() => {
 })
 
 function goBack() {
-  const parts = filePath.value.split('/').filter(Boolean)
-  parts.pop()
-  router.push('/browse/' + parts.join('/'))
+  const segments = filePath.value.split('/').filter(Boolean)
+  if (segments[0] === 'local') {
+    router.push('/local')
+    return
+  }
+  segments.pop()
+  router.push('/browse/' + segments.join('/'))
 }
 
 async function initPlayer() {
   error.value = ''
+  await nextTick()
 
   try {
     const nameKey = await getNameKeyFromSession()
     const segments = filePath.value.split('/').filter(Boolean)
+    const isLocal = segments[0] === 'local'
     const encFileName = segments[segments.length - 1]
 
     if (nameKey) {
@@ -271,16 +277,39 @@ async function initPlayer() {
       decryptedName.value = encFileName
     }
 
-    const fileInfo = await getFileInfo(filePath.value)
-    const rawUrl = fileInfo.url
-    const rawSize = fileInfo.size
+    let rawUrl = ''
+    let rawSize = 0
+    let playUrl = ''
 
-    let playUrl = rawUrl
+    if (isLocal) {
+        // Local Flow: Skip AList getFileInfo
+        const localPath = decodeURIComponent(filePath.value.replace(/^\/?local\//, ''))
+        rawUrl = `/ske-local/${localPath}`
+        // Size hint is optional for local files as SW has access to File object
+        playUrl = rawUrl 
+    } else {
+        // Cloud Flow
+        const fileInfo = await getFileInfo(filePath.value)
+        rawUrl = fileInfo.url
+        rawSize = fileInfo.size
+        playUrl = rawUrl
+    }
+
     const isEncrypted = encFileName.endsWith('.ske')
     isEncryptedRef.value = isEncrypted
 
     if (isEncrypted) {
-      playUrl = `/ske-decrypt/?url=${encodeURIComponent(rawUrl)}&size=${rawSize}&name=${encodeURIComponent(decryptedName.value)}`
+      // Proactively give SW the password
+      const pwd = sessionStorage.getItem('ske_password')
+      if (pwd && navigator.serviceWorker?.controller) {
+        navigator.serviceWorker.controller.postMessage({ type: 'SET_PASSWORD', password: pwd })
+      }
+
+      if (isLocal) {
+          // playUrl is already /ske-local/...
+      } else {
+          playUrl = `/ske-decrypt/?url=${encodeURIComponent(rawUrl)}&size=${rawSize}&name=${encodeURIComponent(decryptedName.value)}`
+      }
     }
 
     decryptUrl.value = playUrl

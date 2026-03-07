@@ -30,6 +30,7 @@ let masterPassword = null
 // Keyed by the real upstream URL. Each session stores everything
 // needed to serve range requests WITHOUT re-fetching or re-deriving.
 const sessions = new Map()        // url → FileSession
+const localFiles = new Map()      // logicalPath → File object
 const blockLRU = new Map()        // "url#bi" → Uint8Array  (global LRU)
 const inflightBlocks = new Map()  // "url#bi" → Promise<Uint8Array>
 
@@ -40,12 +41,13 @@ let perfCacheMisses = 0
 let perfLastDecryptMs = 0   // Latest block decryption latency in ms
 
 class FileSession {
-    constructor(url, salt, masterIv, key, totalSize) {
+    constructor(url, salt, masterIv, key, totalSize, isLocal = false) {
         this.url = url
         this.salt = salt
         this.masterIv = masterIv
         this.key = key
         this.totalSize = totalSize
+        this.isLocal = isLocal
         this.lastUsed = Date.now()
 
         // Precompute plaintext metrics
@@ -107,17 +109,46 @@ self.addEventListener('message', async (e) => {
             })
         }
     }
+    if (e.data?.type === 'REGISTER_LOCAL_FILES') {
+        const files = e.data.files
+        for (const f of files) {
+            // Normalize: remove leading slash if present
+            const normalizedPath = f.path.startsWith('/') ? f.path.slice(1) : f.path
+            localFiles.set(normalizedPath, f.file)
+        }
+        console.log(`[SW] Registered ${files.length} local files`)
+    }
+    if (e.data?.type === 'CLEAR_LOCAL_FILES') {
+        localFiles.clear()
+        console.log('[SW] Local files cleared')
+    }
 })
 
 // ── Fetch intercept ───────────────────────────────────────────
 self.addEventListener('fetch', (event) => {
     const url = new URL(event.request.url)
-    if (!url.pathname.startsWith('/ske-decrypt')) return
-    event.respondWith(handleDecrypt(event.request, url))
+    
+    // Cloud Decrypt
+    if (url.pathname.startsWith('/ske-decrypt')) {
+        event.respondWith(handleDecrypt(event.request, url))
+    }
+    // Local Decrypt
+    else if (url.pathname.startsWith('/ske-local')) {
+        // More robust: strip prefix and redundant leading slashes
+        let logicalPath = decodeURIComponent(url.pathname.replace(/^\/ske-local\/?/, ''))
+        while (logicalPath.startsWith('/')) logicalPath = logicalPath.slice(1)
+        
+        const localFile = localFiles.get(logicalPath)
+        if (localFile) {
+            event.respondWith(handleDecrypt(event.request, url, true))
+        } else {
+            event.respondWith(new Response(`Local file not found: ${logicalPath}`, { status: 404 }))
+        }
+    }
 })
 
 // ── Main handler ──────────────────────────────────────────────
-async function handleDecrypt(request, url) {
+async function handleDecrypt(request, url, isLocal = false) {
     // 1. Ensure password
     if (!masterPassword) {
         const clientsList = await self.clients.matchAll({ type: 'window' })
@@ -133,13 +164,14 @@ async function handleDecrypt(request, url) {
         }
     }
 
-    const realUrl = url.searchParams.get('url')
+    let realUrl = isLocal ? decodeURIComponent(url.pathname.replace('/ske-local', '')) : url.searchParams.get('url')
+    if (isLocal && realUrl.startsWith('/')) realUrl = realUrl.slice(1)
     if (!realUrl) return new Response('No URL provided', { status: 400 })
-    const querySize = url.searchParams.get('size')
+    const querySize = isLocal ? localFiles.get(realUrl)?.size : url.searchParams.get('size')
 
     try {
         // 2. Get or create session (header + key cached here)
-        const session = await getOrCreateSession(realUrl, querySize)
+        const session = await getOrCreateSession(realUrl, querySize, isLocal)
         session.touch()
 
         // 3. Parse Range header
@@ -169,16 +201,17 @@ async function handleDecrypt(request, url) {
 // the same time for the same URL, only one header fetch occurs.
 const sessionInflight = new Map()  // url → Promise<FileSession>
 
-async function getOrCreateSession(url, querySize) {
+async function getOrCreateSession(url, querySize, isLocal = false) {
     if (sessions.has(url)) return sessions.get(url)
 
     // Deduplicate concurrent session creation
     if (sessionInflight.has(url)) return sessionInflight.get(url)
 
-    const promise = createSession(url, querySize)
+    const promise = createSession(url, querySize, isLocal)
     sessionInflight.set(url, promise)
     try {
         const session = await promise
+        session.isLocal = isLocal // Ensure it's marked
         sessions.set(url, session)
         return session
     } finally {
@@ -186,24 +219,38 @@ async function getOrCreateSession(url, querySize) {
     }
 }
 
-async function createSession(url, querySize) {
+async function createSession(url, querySize, isLocal = false) {
     console.log('[SW] Creating session for', url.slice(0, 80))
 
-    const headerResp = await fetch(url, {
-        headers: { Range: `bytes=0-${HEADER_SIZE - 1}` },
-    })
-
     let headerBytes
-    if (headerResp.status === 206) {
-        headerBytes = new Uint8Array(await headerResp.arrayBuffer())
+    let totalSize = null
+
+    if (isLocal) {
+        const file = localFiles.get(url)
+        if (!file) throw new Error('Local file lost')
+        headerBytes = new Uint8Array(await file.slice(0, HEADER_SIZE).arrayBuffer())
+        totalSize = file.size
     } else {
-        // Server doesn't support Range — full file path
-        const full = new Uint8Array(await headerResp.arrayBuffer())
-        headerBytes = full.slice(0, HEADER_SIZE)
-        // If we got the whole file, we might as well cache all blocks
-        // (handled in decryptFull if needed)
+        const headerResp = await fetch(url, {
+            headers: { Range: `bytes=0-${HEADER_SIZE - 1}` },
+        })
+
+        if (headerResp.status === 206) {
+            headerBytes = new Uint8Array(await headerResp.arrayBuffer())
+        } else {
+            const full = new Uint8Array(await headerResp.arrayBuffer())
+            headerBytes = full.slice(0, HEADER_SIZE)
+        }
+
+        // Determine total file size from network
+        const contentRange = headerResp.headers.get('Content-Range')
+        if (contentRange) {
+            const m = contentRange.match(/\/(\d+)/)
+            if (m) totalSize = parseInt(m[1], 10)
+        }
     }
 
+    if (!headerBytes) throw new Error('Failed to get header')
     const magic = new TextDecoder().decode(headerBytes.slice(0, 7))
     if (magic !== MAGIC) throw new Error('Invalid .ske file (bad magic)')
 
@@ -211,20 +258,13 @@ async function createSession(url, querySize) {
     const masterIv = headerBytes.slice(26, 38)
     const key = await deriveKey(masterPassword, salt)
 
-    // Determine total file size
-    let totalSize = null
-    const contentRange = headerResp.headers.get('Content-Range')
-    if (contentRange) {
-        const m = contentRange.match(/\/(\d+)/)
-        if (m) totalSize = parseInt(m[1], 10)
-    }
     if (!totalSize && querySize) {
         totalSize = parseInt(querySize, 10)
     }
     if (!totalSize) throw new Error('Cannot determine file size')
 
     console.log(`[SW] Session ready: ${totalSize} bytes, key derived`)
-    return new FileSession(url, salt, masterIv, key, totalSize)
+    return new FileSession(url, salt, masterIv, key, totalSize, isLocal)
 }
 
 // ── Range request handling ────────────────────────────────────
@@ -341,21 +381,26 @@ async function batchFetchBlocks(session, blockIndices) {
     const encEnd = Math.min(HEADER_SIZE + (maxBi + 1) * ENC_BLOCK_SIZE - 1, totalSize - 1)
 
     const fetchSize = encEnd - encStart + 1
-    console.log(`[SW] Batch fetch blocks ${minBi}-${maxBi} (${blockIndices.length} blocks, ${fetchSize} bytes)`)
+    console.log(`[SW] Batch fetch blocks ${minBi}-${maxBi} (${blockIndices.length} blocks, ${fetchSize} bytes, local=${session.isLocal})`)
 
-    const resp = await fetch(url, {
-        headers: { Range: `bytes=${encStart}-${encEnd}` },
-    })
+    let encData
+    if (session.isLocal) {
+        const file = localFiles.get(url)
+        if (!file) throw new Error('Local file lost during batch fetch')
+        encData = new Uint8Array(await file.slice(encStart, encEnd + 1).arrayBuffer())
+    } else {
+        const resp = await fetch(url, {
+            headers: { Range: `bytes=${encStart}-${encEnd}` },
+        })
+        if (!resp.ok) throw new Error(`Upstream fetch failed: ${resp.status}`)
+        encData = new Uint8Array(await resp.arrayBuffer())
+        if (resp.status === 200) {
+            encData = encData.slice(encStart, encEnd + 1)
+        }
+    }
 
-    if (!resp.ok) throw new Error(`Upstream fetch failed: ${resp.status}`)
-
-    let encData = new Uint8Array(await resp.arrayBuffer())
     perfTotalNetBytes += encData.length
     perfCacheMisses += blockIndices.length
-
-    if (resp.status === 200) {
-        encData = encData.slice(encStart, encEnd + 1)
-    }
 
     // Decrypt each block from the batch
     const result = new Map()
@@ -387,18 +432,22 @@ async function batchFetchBlocks(session, blockIndices) {
 
 // ── Full file decrypt (non-media fallback) ────────────────────
 async function handleFullRequest(session) {
-    const { url, key, masterIv, totalSize, totalPlainSize } = session
-
-    const bodyResp = await fetch(url, {
-        headers: { Range: `bytes=${HEADER_SIZE}-${totalSize - 1}` },
-    })
+    const { url, key, masterIv, totalSize, totalPlainSize, isLocal } = session
 
     let bodyBytes
-    if (bodyResp.status === 206) {
-        bodyBytes = new Uint8Array(await bodyResp.arrayBuffer())
+    if (isLocal) {
+        const file = localFiles.get(url)
+        bodyBytes = new Uint8Array(await file.slice(HEADER_SIZE).arrayBuffer())
     } else {
-        const full = new Uint8Array(await bodyResp.arrayBuffer())
-        bodyBytes = full.slice(HEADER_SIZE)
+        const bodyResp = await fetch(url, {
+            headers: { Range: `bytes=${HEADER_SIZE}-${totalSize - 1}` },
+        })
+        if (bodyResp.status === 206) {
+            bodyBytes = new Uint8Array(await bodyResp.arrayBuffer())
+        } else {
+            const full = new Uint8Array(await bodyResp.arrayBuffer())
+            bodyBytes = full.slice(HEADER_SIZE)
+        }
     }
 
     const plainChunks = []
