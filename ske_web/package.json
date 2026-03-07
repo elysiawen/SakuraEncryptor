@@ -9,9 +9,10 @@
         "preview": "vite preview"
     },
     "dependencies": {
+        "artplayer": "^5.2.0",
+        "jsmediatags": "^3.9.7",
         "vue": "^3.5.0",
-        "vue-router": "^4.5.0",
-        "artplayer": "^5.2.0"
+        "vue-router": "^4.5.0"
     },
     "devDependencies": {
         "@vitejs/plugin-vue": "^5.2.0",
