@@ -1,0 +1,86 @@
+# Sakura Encryptor 🌸
+
+**Sakura Encryptor** (原 SKV-Shield) 是一套完整的 **零知识（Zero-Knowledge）** 隐私保护方案，专门用于个人云端媒体文件的极速加密与跨设备无感播放。
+
+通过这套系统，你可以将私密的视频和音频文件加密后存储在 AList 或任何 WebDAV 服务上，并在浏览器中实现流畅的实时解密播放，而无需担心服务器泄露你的数据或密码。
+
+---
+
+## ✨ 核心特性
+
+- **🛡️ 纯前端零知识架构**：密码永远不离本地，解密过程 100% 在浏览器内完成，服务端仅作为静态代理。
+- **⚡ 极速实时流解密**：基于 Service Worker 和 Web Crypto API，支持视频任意跳进度（Seek），即点即播。
+- **🎵 沉浸式音乐体验**：专属黑胶唱片播放界面，支持动态环境光效及 ID3 专辑封面自动提取。
+- **📊 实时性能监控**：在播放页集成 FPS、丢帧率、解密延迟、网速及缓存命中率的实时监控。
+- **💾 智能离线缓存**：Service Worker 2.0 级块缓存（LRU），显著降低网络流量消耗，解决流量放大问题。
+- **🔒 工业级加密**：采用 AES-256-GCM 认证加密与 PBKDF2 (100,000 迭代) 密钥导出。
+
+---
+
+## 📦 项目结构
+
+- **`ske_cli/`**：Python 编写的桌面客户端。负责本地文件的极速加密。
+- **`ske_web/`**：Vue 3 + Service Worker 驱动的在线播放站。负责云端文件的实时流解密播放。
+- **`tests/`**：完善的加密一致性测试脚本。
+
+---
+
+## 🚀 快速开始
+
+### 1. 本地加密 (CLI)
+
+确保已安装 Python 3.8+。
+
+```bash
+cd ske_cli
+# 加密一个视频
+python main.py encrypt "my_video.mp4" --output "my_video.mp4.ske"
+# 设置密码：第一次运行时会提示输入
+```
+
+### 2. 在线播放 (Web)
+
+确保已安装 Node.js。
+
+```bash
+cd ske_web
+npm install
+npm run dev
+```
+
+1.  打开浏览器访问 `http://localhost:5173`。
+2.  输入你的 AList / WebDAV 地址及 Token。
+3.  点击加密文件，输入加密时设置的密码。
+4.  开始享受私密播放！
+
+---
+
+## 🛡️ 技术原理
+
+### 加密逻辑 (SKE v1.0)
+1.  **文件分块**：每个文件被切分为 1MB 的块。
+2.  **密钥导出**：利用用户密码 + 随机 Salt，通过 PBKDF2-HMAC-SHA256 (100k 迭代) 导出 256 位 Master Key。
+3.  **分块加密**：每个块独立使用 AES-256-GCM 加密，并带有独立的 Nonce。
+4.  **实时解密**：Service Worker 拦截 `/ske-decrypt/` 请求，按需拉取加密分块并在内存中完成解密，随后通过 `Content-Range` 响应喂给播放器。
+
+### 网络优化
+最新的 SW 2.0 架构引入了 **Session 级缓存**，对于同一次播放，文件头和导出密钥只需计算/拉取一次。针对视频拖动，SW 会通过 `inflight` 合并重复请求，避免了带宽浪费。
+
+---
+
+## 🎨 视觉设计
+
+| 视频播放 | 音乐播放 |
+| :--- | :--- |
+| ![Player](https://via.placeholder.com/400x230?text=Video+Player+UI) | ![Music](https://via.placeholder.com/400x230?text=Music+Vinyl+UI) |
+
+*（注：Music 界面支持真正的黑胶旋转动画及专辑封面提取）*
+
+---
+
+## 📝 开源许可
+
+本项目仅供学习与交流使用。
+
+---
+*🌸 Sakura Encryptor - 让你的隐私从此不可见，却又触手可及。*
