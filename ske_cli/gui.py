@@ -101,6 +101,12 @@ class SkeGui(TkinterDnD.Tk):
                    background=[("selected", ACCENT), ("active", BG_INPUT)],
                    foreground=[("selected", "#ffffff"), ("active", FG)])
 
+        style.configure("Card.TCheckbutton", background=BG_CARD, foreground=FG_DIM,
+                         font=("Segoe UI", 9), focuscolor=BG_CARD)
+        style.map("Card.TCheckbutton",
+                   foreground=[("active", FG), ("selected", ACCENT)],
+                   background=[("active", BG_CARD)])
+
         # ── Header ──────────────────────────────────────────────
         header = ttk.Frame(self)
         header.pack(fill="x", padx=24, pady=(20, 10))
@@ -162,6 +168,18 @@ class SkeGui(TkinterDnD.Tk):
 
         ttk.Button(row_dst, text="浏览…", style="Ghost.TButton",
                    command=lambda: self._browse(self.dst_var)).pack(side="right")
+
+        # Options row
+        row_opt = ttk.Frame(card, style="Card.TFrame")
+        row_opt.pack(fill="x", pady=(8, 0))
+        self.include_root_var = tk.BooleanVar(value=False)
+        cb = ttk.Checkbutton(row_opt, text=" 📂 包含根目录 (Include Root Folder)", 
+                             variable=self.include_root_var, style="Card.TCheckbutton")
+        cb.pack(side="left")
+        
+        # Add a small hint
+        ttk.Label(row_opt, text="💡 勾选后将加密文件夹本身及其内部结构", 
+                  style="CardDim.TLabel", font=("Segoe UI", 8)).pack(side="left", padx=(12, 0))
 
         # Action buttons
         actions = ttk.Frame(self.files_tab)
@@ -290,46 +308,62 @@ class SkeGui(TkinterDnD.Tk):
         password = self.pw_var.get()
         key = derive_key(password, NAME_SALT)
 
-        # Count files first
-        all_files = []
+        # Count files and folders
+        all_items = []
         if src.is_file():
-            all_files.append(src)
+            all_items.append(src)
         else:
             for root, dirs, files in os.walk(src):
                 dirs.sort()
+                # Include directory itself if it's empty
+                if not dirs and not files:
+                    all_items.append(Path(root))
                 for f in files:
-                    all_files.append(Path(root) / f)
+                    all_items.append(Path(root) / f)
 
-        total = len(all_files)
-        self.after(0, lambda: self._log(f"扫描到 {total} 个文件", "info"))
-        self.after(0, lambda: self.status_var.set(f"加密中… 0/{total}"))
+        total = len(all_items)
+        self.after(0, lambda: self._log(f"扫描到 {total} 个项目", "info"))
+        self.after(0, lambda: self.status_var.set(f"处理中… 0/{total}"))
 
         done = 0
         errors = 0
 
-        for filepath in all_files:
-            rel_str = filepath.name if src.is_file() else str(filepath.relative_to(src))
+        for item in all_items:
+            rel_str = item.name if src.is_file() else str(item.relative_to(src))
             try:
                 # Encrypt directory path
                 if src.is_file():
                     enc_dir = dst
                 else:
-                    rel_p = filepath.relative_to(src)
-                    enc_parts = [encrypt_name(p, key) for p in rel_p.parent.parts]
+                    rel_p = item.relative_to(src)
+                    
+                    enc_parts = []
+                    if self.include_root_var.get():
+                        enc_parts.append(encrypt_name(src.name, key))
+                    
+                    # If item is a file, use parent parts. If it's a dir, use all parts.
+                    parts_to_encrypt = rel_p.parts if item.is_dir() else rel_p.parent.parts
+                    for p in parts_to_encrypt:
+                        enc_parts.append(encrypt_name(p, key))
+                        
                     enc_dir = dst / Path(*enc_parts) if enc_parts else dst
                     enc_dir.mkdir(parents=True, exist_ok=True)
 
-                # Encrypt file name
-                enc_fname = encrypt_name(filepath.name, key) + SKE_EXT
-                dst_file = enc_dir / enc_fname
+                if item.is_file():
+                    # Encrypt file name
+                    enc_fname = encrypt_name(item.name, key) + SKE_EXT
+                    dst_file = enc_dir / enc_fname
+                    encrypt_file(item, dst_file, password)
+                    msg = f"  ✓ {rel_str}"
+                else:
+                    msg = f"  📁 {rel_str} (文件夹已同步)"
 
-                encrypt_file(filepath, dst_file, password)
                 done += 1
                 pct = int(done / total * 100) if total else 100
-                self.after(0, lambda d=done, p=pct, r=rel_str: (
+                self.after(0, lambda d=done, p=pct, m=msg: (
                     self.progress.__setitem__("value", p),
                     self.status_var.set(f"加密中… {d}/{total}"),
-                    self._log(f"  ✓ {r}", "ok"),
+                    self._log(m, "ok"),
                 ))
             except Exception as exc:
                 errors += 1
@@ -357,34 +391,37 @@ class SkeGui(TkinterDnD.Tk):
         password = self.pw_var.get()
         key = derive_key(password, NAME_SALT)
 
-        all_files = []
+        # Count files and folders
+        all_items = []
         if src.is_file():
             if src.name.endswith(SKE_EXT):
-                all_files.append(src)
+                all_items.append(src)
         else:
             for root, dirs, files in os.walk(src):
                 dirs.sort()
+                if not dirs and not files:
+                    all_items.append(Path(root))
                 for f in files:
                     if f.endswith(SKE_EXT):
-                        all_files.append(Path(root) / f)
+                        all_items.append(Path(root) / f)
 
-        total = len(all_files)
-        self.after(0, lambda: self._log(f"扫描到 {total} 个 .skmod 文件", "info"))
+        total = len(all_items)
+        self.after(0, lambda: self._log(f"扫描到 {total} 个项目", "info"))
         self.after(0, lambda: self.status_var.set(f"解密中… 0/{total}"))
 
         done = 0
         errors = 0
 
-        for filepath in all_files:
-            rel_str = filepath.name if src.is_file() else str(filepath.relative_to(src))
+        for item in all_items:
+            rel_str = item.name if src.is_file() else str(item.relative_to(src))
             try:
                 # Decrypt directory path
                 if src.is_file():
                     dec_dir = dst
                 else:
-                    rel_p = filepath.relative_to(src)
+                    rel_p = item.relative_to(src)
                     dec_parts = []
-                    for p in rel_p.parent.parts:
+                    for p in rel_p.parts if item.is_dir() else rel_p.parent.parts:
                         try:
                             dec_parts.append(decrypt_name(p, key))
                         except Exception:
@@ -392,20 +429,24 @@ class SkeGui(TkinterDnD.Tk):
                     dec_dir = dst / Path(*dec_parts) if dec_parts else dst
                     dec_dir.mkdir(parents=True, exist_ok=True)
 
-                # Decrypt file name
-                enc_name_part = filepath.name[:-len(SKE_EXT)]
-                dec_fname = decrypt_name(enc_name_part, key)
-                if not dec_fname:
-                    raise Exception("Failed to decrypt filename")
-                dst_file = dec_dir / dec_fname
+                if item.is_file():
+                    # Decrypt file name
+                    enc_name_part = item.name[:-len(SKE_EXT)]
+                    dec_fname = decrypt_name(enc_name_part, key)
+                    if not dec_fname:
+                        raise Exception("Failed to decrypt filename")
+                    dst_file = dec_dir / dec_fname
+                    decrypt_file(item, dst_file, password)
+                    msg = f"  ✓ → {dec_fname}"
+                else:
+                    msg = f"  📁 已恢复目录结构"
 
-                decrypt_file(filepath, dst_file, password)
                 done += 1
                 pct = int(done / total * 100) if total else 100
-                self.after(0, lambda d=done, p=pct, n=dec_fname: (
+                self.after(0, lambda d=done, p=pct, m=msg: (
                     self.progress.__setitem__("value", p),
                     self.status_var.set(f"解密中… {d}/{total}"),
-                    self._log(f"  ✓ → {n}", "ok"),
+                    self._log(m, "ok"),
                 ))
             except Exception as exc:
                 errors += 1
