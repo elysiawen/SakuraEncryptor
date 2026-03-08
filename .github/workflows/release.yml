@@ -11,6 +11,9 @@ on:
       - '.github/workflows/release.yml'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Build on ${{ matrix.os }}
