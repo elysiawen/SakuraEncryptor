@@ -7,6 +7,7 @@ on:
       - 'master'
     paths:
       - 'ske_cli/**'
+      - 'ske_web/**'
       - 'pyproject.toml'
       - '.github/workflows/release.yml'
   workflow_dispatch:
@@ -16,52 +17,72 @@ permissions:
 
 jobs:
   build:
-    name: Build on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
+    name: Build ${{ matrix.asset_name }}
+    runs-on: ${{ matrix.runner }}
     strategy:
+      fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest, macos-latest]
         include:
-          - os: windows-latest
-            artifact_name: ske-gui-windows.exe
-            asset_name: SakuraEncryptor-Windows.exe
-          - os: ubuntu-latest
-            artifact_name: ske-gui-linux
-            asset_name: SakuraEncryptor-Linux
-          - os: macos-latest
-            artifact_name: ske-gui-macos
-            asset_name: SakuraEncryptor-MacOS
+          - runner: windows-latest
+            platform: windows
+            arch: x86_64
+            artifact_name: ske-gui-windows-x64.exe
+            asset_name: SakuraEncryptor-Windows-x64.exe
+          - runner: ubuntu-latest
+            platform: linux
+            arch: x86_64
+            artifact_name: ske-gui-linux-x64
+            asset_name: SakuraEncryptor-Linux-x64
+          - runner: macos-latest
+            platform: macos
+            arch: arm64
+            artifact_name: ske-gui-macos-arm64
+            asset_name: SakuraEncryptor-MacOS-ARM64
+          - runner: macos-13
+            platform: macos
+            arch: x86_64
+            artifact_name: ske-gui-macos-x64
+            asset_name: SakuraEncryptor-MacOS-x64
+          - runner: ubuntu-latest
+            platform: linux
+            arch: arm64
+            artifact_name: ske-gui-linux-arm64
+            asset_name: SakuraEncryptor-Linux-ARM64
+            use_qemu: true
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Set up Python
+        if: "!matrix.use_qemu"
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: 'pip'
 
-      - name: Install dependencies
+      - name: Set up QEMU
+        if: matrix.use_qemu
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Build (native)
+        if: "!matrix.use_qemu"
+        shell: bash
         run: |
-          pip install --upgrade pip
+          python -m pip install --upgrade pip
           pip install pyinstaller
           pip install .
 
-      - name: Build with PyInstaller
-        shell: bash
-        run: |
-          # Detect icon based on OS (only windows uses .ico usually)
           ICON_ARG=""
-          if [ "${{ matrix.os }}" == "windows-latest" ]; then
-            if [ -f "ske_cli/icon.ico" ]; then
-              ICON_ARG="--icon=ske_cli/icon.ico"
-            fi
+          if [ "${{ matrix.platform }}" == "windows" ] && [ -f "ske_cli/icon.ico" ]; then
+            ICON_ARG="--icon=ske_cli/icon.ico"
           fi
-          
+
           DATA_SEP=":"
-          if [ "${{ matrix.os }}" == "windows-latest" ]; then DATA_SEP=";"; fi
-          
+          if [ "${{ matrix.platform }}" == "windows" ]; then DATA_SEP=";"; fi
+
           ADD_DATA=""
           if [ -f "ske_cli/icon.ico" ]; then
             ADD_DATA="--add-data ske_cli/icon.ico${DATA_SEP}."
@@ -69,20 +90,70 @@ jobs:
 
           pyinstaller --onefile --windowed --name "${{ matrix.artifact_name }}" $ICON_ARG $ADD_DATA ske_cli/gui.py
 
-      - name: Rename and Prepare Asset
-        shell: bash
-        run: |
-          mv dist/${{ matrix.artifact_name }} dist/${{ matrix.asset_name }}
+      - name: Build (Linux ARM64 via QEMU)
+        if: matrix.use_qemu
+        uses: uraimo/run-on-arch-action@v3
+        with:
+          arch: aarch64
+          distro: ubuntu22.04
+          githubToken: ${{ github.token }}
+          install: |
+            apt-get update
+            apt-get install -y python3 python3-pip python3-venv
+          dockerPostBuildCommands: |
+            chown -R $(id -u):$(id -g) dist/
+          run: |
+            python3 -m venv /tmp/venv
+            source /tmp/venv/bin/activate
+            pip install --upgrade pip
+            pip install pyinstaller
+            pip install .
+            pyinstaller --onefile --name "${{ matrix.artifact_name }}" ske_cli/gui.py
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.asset_name }}
-          path: dist/${{ matrix.asset_name }}
+          path: dist/${{ matrix.artifact_name }}
+
+  build-web:
+    name: Build Web Player
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: ske_web/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          cd ske_web
+          npm ci
+
+      - name: Build
+        run: |
+          cd ske_web
+          npm run build
+
+      - name: Package web dist
+        run: |
+          cd ske_web/dist
+          zip -r ../../SakuraEncryptor-Web.zip .
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SakuraEncryptor-Web
+          path: SakuraEncryptor-Web.zip
 
   release:
     name: Create GitHub Release
-    needs: build
+    needs: [build, build-web]
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
@@ -91,26 +162,32 @@ jobs:
           path: binaries
           merge-multiple: true
 
-      - name: Generate Version Tag
-        id: tag
+      - name: Generate Version Tag and Build Time
+        id: meta
         run: |
-          # Format: YYYYMMDD + 3-digit run number (e.g., 20260308001)
+          # Version: YYYYMMDD + 3-digit run number (e.g., 20260308001)
           DATE=$(date +'%Y%m%d')
           TAG=$(printf "%s%03d" "$DATE" "${{ github.run_number }}")
           echo "tag=$TAG" >> $GITHUB_OUTPUT
+          
+          # Build Time: YYYY-MM-DD HH:MM:SS
+          TIME=$(date +'%Y-%m-%d %H:%M:%S')
+          echo "time=$TIME" >> $GITHUB_OUTPUT
+          
           echo "Release Tag: $TAG"
+          echo "Build Time: $TIME"
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.tag.outputs.tag }}
-          name: Release ${{ steps.tag.outputs.tag }}
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: Release ${{ steps.meta.outputs.tag }}
           files: binaries/*
           generate_release_notes: true
           body: |
             ## Sakura Encryptor 自动构建
-            - **版本号**: ${{ steps.tag.outputs.tag }}
-            - **构建时间**: $(date +'%Y-%m-%d %H:%M:%S')
+            - **版本号**: ${{ steps.meta.outputs.tag }}
+            - **构建时间**: ${{ steps.meta.outputs.time }}
             - **Commit**: ${{ github.sha }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
