@@ -171,6 +171,46 @@ export async function makeDir(path) {
     return json.data
 }
 
+/** Upload a file using AList form upload API. */
+export async function uploadFile(path, file, asTask = false) {
+    if (!state.server) restoreSession()
+    const absPath = getAbsPath(path)
+    const normalizedPath = normalizeUploadPath(absPath)
+    const formData = new FormData()
+    formData.append('file', file, file.name)
+
+    const res = await fetch(`${state.server}/api/fs/form`, {
+        method: 'PUT',
+        headers: {
+            Authorization: state.token,
+            'File-Path': normalizedPath,
+            ...(asTask ? { 'As-Task': 'true' } : {}),
+        },
+        body: formData,
+    })
+
+    let json = null
+    try {
+        json = await res.json()
+    } catch {
+        // Fall through to the generic error below.
+    }
+
+    if (!res.ok || json?.code !== 200) {
+        throw new Error(json?.message || '上传文件失败')
+    }
+    return json.data
+}
+
+function normalizeUploadPath(path) {
+    const trimmed = (path || '').trim()
+    if (!trimmed || trimmed === '/') {
+        throw new Error('上传文件路径不能为空')
+    }
+    const withLeadingSlash = trimmed.startsWith('/') ? trimmed : `/${trimmed}`
+    return encodeURI(withLeadingSlash)
+}
+
 /** Delete files or folders. */
 export async function deleteItems(dir, names) {
     if (!state.server) restoreSession()

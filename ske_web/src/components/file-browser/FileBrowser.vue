@@ -1,5 +1,14 @@
 <template>
   <div class="file-browser" @contextmenu.capture.prevent="handleBrowserContextMenu">
+    <input
+      v-if="props.mode === 'alist'"
+      ref="uploadInput"
+      type="file"
+      multiple
+      class="hidden-file-input"
+      @change="handleUploadSelect"
+    />
+
     <FileGrid
       :items="items"
       :loading="loading"
@@ -8,6 +17,17 @@
       @retry="loadCurrentPath"
       @contextmenu="openMenu"
     />
+
+    <button
+      v-if="props.mode === 'alist'"
+      class="upload-fab"
+      :style="uploadFabBottom"
+      :disabled="upload.loading"
+      @click="openUploadPicker"
+      title="上传文件"
+    >
+      📤
+    </button>
 
     <button
       class="refresh-fab"
@@ -46,10 +66,42 @@
         @keyup.enter="doMkdir"
         :input-props="{ autocomplete: 'off' }"
       />
+      <div class="modal-option">
+        <n-checkbox v-model:checked="mkdir.noEncrypt">
+          不加密创建
+        </n-checkbox>
+      </div>
       <template #action>
         <div class="modal-actions">
           <n-button class="modal-btn" quaternary @click="mkdir.show = false">取消</n-button>
           <n-button class="modal-btn" type="primary" :loading="mkdir.loading" @click="doMkdir">创建</n-button>
+        </div>
+      </template>
+    </n-modal>
+
+    <!-- Upload Dialog -->
+    <n-modal v-model:show="upload.show" preset="card" title="上传文件" class="ske-modal" style="max-width: 440px;">
+      <p class="modal-desc">已选择 {{ upload.files.length }} 个文件</p>
+      <div v-if="upload.files.length" class="upload-file-list">
+        <div
+          v-for="file in upload.files"
+          :key="file.name + '-' + file.lastModified + '-' + file.size"
+          class="upload-file-item"
+        >
+          <span class="upload-file-name">{{ file.name }}</span>
+          <span class="upload-file-size">{{ formatFileSize(file.size) }}</span>
+        </div>
+      </div>
+      <div class="modal-option">
+        <n-checkbox v-model:checked="upload.encrypt">
+          加密上传
+        </n-checkbox>
+      </div>
+      <p v-if="upload.progressText" class="upload-progress">{{ upload.progressText }}</p>
+      <template #action>
+        <div class="modal-actions">
+          <n-button class="modal-btn" quaternary :disabled="upload.loading" @click="resetUpload">取消</n-button>
+          <n-button class="modal-btn" type="primary" :loading="upload.loading" @click="doUpload">上传</n-button>
         </div>
       </template>
     </n-modal>
@@ -84,13 +136,14 @@
 </template>
 
 <script setup>
-import { ref, reactive, watch, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import FileGrid from './FileGrid.vue'
-import { getNameKeyFromSession, decryptName, encryptName } from '../../composables/useCrypto.js'
+import { getNameKeyFromSession, getPasswordFromSession, decryptName, encryptName, encryptFileContent } from '../../composables/useCrypto.js'
 import { globalState } from '../../composables/useGlobalState.js'
 import { getFileType } from '../../composables/useFileDetection.js'
-import { renameItem, deleteItems, makeDir } from '../../composables/useAList.js'
+import { renameItem, deleteItems, makeDir, uploadFile as uploadAListFile } from '../../composables/useAList.js'
+import { useFabManager, FAB_BASE_DESKTOP, FAB_BASE_MOBILE, FAB_SIZE, FAB_GAP } from '../../composables/useFabManager.js'
 
 const props = defineProps({
   mode: { type: String, required: true },
@@ -100,11 +153,20 @@ const props = defineProps({
 
 const route = useRoute()
 const router = useRouter()
+const { register: registerFab, unregister: unregisterFab, getOrder } = useFabManager()
 
 const items = ref([])
 const loading = ref(false)
 const error = ref('')
 const currentPath = ref('')
+const uploadInput = ref(null)
+const uploadFabBottom = computed(() => {
+  const order = getOrder('upload')
+  return {
+    '--fab-bottom': `${FAB_BASE_DESKTOP + order * (FAB_SIZE + FAB_GAP)}px`,
+    '--fab-bottom-mobile': `${FAB_BASE_MOBILE + order * (FAB_SIZE + FAB_GAP)}px`,
+  }
+})
 
 // ── Context Menu ──
 const menu = reactive({ show: false, x: 0, y: 0, item: null })
@@ -139,28 +201,40 @@ function onDocClick() {
   closeMenu()
 }
 
-onMounted(() => document.addEventListener('click', onDocClick))
-onUnmounted(() => document.removeEventListener('click', onDocClick))
+onMounted(() => {
+  document.addEventListener('click', onDocClick)
+  registerFab('refresh', 0)
+  if (props.mode === 'alist') registerFab('upload', 1)
+})
+onUnmounted(() => {
+  document.removeEventListener('click', onDocClick)
+  unregisterFab('upload')
+  unregisterFab('refresh')
+})
 
 // ── New Folder ──
-const mkdir = reactive({ show: false, name: '', loading: false })
+const mkdir = reactive({ show: false, name: '', noEncrypt: false, loading: false })
 
 function startNewFolder() {
   mkdir.name = ''
+  mkdir.noEncrypt = false
   mkdir.show = true
   closeMenu()
 }
 
 async function doMkdir() {
-  if (!mkdir.name.trim()) return
+  const folderName = mkdir.name.trim()
+  if (!folderName) return
   mkdir.loading = true
   try {
     const nameKey = await getNameKeyFromSession()
     const path = getRoutePath()
 
-    if (props.mode === 'alist' && nameKey) {
-      const encName = await encryptName(mkdir.name.trim(), nameKey)
-      await makeDir(path + '/' + encName)
+    if (props.mode === 'alist') {
+      const targetName = (!mkdir.noEncrypt && nameKey)
+        ? await encryptName(folderName, nameKey)
+        : folderName
+      await makeDir(joinPath(path, targetName))
     }
 
     mkdir.show = false
@@ -169,6 +243,74 @@ async function doMkdir() {
     error.value = err.message || '创建文件夹失败'
   } finally {
     mkdir.loading = false
+  }
+}
+
+// ── Upload ──
+const upload = reactive({ show: false, files: [], encrypt: true, loading: false, progressText: '' })
+
+function openUploadPicker() {
+  if (upload.loading) return
+  uploadInput.value?.click()
+}
+
+function handleUploadSelect(event) {
+  const selected = Array.from(event.target.files || [])
+  if (!selected.length) return
+  upload.files = selected
+  upload.encrypt = true
+  upload.progressText = `已选择 ${selected.length} 个文件`
+  upload.show = true
+  event.target.value = ''
+}
+
+function resetUpload(force = false) {
+  if (upload.loading && !force) return
+  upload.show = false
+  upload.files = []
+  upload.encrypt = true
+  upload.progressText = ''
+}
+
+async function doUpload() {
+  if (!upload.files.length) return
+  upload.loading = true
+  error.value = ''
+
+  try {
+    const path = getRoutePath()
+    const nameKey = await getNameKeyFromSession()
+    const password = getPasswordFromSession()
+
+    if (upload.encrypt && (!nameKey || !password)) {
+      throw new Error('缺少加密主密码，无法加密上传')
+    }
+
+    for (let i = 0; i < upload.files.length; i++) {
+      const sourceFile = upload.files[i]
+      upload.progressText = `正在上传 ${i + 1}/${upload.files.length}: ${sourceFile.name}`
+
+      let targetName = sourceFile.name
+      let fileToUpload = sourceFile
+
+      if (upload.encrypt) {
+        targetName = `${await encryptName(sourceFile.name, nameKey)}.ske`
+        const encryptedBlob = await encryptFileContent(sourceFile, password)
+        fileToUpload = new File([encryptedBlob], targetName, {
+          type: 'application/octet-stream',
+          lastModified: sourceFile.lastModified,
+        })
+      }
+
+      await uploadAListFile(joinPath(path, targetName), fileToUpload)
+    }
+
+    resetUpload(true)
+    await loadCurrentPath(false, true)
+  } catch (err) {
+    error.value = err.message || '上传失败'
+  } finally {
+    upload.loading = false
   }
 }
 
@@ -237,6 +379,17 @@ function getRoutePath() {
   if (!p) return '/'
   const joined = Array.isArray(p) ? p.join('/') : p
   return '/' + joined
+}
+
+function joinPath(base, name) {
+  return base === '/' ? '/' + name : base + '/' + name
+}
+
+function formatFileSize(size) {
+  if (size < 1024) return `${size} B`
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
+  if (size < 1024 * 1024 * 1024) return `${(size / 1024 / 1024).toFixed(1)} MB`
+  return `${(size / 1024 / 1024 / 1024).toFixed(1)} GB`
 }
 
 async function loadCurrentPath(_, refresh = false) {
@@ -378,36 +531,68 @@ if (props.mode === 'alist') {
   min-height: 100%;
 }
 
-/* ── Refresh FAB ── */
+.hidden-file-input {
+  display: none;
+}
+
+/* ── Floating Actions ── */
+.upload-fab,
 .refresh-fab {
   position: fixed;
-  bottom: 28px;
+  z-index: 50;
+  border: 1px solid var(--border-glass);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  transition: all 0.2s ease;
+}
+
+.upload-fab {
   right: 28px;
+  bottom: var(--fab-bottom, 76px);
   width: 44px;
   height: 44px;
   border-radius: 50%;
-  border: 1px solid var(--border-glass);
-  background: var(--bg-card);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.95), rgba(59, 130, 246, 0.92));
+  color: #fff;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 18px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-  transition: all 0.2s ease;
-  z-index: 50;
 }
 
+.refresh-fab {
+  right: 28px;
+  bottom: 20px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--bg-card);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+}
+
+.upload-fab:hover,
 .refresh-fab:hover {
   border-color: var(--border-glass-hover);
   box-shadow: 0 6px 28px rgba(0, 0, 0, 0.4);
-  transform: scale(1.08);
+  transform: translateY(-1px);
 }
 
+.upload-fab:active,
 .refresh-fab:active {
-  transform: scale(0.95);
+  transform: scale(0.97);
+}
+
+.upload-fab:disabled,
+.refresh-fab:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
 }
 
 .refresh-fab.spinning {
@@ -420,9 +605,20 @@ if (props.mode === 'alist') {
 }
 
 @media (max-width: 600px) {
+  .upload-fab,
   .refresh-fab {
-    bottom: 20px;
     right: 16px;
+  }
+
+  .upload-fab {
+    bottom: var(--fab-bottom-mobile, 68px);
+    width: 40px;
+    height: 40px;
+    font-size: 16px;
+  }
+
+  .refresh-fab {
+    bottom: 16px;
     width: 40px;
     height: 40px;
     font-size: 16px;
@@ -460,6 +656,53 @@ if (props.mode === 'alist') {
   font-size: 14px;
   color: var(--text-secondary);
   line-height: 1.6;
+}
+
+.modal-option {
+  margin-top: 14px;
+}
+
+.upload-file-list {
+  max-height: 180px;
+  overflow-y: auto;
+  margin-top: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.upload-file-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.upload-file-item:last-child {
+  border-bottom: none;
+}
+
+.upload-file-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+
+.upload-file-size {
+  flex-shrink: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.upload-progress {
+  margin-top: 12px;
+  margin-bottom: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
 }
 
 .modal-actions {

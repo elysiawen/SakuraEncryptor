@@ -1,5 +1,5 @@
 <template>
-  <div v-if="hasTasks" ref="managerRef" class="dl-manager" :class="{ 'dl-manager-raised': shouldRaise }">
+  <div v-if="hasTasks" ref="managerRef" class="dl-manager" :style="managerStyle">
     <!-- Toggle Button -->
     <button class="dl-fab" @click="expanded = !expanded" :title="`${activeCount} 个下载中`">
       <span class="dl-fab-icon" :class="{ pulse: activeCount > 0 }">⬇️</span>
@@ -83,14 +83,17 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
 import { useDownloadManager } from '../../composables/useDownloadManager.js'
+import { useFabManager, FAB_BASE_DESKTOP, FAB_BASE_MOBILE, FAB_SIZE, FAB_GAP } from '../../composables/useFabManager.js'
 
 const { tasks, activeCount, hasTasks, cancelTask, pauseTask, resumeTask, retryTask, removeTask, clearCompleted } = useDownloadManager()
+const { count } = useFabManager()
 const managerRef = ref(null)
 const expanded = ref(false)
-const route = useRoute()
-const shouldRaise = computed(() => route.name === 'Browse' || route.name === 'Local')
+const managerStyle = computed(() => ({
+  '--dl-desktop-bottom': `${FAB_BASE_DESKTOP + count.value * (FAB_SIZE + FAB_GAP)}px`,
+  '--dl-mobile-bottom': `${FAB_BASE_MOBILE + count.value * (FAB_SIZE + FAB_GAP)}px`,
+}))
 const mobilePanelStyle = computed(() => {
   const estimatedHeight = 64 + tasks.length * 82
   return {
@@ -133,8 +136,8 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .dl-manager {
-  --dl-desktop-bottom: 28px;
-  --dl-mobile-bottom: 20px;
+  --dl-desktop-bottom: 20px;
+  --dl-mobile-bottom: 16px;
   position: fixed;
   bottom: var(--dl-desktop-bottom);
   right: 28px;
@@ -143,11 +146,6 @@ onBeforeUnmount(() => {
   flex-direction: column-reverse;
   align-items: flex-end;
   gap: 10px;
-}
-
-.dl-manager.dl-manager-raised {
-  --dl-desktop-bottom: 84px;
-  --dl-mobile-bottom: 68px;
 }
 
 /* ── FAB ── */

@@ -8,6 +8,12 @@
 const KDF_ITERATIONS = 100_000
 const NAME_SALT = new TextEncoder().encode('ske-name-salt-00') // fixed salt for name keys
 const IV_TAG = new TextEncoder().encode('ske-name-iv')
+const FILE_MAGIC = new TextEncoder().encode('SakuraE')
+const FILE_VERSION = new TextEncoder().encode('001')
+const SALT_SIZE = 16
+const IV_SIZE = 12
+const HEADER_TAG_SIZE = 12
+const CHUNK_SIZE = 1024 * 1024
 
 /** Derive a raw 256-bit key from password + salt via PBKDF2. */
 async function deriveRawKey(password, salt) {
@@ -109,6 +115,59 @@ export async function getNameKeyFromSession() {
     const password = sessionStorage.getItem('ske_password')
     if (!password) return null
     return deriveNameKey(password)
+}
+
+/** Read master password from sessionStorage. */
+export function getPasswordFromSession() {
+    return sessionStorage.getItem('ske_password') || ''
+}
+
+/** Encrypt a browser File into the .ske container format used by the CLI. */
+export async function encryptFileContent(file, password) {
+    if (!password) throw new Error('缺少加密主密码')
+
+    const salt = crypto.getRandomValues(new Uint8Array(SALT_SIZE))
+    const masterIv = crypto.getRandomValues(new Uint8Array(IV_SIZE))
+    const key = await deriveFileKey(password, salt)
+    const encryptedChunks = []
+
+    let offset = 0
+    let blockIndex = 0
+    while (offset < file.size) {
+        const chunk = new Uint8Array(await file.slice(offset, offset + CHUNK_SIZE).arrayBuffer())
+        const nonce = blockNonce(masterIv, blockIndex)
+        const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: nonce }, key, chunk)
+        encryptedChunks.push(new Uint8Array(encrypted))
+        offset += chunk.length
+        blockIndex += 1
+    }
+
+    const encryptedBody = new Blob(encryptedChunks, { type: 'application/octet-stream' })
+    const bodyHash = new Uint8Array(await crypto.subtle.digest('SHA-256', await encryptedBody.arrayBuffer()))
+    const header = new Uint8Array(FILE_MAGIC.length + FILE_VERSION.length + SALT_SIZE + IV_SIZE + HEADER_TAG_SIZE)
+
+    let cursor = 0
+    header.set(FILE_MAGIC, cursor)
+    cursor += FILE_MAGIC.length
+    header.set(FILE_VERSION, cursor)
+    cursor += FILE_VERSION.length
+    header.set(salt, cursor)
+    cursor += SALT_SIZE
+    header.set(masterIv, cursor)
+    cursor += IV_SIZE
+    header.set(bodyHash.slice(0, HEADER_TAG_SIZE), cursor)
+
+    return new Blob([header, encryptedBody], { type: 'application/octet-stream' })
+}
+
+function blockNonce(masterIv, blockIndex) {
+    const nonce = new Uint8Array(masterIv)
+    const idx = new Uint8Array(12)
+    const view = new DataView(idx.buffer)
+    view.setUint32(4, Math.floor(blockIndex / 0x100000000), false)
+    view.setUint32(8, blockIndex >>> 0, false)
+    for (let i = 0; i < nonce.length; i++) nonce[i] ^= idx[i]
+    return nonce
 }
 
 // ── Base64Url helpers ──────────────────────────────────────────
