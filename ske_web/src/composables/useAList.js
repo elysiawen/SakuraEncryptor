@@ -97,7 +97,7 @@ function getAbsPath(path) {
  * AList's API auto-scopes root for sub-accounts, hiding the storage layer,
  * so we reconstruct it manually.
  */
-export async function listDir(path = '/') {
+export async function listDir(path = '/', refresh = false) {
     if (!state.server) restoreSession()
 
     // Virtual root for sub-accounts: construct from permissions
@@ -130,10 +130,61 @@ export async function listDir(path = '/') {
             'Content-Type': 'application/json',
             Authorization: state.token,
         },
-        body: JSON.stringify({ path: absPath, refresh: false }),
+        body: JSON.stringify({ path: absPath, refresh }),
     })
     const json = await res.json()
     if (json.code !== 200) throw new Error(json.message || 'Failed to list directory')
+    return json.data
+}
+
+/** Rename a file or folder. */
+export async function renameItem(path, newName) {
+    if (!state.server) restoreSession()
+    const absPath = getAbsPath(path)
+    const res = await fetch(`${state.server}/api/fs/rename`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Authorization: state.token,
+        },
+        body: JSON.stringify({ path: absPath, name: newName }),
+    })
+    const json = await res.json()
+    if (json.code !== 200) throw new Error(json.message || '重命名失败')
+    return json.data
+}
+
+/** Create a directory. */
+export async function makeDir(path) {
+    if (!state.server) restoreSession()
+    const absPath = getAbsPath(path)
+    const res = await fetch(`${state.server}/api/fs/mkdir`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Authorization: state.token,
+        },
+        body: JSON.stringify({ path: absPath }),
+    })
+    const json = await res.json()
+    if (json.code !== 200) throw new Error(json.message || '创建文件夹失败')
+    return json.data
+}
+
+/** Delete files or folders. */
+export async function deleteItems(dir, names) {
+    if (!state.server) restoreSession()
+    const absDir = getAbsPath(dir)
+    const res = await fetch(`${state.server}/api/fs/remove`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Authorization: state.token,
+        },
+        body: JSON.stringify({ dir: absDir, names }),
+    })
+    const json = await res.json()
+    if (json.code !== 200) throw new Error(json.message || '删除失败')
     return json.data
 }
 

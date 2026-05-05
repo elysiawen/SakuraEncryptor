@@ -46,3 +46,5 @@ yarn-error.log*
 # Project specific
 !icon.ico
 !logo.png
+
+.claude

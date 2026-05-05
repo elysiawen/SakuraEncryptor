@@ -1,0 +1,171 @@
+/* ===========================================================
+   Naive UI Glassmorphism Overrides
+   =========================================================== */
+
+/* ── Glass Card for Naive UI ── */
+.n-card.glass {
+  background: var(--bg-card) !important;
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid var(--border-glass) !important;
+  transition: border-color var(--transition-normal), box-shadow var(--transition-normal);
+}
+
+.n-card.glass:hover {
+  border-color: var(--border-glass-hover) !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+}
+
+/* ── Primary Button Gradient ── */
+.n-button.n-button--primary-type {
+  background: var(--accent-gradient) !important;
+  border: none !important;
+  box-shadow: 0 4px 16px rgba(139, 92, 246, 0.3);
+}
+
+.n-button.n-button--primary-type:hover {
+  box-shadow: 0 6px 24px rgba(139, 92, 246, 0.45);
+  filter: brightness(1.1);
+}
+
+.n-button.n-button--primary-type:active {
+  transform: scale(0.97);
+}
+
+/* ── Ghost Button ── */
+.n-button.n-button--quaternary-type {
+  background: var(--bg-glass) !important;
+  border: 1px solid var(--border-glass) !important;
+}
+
+.n-button.n-button--quaternary-type:hover {
+  background: rgba(255, 255, 255, 0.08) !important;
+  border-color: var(--border-glass-hover) !important;
+}
+
+/* ── Input Styling ── */
+.n-input {
+  --n-color: rgba(255, 255, 255, 0.04) !important;
+  --n-color-focus: rgba(255, 255, 255, 0.06) !important;
+  --n-border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  --n-border-hover: 1px solid rgba(255, 255, 255, 0.2) !important;
+  --n-border-focus: 1px solid #8b5cf6 !important;
+  --n-text-color: #e8e8f0 !important;
+  --n-placeholder-color: #606080 !important;
+  --n-caret-color: #8b5cf6 !important;
+  --n-icon-color: #9090b0 !important;
+  --n-icon-color-hover: #e8e8f0 !important;
+}
+
+.n-input .n-input__border {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.n-input .n-input__border--focus {
+  border-color: #8b5cf6 !important;
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.15) !important;
+}
+
+.n-input .n-input__input-el,
+.n-input .n-input__textarea-el {
+  color: #e8e8f0 !important;
+}
+
+.n-input .n-input__placeholder {
+  color: #606080 !important;
+}
+
+/* ── Input Focus Glow ── */
+.n-input.n-input--focus {
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.15) !important;
+}
+
+/* ── Tag Colors ── */
+.n-tag.tag-folder {
+  --n-color: rgba(139, 92, 246, 0.15);
+  --n-text-color: #8b5cf6;
+  --n-border: none;
+}
+
+.n-tag.tag-video {
+  --n-color: rgba(6, 182, 212, 0.15);
+  --n-text-color: #06b6d4;
+  --n-border: none;
+}
+
+.n-tag.tag-image {
+  --n-color: rgba(16, 185, 129, 0.15);
+  --n-text-color: #10b981;
+  --n-border: none;
+}
+
+.n-tag.tag-audio {
+  --n-color: rgba(244, 63, 94, 0.15);
+  --n-text-color: #f43f5e;
+  --n-border: none;
+}
+
+.n-tag.tag-encrypted {
+  --n-color: rgba(139, 92, 246, 0.15);
+  --n-text-color: #8b5cf6;
+  --n-border: none;
+}
+
+/* ── ArtPlayer Global Override ── */
+.artplayer-container .art-video-player,
+.artplayer-container .art-video {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: contain !important;
+}
+
+/* ── Breadcrumb Override ── */
+.n-breadcrumb .n-breadcrumb-item__separator {
+  color: var(--text-muted);
+}
+
+.n-breadcrumb .n-breadcrumb-item__link {
+  color: var(--text-secondary);
+  transition: color var(--transition-fast);
+}
+
+.n-breadcrumb .n-breadcrumb-item__link:hover {
+  color: var(--accent-start);
+}
+
+/* ── Spin Loading ── */
+.n-spin {
+  color: var(--accent-start);
+}
+
+/* ── Alert Override ── */
+.n-alert.n-alert--error-type {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+/* ── Tabs Override ── */
+.n-tabs .n-tabs-tab {
+  font-weight: 600;
+}
+
+.n-tabs .n-tabs-tab.n-tabs-tab--active .n-tabs-tab__label {
+  color: var(--text-primary);
+}
+
+/* ── Slider Override ── */
+.n-slider .n-slider-handle {
+  background: #fff;
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+}
+
+/* ── Mobile/Desktop Text Toggle ── */
+@media (max-width: 600px) {
+  .mobile-text { display: inline; }
+  .desktop-text { display: none; }
+}
+
+@media (min-width: 601px) {
+  .mobile-text { display: none; }
+  .desktop-text { display: inline; }
+}

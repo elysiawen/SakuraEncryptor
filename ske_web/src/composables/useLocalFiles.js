@@ -12,7 +12,6 @@ export function useLocalFiles() {
     async function registerFiles(fileList) {
         const entries = []
         for (const file of fileList) {
-            // webkitRelativePath gives us the folder structure
             const path = file.webkitRelativePath || file.name
             entries.push({ path, file })
         }
