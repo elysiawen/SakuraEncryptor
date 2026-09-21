@@ -40,29 +40,31 @@
 
     <!-- Context Menu -->
     <Teleport to="body">
-      <div
-        v-if="menu.show"
-        class="ctx-menu glass-card"
-        :style="{ left: menu.x + 'px', top: menu.y + 'px' }"
-        @click.stop
-      >
-        <div v-if="!menu.item" class="ctx-item" @click="startNewFolder">
-          <span>📁</span> 新建文件夹
-        </div>
+      <Transition name="ctx-pop">
         <div
-          v-if="menu.item && !menu.item.is_dir && props.mode === 'alist'"
-          class="ctx-item"
-          @click="startDownload"
+          v-if="menu.show"
+          class="ctx-menu glass-card"
+          :style="{ left: menu.x + 'px', top: menu.y + 'px' }"
+          @click.stop
         >
-          <span>⬇️</span> 下载
+          <div v-if="!menu.item" class="ctx-item" @click="startNewFolder">
+            <span>📁</span> 新建文件夹
+          </div>
+          <div
+            v-if="menu.item && !menu.item.is_dir && props.mode === 'alist'"
+            class="ctx-item"
+            @click="startDownload"
+          >
+            <span>⬇️</span> 下载
+          </div>
+          <div v-if="menu.item" class="ctx-item" @click="startRename">
+            <span>✏️</span> 重命名
+          </div>
+          <div v-if="menu.item" class="ctx-item ctx-danger" @click="confirmDelete">
+            <span>🗑️</span> 删除
+          </div>
         </div>
-        <div v-if="menu.item" class="ctx-item" @click="startRename">
-          <span>✏️</span> 重命名
-        </div>
-        <div v-if="menu.item" class="ctx-item ctx-danger" @click="confirmDelete">
-          <span>🗑️</span> 删除
-        </div>
-      </div>
+      </Transition>
     </Teleport>
 
     <!-- New Folder Dialog -->
@@ -670,9 +672,15 @@ if (props.mode === 'alist') {
 </style>
 
 <style>
-/* ── Modal Card Override ── */
+/* ── Modal Card Override ──
+   NOTE: with preset="card" the ROOT element is itself the .n-card, so a
+   descendant selector like ".ske-modal .n-card" never matches it. Target
+   .ske-modal directly (keeping the descendant form for safety) — otherwise the
+   surface falls back to the translucent Card theme colour and the page
+   underneath bleeds through the dialog text. */
+.ske-modal,
 .ske-modal .n-card {
-  background: rgba(22, 22, 50, 0.98) !important;
+  background-color: #161632 !important;
   border: 1px solid rgba(255, 255, 255, 0.15) !important;
   border-radius: 16px !important;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.7) !important;
@@ -782,6 +790,52 @@ if (props.mode === 'alist') {
   padding: 6px 0;
   border-radius: 10px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  transform-origin: top left;
+}
+
+/* Entrance: the panel scales out of the cursor, items follow in sequence. */
+.ctx-pop-enter-active {
+  transition: opacity 0.12s ease-out, transform 0.14s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.ctx-pop-leave-active {
+  transition: opacity 0.09s ease-in, transform 0.09s ease-in;
+}
+
+.ctx-pop-enter-from,
+.ctx-pop-leave-to {
+  opacity: 0;
+  transform: scale(0.9) translateY(-4px);
+}
+
+.ctx-pop-enter-active .ctx-item {
+  animation: ctx-item-in 0.16s ease-out both;
+}
+
+.ctx-pop-enter-active .ctx-item:nth-child(2) { animation-delay: 0.03s; }
+.ctx-pop-enter-active .ctx-item:nth-child(3) { animation-delay: 0.06s; }
+.ctx-pop-enter-active .ctx-item:nth-child(4) { animation-delay: 0.09s; }
+
+@keyframes ctx-item-in {
+  from {
+    opacity: 0;
+    transform: translateX(-5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ctx-pop-enter-active,
+  .ctx-pop-leave-active {
+    transition-duration: 0.01ms;
+  }
+
+  .ctx-pop-enter-active .ctx-item {
+    animation: none;
+  }
 }
 
 .ctx-item {
