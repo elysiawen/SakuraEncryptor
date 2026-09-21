@@ -28,6 +28,11 @@ export function isSubtitle(name) {
   return SUBTITLE_EXTS.includes(getExt(name))
 }
 
+/** Whether a stored filename denotes an encrypted (.ske) file. */
+export function isEncryptedFileName(name) {
+  return !!name && name.endsWith('.ske')
+}
+
 export function getFileType(name) {
   const ext = getExt(name)
   if (IMAGE_EXTS.includes(ext)) return 'image'

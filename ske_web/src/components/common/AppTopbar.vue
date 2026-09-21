@@ -16,6 +16,7 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { globalState } from '../../composables/useGlobalState.js'
 import { useLocalFiles } from '../../composables/useLocalFiles.js'
@@ -28,6 +29,10 @@ const route = useRoute()
 const router = useRouter()
 const { clearFiles } = useLocalFiles()
 
+// Both /browse/:path and /local/:path expose the folder segments in the same
+// shape, so one implementation serves both — only the route prefix differs.
+const isLocalMode = computed(() => route.name === 'Local')
+
 function breadcrumbPath(index) {
   const p = route.params.path
   const parts = Array.isArray(p) ? p : (p || '').split('/').filter(Boolean)
@@ -35,7 +40,7 @@ function breadcrumbPath(index) {
 }
 
 function navigateTo(path) {
-  router.push('/browse' + path)
+  router.push((isLocalMode.value ? '/local' : '/browse') + path)
 }
 
 function handleLogout() {

@@ -183,13 +183,8 @@ async function loadSubtitles() {
   activeSubtitleId.value = 'off'
 
   const { isLocal, dirPath } = parseDir()
-  if (isLocal) {
-    // Local-file playback is out of scope for subtitle discovery (AList only).
-    await scanSubtitles(null, '')
-    return
-  }
+  await scanSubtitles(dirPath, decryptedName.value, isLocal ? 'local' : 'alist')
 
-  await scanSubtitles(dirPath, decryptedName.value)
   if (subtitleTracks.value.length > 0) {
     // Auto-load the best matching track (exact basename wins).
     await selectSubtitle(subtitleTracks.value[0].id)

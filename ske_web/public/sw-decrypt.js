@@ -135,17 +135,20 @@ self.addEventListener('fetch', (event) => {
     if (url.pathname.startsWith('/ske-decrypt')) {
         event.respondWith(handleDecrypt(event.request, url))
     }
-    // Local Decrypt
+    // Local files (decrypted or served verbatim)
     else if (url.pathname.startsWith('/ske-local')) {
         // More robust: strip prefix and redundant leading slashes
         let logicalPath = decodeURIComponent(url.pathname.replace(/^\/ske-local\/?/, ''))
         while (logicalPath.startsWith('/')) logicalPath = logicalPath.slice(1)
-        
+
         const localFile = localFiles.get(logicalPath)
-        if (localFile) {
+        if (!localFile) {
+            event.respondWith(new Response(`Local file not found: ${logicalPath}`, { status: 404 }))
+        } else if (logicalPath.endsWith('.ske')) {
             event.respondWith(handleDecrypt(event.request, url, true))
         } else {
-            event.respondWith(new Response(`Local file not found: ${logicalPath}`, { status: 404 }))
+            // Plaintext local file — no key needed, serve it as-is.
+            event.respondWith(serveLocalFile(localFile, logicalPath, event.request))
         }
     }
 })
@@ -569,6 +572,49 @@ async function handleDownloadRequest(request, session) {
     if (rangeHeader) headers['Content-Range'] = `bytes ${start}-${end}/${totalPlainSize}`
 
     return new Response(stream, { status: rangeHeader ? 206 : 200, headers })
+}
+
+// ── Plaintext local files ─────────────────────────────────────
+// Encrypted local files go through handleDecrypt; everything else is served
+// verbatim. Range support matters so <video> can seek on plaintext files.
+function serveLocalFile(file, path, request) {
+    const type = getMimeType(path)
+    const rangeHeader = request.headers.get('Range')
+
+    if (rangeHeader) {
+        const m = rangeHeader.match(/bytes=(\d+)-(\d*)/)
+        if (!m) return new Response('Invalid Range', { status: 416 })
+
+        const start = parseInt(m[1], 10)
+        let end = m[2] ? parseInt(m[2], 10) : file.size - 1
+        if (end >= file.size) end = file.size - 1
+
+        if (file.size > 0 && start >= file.size) {
+            return new Response('', {
+                status: 416,
+                headers: { 'Content-Range': `bytes */${file.size}` },
+            })
+        }
+
+        return new Response(file.slice(start, end + 1), {
+            status: 206,
+            headers: {
+                'Content-Type': type,
+                'Content-Range': `bytes ${start}-${end}/${file.size}`,
+                'Content-Length': String(end - start + 1),
+                'Accept-Ranges': 'bytes',
+            },
+        })
+    }
+
+    return new Response(file, {
+        status: 200,
+        headers: {
+            'Content-Type': type,
+            'Content-Length': String(file.size),
+            'Accept-Ranges': 'bytes',
+        },
+    })
 }
 
 // ── LRU eviction ──────────────────────────────────────────────

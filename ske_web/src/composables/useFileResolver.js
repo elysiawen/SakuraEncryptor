@@ -92,11 +92,12 @@ export function useFileResolver() {
 
   function goBack() {
     const segments = filePath.value.split('/').filter(Boolean)
+    segments.pop()
     if (segments[0] === 'local') {
-      router.push('/local')
+      // Back to the folder that holds the file, not the tree root.
+      router.push('/' + segments.join('/'))
       return
     }
-    segments.pop()
     router.push('/browse/' + segments.join('/'))
   }
 

@@ -5,17 +5,21 @@
  *   1. List the video's folder (encrypted names are decrypted with the session key).
  *   2. Keep entries whose decrypted name is a subtitle sharing the video's basename
  *      (e.g. `movie.zh-CN.srt` for `movie.mkv`).
- *   3. Download the text — encrypted subtitles go through the Service Worker
- *      (`/ske-decrypt/`), plaintext ones are fetched directly (with an AList
- *      proxy fallback for CORS-restricted hosts).
+ *   3. Download the text — encrypted files go through the Service Worker
+ *      (`/ske-decrypt/` for cloud, `/ske-local/` for local playback), plaintext
+ *      cloud files are fetched directly (with an AList proxy fallback for
+ *      CORS-restricted hosts).
  *   4. Decode the bytes (UTF-8 / GBK / UTF-16) and normalise to WebVTT, except
  *      for ASS/SSA which are handed to JASSUB untouched.
+ *
+ * Both AList (remote) and LocalFile playback are supported.
  */
 import { ref } from 'vue'
 import { listDir, getFileInfo, getServer } from './useAList.js'
 import { getNameKeyFromSession, decryptName } from './useCrypto.js'
 import { isSubtitle, getExt } from './useFileDetection.js'
 import { buildDecryptProxyUrl } from './useDecryptProxy.js'
+import { useLocalFiles } from './useLocalFiles.js'
 
 const LANG_LABELS = {
     'zh': '中文', 'chi': '中文',
@@ -118,6 +122,12 @@ function ensureVtt(text) {
  * Plaintext files try the direct link, then AList's own /d/ proxy.
  */
 async function buildCandidateUrls(track) {
+    // Local files are always served by the Service Worker: it decrypts .ske
+    // entries and passes plaintext ones through untouched.
+    if (track.source === 'local') {
+        return [`/ske-local/${encodeURI(track.localPath)}`]
+    }
+
     const encoded = track.encName.endsWith('.ske')
     const info = await getFileInfo(track.encPath)
     const urls = []
@@ -162,37 +172,73 @@ export async function buildSubtitlePayload(track) {
     return { kind: 'vtt', content: ext === 'vtt' ? ensureVtt(text) : srtToVtt(text), name: track.label }
 }
 
+/** Decrypt a stored filename when a session key is available. */
+async function decryptEntryName(encName, nameKey) {
+    if (!nameKey) return encName
+    let nameToDecrypt = encName
+    if (nameToDecrypt.endsWith('.ske')) nameToDecrypt = nameToDecrypt.slice(0, -4)
+    const result = await decryptName(nameToDecrypt, nameKey)
+    return result || encName
+}
+
+/** List the video's folder on AList. */
+async function listRemoteEntries(dirPath, nameKey) {
+    const data = await listDir(dirPath)
+    const files = (data.content || []).filter(entry => !entry.is_dir)
+
+    return Promise.all(
+        files.map(async entry => ({
+            encName: entry.name,
+            decName: await decryptEntryName(entry.name, nameKey),
+            size: entry.size,
+            encPath: joinPath(dirPath, entry.name),
+        })),
+    )
+}
+
+/** List the video's folder among the locally registered files. */
+function listLocalEntries(dirPath, nameKey) {
+    const { state } = useLocalFiles()
+    const localDir = dirPath.replace(/^\/local\/?/, '')
+    const prefix = localDir ? localDir + '/' : ''
+
+    const entries = state.files.filter(f => {
+        if (!f.path.startsWith(prefix)) return false
+        const rel = f.path.slice(prefix.length)
+        return rel.length > 0 && !rel.includes('/') // direct children only
+    })
+
+    return Promise.all(
+        entries.map(async f => ({
+            encName: f.name,
+            decName: await decryptEntryName(f.name, nameKey),
+            size: 0,
+            localPath: f.path,
+        })),
+    )
+}
+
 export function useSubtitles() {
     const tracks = ref([])
     const loading = ref(false)
 
     /**
-     * Scan *dirPath* for subtitles matching the video.
-     * @param {string} dirPath  encrypted folder path (e.g. "/a/b")
+     * Scan the video's folder for matching subtitles.
+     * @param {string} dirPath  folder path — encrypted path for AList
+     *                          (e.g. "/a/b"), or route path for local ("/local/a")
      * @param {string} decVideoName  decrypted video filename (e.g. "movie.mkv")
+     * @param {'alist'|'local'} mode
      */
-    async function scan(dirPath, decVideoName) {
+    async function scan(dirPath, decVideoName, mode = 'alist') {
         tracks.value = []
         if (!decVideoName) return
 
         loading.value = true
         try {
             const nameKey = await getNameKeyFromSession()
-            const data = await listDir(dirPath)
-            const files = (data.content || []).filter(entry => !entry.is_dir)
-
-            const mapped = await Promise.all(
-                files.map(async entry => {
-                    let decName = entry.name
-                    if (nameKey) {
-                        let nameToDecrypt = entry.name
-                        if (nameToDecrypt.endsWith('.ske')) nameToDecrypt = nameToDecrypt.slice(0, -4)
-                        const result = await decryptName(nameToDecrypt, nameKey)
-                        if (result) decName = result
-                    }
-                    return { encName: entry.name, decName, size: entry.size }
-                }),
-            )
+            const mapped = mode === 'local'
+                ? await listLocalEntries(dirPath, nameKey)
+                : await listRemoteEntries(dirPath, nameKey)
 
             const videoBase = baseName(decVideoName)
             const matched = []
@@ -213,7 +259,9 @@ export function useSubtitles() {
             tracks.value = matched.map(item => ({
                 id: item.encName,
                 encName: item.encName,
-                encPath: joinPath(dirPath, item.encName),
+                encPath: item.encPath,
+                localPath: item.localPath,
+                source: mode,
                 decName: item.decName,
                 ext: item.ext,
                 language: item.tag,

@@ -1,5 +1,6 @@
 <template>
   <div
+    ref="containerRef"
     class="viewer-container"
     @mousedown="startDrag"
     @touchstart="startDrag"
@@ -39,7 +40,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, watch, onMounted, onUnmounted } from 'vue'
 import ZoomControls from './ZoomControls.vue'
 
 const props = defineProps({
@@ -48,8 +49,9 @@ const props = defineProps({
   isEncrypted: { type: Boolean, default: false },
 })
 
-defineEmits(['retry'])
+const emit = defineEmits(['retry', 'prev', 'next'])
 
+const containerRef = ref(null)
 const loading = ref(true)
 const error = ref('')
 const zoom = ref(1)
@@ -119,27 +121,58 @@ function stopDrag() {
   window.removeEventListener('touchend', stopDrag)
 }
 
-function handleScrollZoom(e) {
+const WHEEL_COOLDOWN_MS = 250
+let lastWheelAt = 0
+
+/**
+ * Ctrl + wheel zooms; a plain wheel steps to the previous / next image.
+ * Wheel events fire in bursts (especially on trackpads with momentum), so
+ * plain-wheel navigation is throttled to one step per cooldown window.
+ */
+function handleWheel(e) {
   if (e.ctrlKey) {
     e.preventDefault()
     if (e.deltaY < 0) zoomIn()
     else zoomOut()
+    return
   }
+
+  if (!e.deltaY) return
+  e.preventDefault()
+
+  const now = Date.now()
+  if (now - lastWheelAt < WHEEL_COOLDOWN_MS) return
+  lastWheelAt = now
+
+  emit(e.deltaY > 0 ? 'next' : 'prev')
 }
 
+// Switching images must not inherit the previous zoom / rotation / pan state.
+watch(() => props.src, () => {
+  resetView()
+  error.value = ''
+  loading.value = true
+})
+
+// Listeners live on the viewer element, not window, so scrolling the playlist
+// panel does not flip images.
+let containerEl = null
+
 onMounted(() => {
-  window.addEventListener('wheel', handleScrollZoom, { passive: false })
+  containerEl = containerRef.value
+  containerEl?.addEventListener('wheel', handleWheel, { passive: false })
+
   clickHandler = (e) => {
     if (e.target.closest('.zoom-controls')) return
     uiVisible.value = !uiVisible.value
   }
-  document.querySelector('.viewer-container')?.addEventListener('click', clickHandler)
+  containerEl?.addEventListener('click', clickHandler)
 })
 
 onUnmounted(() => {
-  window.removeEventListener('wheel', handleScrollZoom)
+  containerEl?.removeEventListener('wheel', handleWheel)
   if (clickHandler) {
-    document.querySelector('.viewer-container')?.removeEventListener('click', clickHandler)
+    containerEl?.removeEventListener('click', clickHandler)
   }
 })
 

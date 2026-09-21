@@ -24,6 +24,8 @@
       :alt="decryptedName"
       :is-encrypted="isEncrypted"
       @retry="resolve"
+      @prev="playlist.goPrev()"
+      @next="playlist.goNext()"
     />
 
     <div v-if="error" class="error-overlay">
@@ -40,6 +42,26 @@
     >
       🔄
     </button>
+
+    <!-- Previous / Next -->
+    <template v-if="hasMultiple">
+      <button
+        class="nav-btn prev glass-card"
+        :class="{ 'ui-hidden': !uiVisible }"
+        @click="playlist.goPrev()"
+        title="上一张"
+      >
+        ❮
+      </button>
+      <button
+        class="nav-btn next glass-card"
+        :class="{ 'ui-hidden': !uiVisible }"
+        @click="playlist.goNext()"
+        title="下一张"
+      >
+        ❯
+      </button>
+    </template>
 
     <PlaylistPanel
       :items="playlist.items.value"
@@ -67,6 +89,7 @@ const playlist = usePlaylist('image')
 const viewerRef = ref(null)
 const showPlaylist = ref(false)
 const uiVisible = computed(() => viewerRef.value?.uiVisible ?? true)
+const hasMultiple = computed(() => playlist.items.value.length > 1)
 
 function onPlaylistSelect(item) {
   showPlaylist.value = false
@@ -137,6 +160,63 @@ onUnmounted(() => {
 
 .rotate-btn:hover {
   background: var(--bg-card-hover);
+}
+
+/* ── Previous / next ── */
+.nav-btn {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 100;
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-card);
+  border: none;
+  color: white;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 50%;
+  opacity: 0.85;
+  transition: opacity 0.3s ease, background 0.2s ease;
+}
+
+.nav-btn.prev {
+  left: 20px;
+}
+
+.nav-btn.next {
+  right: 20px;
+}
+
+.nav-btn:hover {
+  background: var(--bg-card-hover);
+  opacity: 1;
+}
+
+/* Only fade — a transform here would clobber the vertical centering. */
+.nav-btn.ui-hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+@media (max-width: 600px) {
+  .nav-btn {
+    width: 40px;
+    height: 40px;
+    font-size: 16px;
+  }
+
+  .nav-btn.prev {
+    left: 10px;
+  }
+
+  .nav-btn.next {
+    right: 10px;
+  }
 }
 
 .error-overlay {

@@ -13,6 +13,7 @@
       <div class="file-meta">
         <span v-if="!item.is_dir && item.size">{{ formatSize(item.size) }}</span>
         <FileTag :type="tagType" />
+        <FileTag :type="encryptionTagType" />
       </div>
     </div>
   </div>
@@ -22,7 +23,7 @@
 import { computed } from 'vue'
 import FileIcon from '../common/FileIcon.vue'
 import FileTag from '../common/FileTag.vue'
-import { getFileTagType, formatSize } from '../../composables/useFileDetection.js'
+import { getFileTagType, formatSize, isEncryptedFileName } from '../../composables/useFileDetection.js'
 
 const props = defineProps({
   item: { type: Object, required: true },
@@ -31,6 +32,15 @@ const props = defineProps({
 const emit = defineEmits(['click', 'contextmenu'])
 
 const tagType = computed(() => getFileTagType(props.item))
+
+// Encrypted folders are detected by their name decrypting successfully (the
+// listing computes that for every entry); plaintext filenames additionally
+// fall back to the .ske marker.
+const encryptionTagType = computed(() => {
+  const item = props.item
+  const encrypted = item.encrypted ?? isEncryptedFileName(item.encName || item.name)
+  return encrypted ? 'encrypted' : 'plain'
+})
 
 let longPressTimer = null
 

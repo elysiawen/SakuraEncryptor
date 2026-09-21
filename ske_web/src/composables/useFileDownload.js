@@ -9,15 +9,11 @@
  * Plaintext files are downloaded straight from their upstream URL.
  */
 import { buildDecryptProxyUrl } from './useDecryptProxy.js'
+import { isEncryptedFileName } from './useFileDetection.js'
 
-export { buildDecryptProxyUrl }
+export { buildDecryptProxyUrl, isEncryptedFileName }
 
 export const DOWNLOAD_PARAM = 'download=1'
-
-/** Whether a stored filename denotes an encrypted (.ske) file. */
-export function isEncryptedFileName(name) {
-    return !!name && name.endsWith('.ske')
-}
 
 /** Append the whole-file download flag, preserving any existing query string. */
 export function toDownloadUrl(url) {

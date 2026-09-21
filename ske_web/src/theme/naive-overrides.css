@@ -117,6 +117,12 @@
   --n-border: none;
 }
 
+.n-tag.tag-plain {
+  --n-color: rgba(255, 255, 255, 0.06);
+  --n-text-color: #9090b0;
+  --n-border: none;
+}
+
 /* ── ArtPlayer Global Override ── */
 .artplayer-container .art-video-player,
 .artplayer-container .art-video {

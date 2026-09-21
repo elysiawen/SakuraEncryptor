@@ -13,7 +13,9 @@ const routes = [
     component: () => import('./views/BrowseView.vue'),
   },
   {
-    path: '/local',
+    // Folder navigation is part of the route so the breadcrumb AND the
+    // browser back button both work inside the local file tree.
+    path: '/local/:path(.*)*',
     name: 'Local',
     component: () => import('./views/LocalView.vue'),
   },

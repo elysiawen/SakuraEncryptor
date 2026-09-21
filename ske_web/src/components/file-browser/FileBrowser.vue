@@ -170,7 +170,6 @@ const { addTask: addDownloadTask } = useDownloadManager()
 const items = ref([])
 const loading = ref(false)
 const error = ref('')
-const currentPath = ref('')
 const uploadInput = ref(null)
 const uploadFabBottom = computed(() => {
   const order = getOrder('upload')
@@ -419,11 +418,14 @@ async function startDownload() {
 
 // ── Route helpers ──
 function getRoutePath() {
-  if (props.mode === 'local') return currentPath.value || ''
   const p = route.params.path
+  if (props.mode === 'local') {
+    // Local paths are stored WITHOUT a leading slash (they are relative to the
+    // selected folder and matched against webkitRelativePath).
+    return Array.isArray(p) ? p.join('/') : (p || '')
+  }
   if (!p) return '/'
-  const joined = Array.isArray(p) ? p.join('/') : p
-  return '/' + joined
+  return '/' + (Array.isArray(p) ? p.join('/') : p)
 }
 
 function joinPath(base, name) {
@@ -461,16 +463,18 @@ async function loadCurrentPath(_, refresh = false) {
       content = scanLocalFiles(path)
     }
 
-    if (nameKey) {
-      await Promise.all(
-        content.map(async (item) => {
-          let nameToDecrypt = item.encName
-          if (nameToDecrypt.endsWith('.ske')) nameToDecrypt = nameToDecrypt.slice(0, -4)
-          const result = await decryptName(nameToDecrypt, nameKey)
-          if (result) item.decName = result
-        })
-      )
-    }
+    await Promise.all(
+      content.map(async (item) => {
+        let nameToDecrypt = item.encName
+        if (nameToDecrypt.endsWith('.ske')) nameToDecrypt = nameToDecrypt.slice(0, -4)
+        const result = nameKey ? await decryptName(nameToDecrypt, nameKey) : null
+        if (result) item.decName = result
+        // A name that decrypts proves the entry is encrypted. Folders carry no
+        // .ske marker, so this is the only signal for them; files additionally
+        // keep the marker even when their name happens to fail to decrypt.
+        item.encrypted = !!result || item.encName.endsWith('.ske')
+      })
+    )
 
     content.sort((a, b) => {
       if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1
@@ -542,7 +546,7 @@ function handleClick(item) {
       router.push('/browse' + encPath)
     } else {
       const newPath = item.path || (path ? path + '/' + item.encName : item.encName)
-      currentPath.value = newPath
+      router.push('/local/' + newPath.split('/').map(encodeURIComponent).join('/'))
     }
   } else {
     const filePath = props.mode === 'alist'
@@ -562,11 +566,11 @@ function handleClick(item) {
   }
 }
 
-if (props.mode === 'alist') {
-  watch(() => route.params.path, () => loadCurrentPath(), { immediate: true })
-} else {
-  watch([currentPath, () => props.localState?.files], () => loadCurrentPath(), { immediate: true })
-}
+watch(
+  [() => route.params.path, () => props.localState?.files],
+  () => loadCurrentPath(),
+  { immediate: true },
+)
 </script>
 
 <style scoped>
