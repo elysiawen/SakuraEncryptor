@@ -2,7 +2,7 @@
 
 **Sakura Encryptor** (formerly SKV-Shield) is a complete **Zero-Knowledge** privacy solution designed for fast encryption and seamless cross-device playback of personal cloud media files.
 
-With this system, you can encrypt private videos, audio, and image files and store them on AList or any WebDAV service, then enjoy smooth real-time decrypted playback in the browser — without worrying about the server exposing your data or passwords.
+With this system, you can encrypt private videos, audio, and image files and store them on AList or any WebDAV service, then enjoy smooth real-time decrypted playback in the browser or on Android — without worrying about the server exposing your data or passwords.
 
 > 🇨🇳 [中文说明](README.md)
 
@@ -17,6 +17,7 @@ With this system, you can encrypt private videos, audio, and image files and sto
 - **📋 Playlist** — Music, video, and image players all support folder-based playlists with the same media type. Quickly switch tracks and auto-play the next item.
 - **📊 Real-Time Performance Monitor** — Integrated FPS, frame drops, decryption latency, network speed, and cache hit rate display on the playback page.
 - **💾 Smart Offline Caching** — Service Worker 2.0 block-level caching (LRU) significantly reduces network traffic and solves the bandwidth amplification problem.
+- **📱 Android Client** — Native Kotlin + Jetpack Compose app with local encrypt/decrypt, AList cloud browsing, and streaming decryption playback (plaintext never touches disk).
 - **🔒 Industrial-Grade Encryption** — AES-256-GCM authenticated encryption with PBKDF2 (100,000 iterations) key derivation.
 
 ---
@@ -25,6 +26,7 @@ With this system, you can encrypt private videos, audio, and image files and sto
 
 - **`ske_cli/`** — Python desktop client for fast local file encryption.
 - **`ske_web/`** — Vue 3 + Service Worker powered web player for real-time streaming decryption and playback of cloud files.
+- **`ske_android/`** — Kotlin + Jetpack Compose Android client with local encryption, AList browsing and streaming decryption playback.
 - **`tests/`** — Comprehensive encryption consistency test suite.
 
 ---
@@ -36,11 +38,17 @@ With this system, you can encrypt private videos, audio, and image files and sto
 Requires Python 3.10+.
 
 ```bash
-cd ske_cli
-# Encrypt a video
-python main.py encrypt "my_video.mp4" --output "my_video.mp4.ske"
-# Set password: prompted on first run
+pip install .          # installs the ske / ske-gui commands
+
+# Encrypt a single file or a whole directory
+ske encrypt -i "my_video.mp4" -o ./encrypted -p "your-password"
+ske encrypt -i ./videos -o ./encrypted -p "your-password" -r   # -r also encrypts the source folder name
+
+# Decrypt back
+ske decrypt -i ./encrypted -o ./restored -p "your-password"
 ```
+
+You can also run `python -m ske_cli ...`; the drag-and-drop GUI is `ske-gui`.
 
 ### 2. Web Playback (Web)
 
@@ -57,6 +65,25 @@ npm run dev
 3. Click an encrypted file and enter the password used during encryption.
 4. Enjoy private playback!
 
+### 3. Android Client (Android)
+
+Requires the Android SDK (compileSdk 35) and JDK 17+.
+
+```bash
+cd ske_android
+./gradlew assembleDebug
+# Artifact: app/build/outputs/apk/debug/app-debug.apk
+```
+
+The app opens **straight into the main UI — no account required**:
+
+- **Local-only**: unlock once with the **local password** on the Local tab to play or encrypt/decrypt `.ske` files, then pick a folder to encrypt new files into. It is fully independent from every cloud profile.
+- **Cloud**: create profiles under *Settings → Cloud profiles* — **one profile = one AList account + its own encryption password**. Keep several and switch at any time; switching unlocks and reconnects automatically.
+
+Every password is stored only as a Keystore-sealed blob (opt in per profile) and lives in memory while in use.
+
+The Android client covers four areas: cloud browsing/playback of encrypted files, local `.ske` playback, local encrypt/decrypt, and download-then-decrypt.
+
 ---
 
 ## 🛡️ How It Works
@@ -67,8 +94,14 @@ npm run dev
 3. **Block Encryption** — Each block is independently encrypted with AES-256-GCM using a unique nonce; the file-header prefix (Magic / version / salt / master IV) is bound in as AAD so key-defining header fields cannot be tampered with (legacy v1.0 files still decrypt).
 4. **Real-Time Decryption** — The Service Worker intercepts `/ske-decrypt/` requests, fetches encrypted blocks on demand, decrypts them in memory, and feeds the result to the player via `Content-Range` responses.
 
+### File-Name Encryption
+File names are encrypted too: a *deterministic* AES-GCM construction (fixed salt-derived key plus a key-derived fixed IV) means identical plain names always produce identical tokens, so the encrypted directory tree can be rebuilt without any database.
+
 ### Network Optimization
 The SW 2.0 architecture introduces **session-level caching**: file headers and derived keys are computed/fetched only once per playback session. For video seeking, the SW deduplicates in-flight requests via merging to avoid bandwidth waste.
+
+### Android Implementation
+The Android client reuses the exact same `.ske` v2.0 format (byte-compatible, verified in `ske_android/app/src/test`). Playback goes through a custom Media3 `DataSource` that fetches only the ciphertext blocks covering the requested plaintext range — HTTP Range for remote files, SAF random access for local ones — decrypts them in memory and feeds the player. Decrypted blocks are reused via an LRU cache and plaintext is never written to disk.
 
 ---
 
