@@ -181,13 +181,25 @@ jobs:
           distribution: temurin
           java-version: '21'
 
+      # Downloads cmdline-tools and puts them on $PATH, but deliberately does
+      # NOT accept licences itself: on cmdline-tools 16.0 the action's internal
+      # `sdkmanager --licenses` call raises the interactive "Accept? (y/N)"
+      # prompt, and a runner with no TTY can only answer it with EOF — which
+      # sdkmanager reads as "no" and then exits non-zero. That killed the step
+      # before our own licence step below ever got a chance to run.
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
+        with:
+          accept-android-sdk-licenses: 'false'
+          packages: ''
 
-      - name: Install SDK packages
+      - name: Accept licences and install SDK packages
         run: |
-          yes | sdkmanager --licenses > /dev/null || true
-          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+          # `yes` keeps stdin fed, so sdkmanager never blocks on a prompt.
+          # No `|| true` here: swallowing a licence failure would only push the
+          # error into Gradle, where the message is far harder to read.
+          yes | sdkmanager --licenses > /dev/null
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4

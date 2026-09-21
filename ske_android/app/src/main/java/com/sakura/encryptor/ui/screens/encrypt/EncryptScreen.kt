@@ -212,8 +212,11 @@ fun EncryptScreen(onOpenDrawer: () -> Unit) {
     val container = appContainer()
     val unlocked by container.localVault.isUnlockedFlow.collectAsStateWithLifecycle()
 
-    var showUnlockDialog by remember { mutableStateOf(false) }
-    var pendingFiles by remember { mutableStateOf<List<Uri>>(emptyList()) }
+    // The dialog is shared by file encryption and the text converter, so it has
+    // to carry both the wording and what to resume afterwards. Without that the
+    // text actions only opened the prompt and then did nothing once the vault
+    // was open — the user had to press the button a second time.
+    var unlockRequest by remember { mutableStateOf<UnlockRequest?>(null) }
     var mode by remember { mutableStateOf(EncryptMode.FILES) }
 
     val outputPicker = rememberLauncherForActivityResult(
@@ -237,8 +240,10 @@ fun EncryptScreen(onOpenDrawer: () -> Unit) {
         if (unlocked) {
             viewModel.encrypt(uris)
         } else {
-            pendingFiles = uris
-            showUnlockDialog = true
+            unlockRequest = UnlockRequest(
+                message = "开始加密前，请输入用于本次加密的本地密码。",
+                confirmLabel = "加密",
+            ) { viewModel.encrypt(uris) }
         }
     }
 
@@ -298,7 +303,17 @@ fun EncryptScreen(onOpenDrawer: () -> Unit) {
             if (mode == EncryptMode.TEXT) {
                 TextConverterPanel(
                     unlocked = unlocked,
-                    onRequestUnlock = { showUnlockDialog = true },
+                    onRequestUnlock = { encrypting, afterUnlock ->
+                        unlockRequest = UnlockRequest(
+                            message = if (encrypting) {
+                                "开始加密前，请输入用于本次加密的本地密码。"
+                            } else {
+                                "开始解密前，请输入用于本次解密的本地密码。"
+                            },
+                            confirmLabel = if (encrypting) "加密" else "解密",
+                            afterUnlock = afterUnlock,
+                        )
+                    },
                 )
                 Spacer(Modifier.height(40.dp))
                 return@Column
@@ -407,21 +422,17 @@ fun EncryptScreen(onOpenDrawer: () -> Unit) {
         }
     }
 
-    if (showUnlockDialog) {
+    unlockRequest?.let { request ->
         LocalUnlockDialog(
             initialRemember = rememberDefault,
-            message = "开始加密前，请输入用于本次加密的本地密码。",
-            confirmLabel = "加密",
-            onDismiss = {
-                showUnlockDialog = false
-                pendingFiles = emptyList()
-            },
+            message = request.message,
+            confirmLabel = request.confirmLabel,
+            onDismiss = { unlockRequest = null },
             onSubmit = { password, remember -> viewModel.unlock(password, remember) },
             onUnlocked = {
-                showUnlockDialog = false
-                val files = pendingFiles
-                pendingFiles = emptyList()
-                if (files.isNotEmpty()) viewModel.encrypt(files)
+                unlockRequest = null
+                // Finish whatever the user originally pressed.
+                request.afterUnlock()
             },
         )
     }
@@ -465,6 +476,19 @@ private enum class EncryptMode(val label: String) {
 }
 
 /**
+ * A pending request for the local password.
+ *
+ * The dialog is shared, so it needs to know which wording to use and, more
+ * importantly, what to finish once the vault is open — several different flows
+ * sit behind the same prompt.
+ */
+private class UnlockRequest(
+    val message: String,
+    val confirmLabel: String,
+    val afterUnlock: () -> Unit,
+)
+
+/**
  * Turns a snippet of text into the very same kind of token used for file names.
  *
  * Mirrors the desktop GUI's "文本转换" tab: derive the name key from the local
@@ -475,7 +499,11 @@ private enum class EncryptMode(val label: String) {
 @Composable
 private fun TextConverterPanel(
     unlocked: Boolean,
-    onRequestUnlock: () -> Unit,
+    /**
+     * Ask for the vault password, then run the supplied continuation so the
+     * action the user actually pressed is the one that completes.
+     */
+    onRequestUnlock: (encrypting: Boolean, afterUnlock: () -> Unit) -> Unit,
 ) {
     val context = LocalContext.current
     val container = appContainer()
@@ -488,7 +516,9 @@ private fun TextConverterPanel(
     fun run(encrypting: Boolean) {
         val password = container.localVault.password
         if (password.isNullOrEmpty()) {
-            onRequestUnlock()
+            // Not an error: ask for the password, then carry on from here. The
+            // recursive call finds a password and takes the normal path.
+            onRequestUnlock(encrypting) { run(encrypting) }
             return
         }
         val source = input.trim()
@@ -533,7 +563,7 @@ private fun TextConverterPanel(
         if (!unlocked) {
             Spacer(Modifier.height(10.dp))
             Text(
-                text = "文本加密使用本地密码，点击下方按钮会提示解锁",
+                text = "文本转换使用本地密码，首次使用会提示解锁",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

@@ -10,6 +10,8 @@ import com.sakura.encryptor.core.local.CryptoTaskRunner
 import com.sakura.encryptor.core.local.LocalSkeStore
 import com.sakura.encryptor.core.player.CipherBlockSourceFactory
 import com.sakura.encryptor.core.player.DecryptedBytesReader
+import com.sakura.encryptor.core.player.QueueUriResolver
+import com.sakura.encryptor.core.player.SiblingLyricsLoader
 import com.sakura.encryptor.core.player.SkeDataSourceFactory
 import com.sakura.encryptor.core.playlist.PlaylistRepository
 import com.sakura.encryptor.core.profile.ProfileRepository
@@ -129,6 +131,17 @@ class AppContainer(private val appContext: Context) {
         )
     }
 
+    /**
+     * Lyrics stored beside a track as a `.lrc` file.
+     *
+     * Lives here rather than in the player screen so the lookup can reuse the
+     * playlist repository's decrypted directory listing — a lyrics file may be
+     * encrypted and named with a token, exactly like the audio it belongs to.
+     */
+    val siblingLyricsLoader: SiblingLyricsLoader by lazy {
+        SiblingLyricsLoader(playlistRepository, cipherBlockSourceFactory)
+    }
+
     @Volatile
     var cacheBlocks: Int = SettingsStore.DEFAULT_CACHE_BLOCKS
         private set
@@ -145,6 +158,17 @@ class AppContainer(private val appContext: Context) {
             },
             cacheBlocksProvider = { cacheBlocks },
         )
+    }
+
+    /**
+     * Turns queue placeholders into playable urls.
+     *
+     * Shared deliberately: the playback service resolves an entry in order to
+     * play it, while the UI needs the same real url to read lyrics and cover
+     * art from. One cache means a track is never resolved twice.
+     */
+    val queueUriResolver: QueueUriResolver by lazy {
+        QueueUriResolver(aListRepository, cipherBlockSourceFactory)
     }
 
     // ---- local jobs ---------------------------------------------------------
@@ -185,6 +209,10 @@ class AppContainer(private val appContext: Context) {
 
         val invalidate = {
             skeDataSourceFactory.invalidateKeys()
+            // Direct urls are token-bearing, so a lock invalidates them too.
+            queueUriResolver.invalidate()
+            // Listings were decrypted with the key that is about to be dropped.
+            playlistRepository.clearListings()
             // Do not keep derived name keys around once a password is locked.
             NameKeyCache.clear()
         }

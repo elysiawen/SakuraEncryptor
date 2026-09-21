@@ -82,6 +82,16 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+
+    testOptions {
+        unitTests {
+            // android.util.Log is only a stub in local unit tests: every call
+            // throws unless this is enabled. Any code path that logs on failure —
+            // which is exactly where the interesting cases live — would otherwise
+            // fail the test that exercises it.
+            isReturnDefaultValues = true
+        }
+    }
 }
 
 ksp {

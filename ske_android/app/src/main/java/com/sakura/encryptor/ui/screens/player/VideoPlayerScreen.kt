@@ -72,6 +72,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
@@ -149,6 +150,10 @@ fun VideoPlayerScreen(
                 DefaultMediaSourceFactory(context)
                     .setDataSourceFactory(container.skeDataSourceFactory)
             )
+            // Take audio focus so a call or another player pauses us instead of
+            // both sounding at once, and stop on unplug.
+            .setAudioAttributes(AudioAttributes.DEFAULT, /* handleAudioFocus = */ true)
+            .setHandleAudioBecomingNoisy(true)
             .build()
     }
 

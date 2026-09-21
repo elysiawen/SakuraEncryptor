@@ -8,6 +8,9 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- Background music playback. Android 14+ requires the type to be declared
+         both here and on the service itself. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <!-- Optional fingerprint / face unlock for the launch gate. -->
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
 
@@ -47,6 +50,17 @@
                 <data android:pathPattern=".*\\.ske" />
             </intent-filter>
         </activity>
+
+        <!-- Keeps music playing while the app is in the background and backs the
+             media notification. The player lives here rather than in the UI. -->
+        <service
+            android:name=".core.player.MusicPlaybackService"
+            android:exported="true"
+            android:foregroundServiceType="mediaPlayback">
+            <intent-filter>
+                <action android:name="androidx.media3.session.MediaSessionService" />
+            </intent-filter>
+        </service>
 
         <provider
             android:name="androidx.core.content.FileProvider"

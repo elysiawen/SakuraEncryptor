@@ -12,6 +12,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.text.Collator
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 
 /** One playable entry of the queue. */
 data class PlaylistItem(
@@ -38,39 +39,74 @@ class PlaylistRepository(
     private val cipherBlockSourceFactory: CipherBlockSourceFactory,
 ) {
 
+    /**
+     * Directory listings, keyed by location.
+     *
+     * Lyrics are looked up once per track, so without this every song played
+     * from the cloud would re-list its entire folder over the network. Dropped
+     * when the vault locks, which is also how a folder gets re-read after its
+     * contents change.
+     */
+    private val listings = ConcurrentHashMap<String, List<PlaylistItem>>()
+
     /** @return the sibling media items, or an empty list when unavailable. */
     suspend fun load(
         directory: String,
         fromCloud: Boolean,
         kind: MediaKind,
         nameKey: ByteArray?,
-    ): List<PlaylistItem> = withContext(Dispatchers.IO) {
-        if (directory.isBlank() || nameKey == null) return@withContext emptyList()
-
-        runCatching {
-            val candidates = if (fromCloud) {
-                aListRepository.list(directory, nameKey)
-                    .filterNot { it.isDir }
-                    .map { entry ->
-                        PlaylistItem(
-                            locator = "${directory.trimEnd('/')}/${entry.raw.name}",
-                            displayName = entry.displayName,
-                        )
-                    }
-            } else {
-                localSkeStore.list(Uri.parse(directory))
-                    .map { entry ->
-                        PlaylistItem(entry.uri.toString(), plainNameOf(entry.name, nameKey))
-                    }
-            }
-
-            // A collator is not thread-safe, so keep it local to this call.
-            val collator = Collator.getInstance(Locale.CHINA)
-            candidates
-                .filter { MediaTypes.kindOf(it.displayName) == kind }
-                .sortedWith { a, b -> collator.compare(a.displayName, b.displayName) }
-        }.getOrDefault(emptyList())
+    ): List<PlaylistItem> {
+        // A collator is not thread-safe, so keep it local to this call.
+        val collator = Collator.getInstance(Locale.CHINA)
+        return listAll(directory, fromCloud, nameKey)
+            .filter { MediaTypes.kindOf(it.displayName) == kind }
+            .sortedWith { a, b -> collator.compare(a.displayName, b.displayName) }
     }
+
+    /**
+     * Every file in [directory], names already decrypted, in listing order.
+     *
+     * Unlike [load] this applies no media-kind filter: a `.lrc` is not playable,
+     * but it still has to be findable next to the track it belongs to.
+     */
+    suspend fun listAll(
+        directory: String,
+        fromCloud: Boolean,
+        nameKey: ByteArray?,
+    ): List<PlaylistItem> {
+        if (directory.isBlank() || nameKey == null) return emptyList()
+
+        val key = "$fromCloud|$directory"
+        listings[key]?.let { return it }
+
+        val entries = withContext(Dispatchers.IO) {
+            runCatching {
+                if (fromCloud) {
+                    aListRepository.list(directory, nameKey)
+                        .filterNot { it.isDir }
+                        .map { entry ->
+                            PlaylistItem(
+                                locator = "${directory.trimEnd('/')}/${entry.raw.name}",
+                                displayName = entry.displayName,
+                            )
+                        }
+                } else {
+                    localSkeStore.list(Uri.parse(directory))
+                        .map { entry ->
+                            PlaylistItem(entry.uri.toString(), plainNameOf(entry.name, nameKey))
+                        }
+                }
+            }.getOrDefault(emptyList())
+        }
+
+        // Bounded, so a long browsing session cannot grow this without limit.
+        if (listings.size >= MAX_CACHED_LISTINGS) listings.clear()
+        listings[key] = entries
+        return entries
+    }
+
+    /** Drops cached listings. Call when a folder's contents may have changed. */
+    fun clearListings() = listings.clear()
 
     /**
      * Turn an item into something ExoPlayer can read.
@@ -95,5 +131,9 @@ class PlaylistRepository(
         val withoutExtension = encryptedName.dropLast(SkeFormat.SKE_EXT.length)
         return runCatching { SkeCrypto.decryptName(withoutExtension, nameKey) }
             .getOrDefault(withoutExtension)
+    }
+
+    private companion object {
+        const val MAX_CACHED_LISTINGS = 8
     }
 }

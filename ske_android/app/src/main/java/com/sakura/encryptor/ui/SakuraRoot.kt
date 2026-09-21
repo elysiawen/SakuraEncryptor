@@ -36,9 +36,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
@@ -47,6 +50,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavBackStackEntry
+import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -54,9 +58,13 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.sakura.encryptor.AppContainer
+import com.sakura.encryptor.core.player.PlaybackExtras
 import com.sakura.encryptor.core.security.AppLockState
 import com.sakura.encryptor.core.security.BiometricUnlock
 import com.sakura.encryptor.data.prefs.ThemeMode
+import com.sakura.encryptor.ui.components.LocalMusicController
+import com.sakura.encryptor.ui.components.MiniPlayerBar
+import com.sakura.encryptor.ui.components.rememberMusicController
 import com.sakura.encryptor.ui.navigation.PlaybackSource
 import com.sakura.encryptor.ui.navigation.Routes
 import com.sakura.encryptor.ui.screens.browse.BrowseScreen
@@ -93,7 +101,16 @@ fun SakuraRoot(container: AppContainer) {
         ThemeMode.Dark -> true
     }
 
-    CompositionLocalProvider(LocalAppContainer provides container) {
+    // One connection for the whole app: the player screen and the mini player
+    // both drive this session rather than opening competing ones.
+    val musicController = rememberMusicController()
+    val navController = rememberNavController()
+    var currentRoute by remember { mutableStateOf<String?>(null) }
+
+    CompositionLocalProvider(
+        LocalAppContainer provides container,
+        LocalMusicController provides musicController,
+    ) {
         SakuraTheme(accent = accent, darkTheme = darkTheme) {
             when (lockState) {
                 // The credential is still being read from disk. Showing the app
@@ -133,7 +150,38 @@ fun SakuraRoot(container: AppContainer) {
                     biometricAvailable = biometricAvailable,
                 )
 
-                AppLockState.Unlocked -> SakuraNavigation()
+                // The bar floats over the content, so screens stay full-bleed and
+                // only the very bottom of a list ends up behind it.
+                AppLockState.Unlocked -> Box(modifier = Modifier.fillMaxSize()) {
+                    SakuraNavigation(
+                        navController = navController,
+                        onRouteChanged = { currentRoute = it },
+                    )
+
+                    MiniPlayerBar(
+                        controller = musicController,
+                        // Inside a player the bar would only repeat what is
+                        // already on screen.
+                        enabled = currentRoute?.startsWith(PLAYER_ROUTE_PREFIX) != true,
+                        onOpen = { item ->
+                            // Step back into the full player for whatever is on.
+                            val extras = item.mediaMetadata.extras ?: return@MiniPlayerBar
+                            val name = extras.getString(PlaybackExtras.DISPLAY_NAME)
+                                ?: return@MiniPlayerBar
+                            val source = PlaybackSource.fromId(
+                                extras.getString(PlaybackExtras.SOURCE)
+                            )
+                            val dir = extras.getString(PlaybackExtras.DIRECTORY).orEmpty()
+                            val uri = item.localConfiguration?.uri?.toString().orEmpty()
+                            navController.navigate(
+                                Routes.player(uri, name, source.name, dir)
+                            ) {
+                                launchSingleTop = true
+                            }
+                        },
+                        modifier = Modifier.align(Alignment.BottomCenter),
+                    )
+                }
             }
         }
     }
@@ -183,12 +231,18 @@ private fun AnimatedContentTransitionScope<NavBackStackEntry>.isPlayerTarget(): 
 private val PLAYER_ROUTE_PREFIX = Routes.PLAYER.substringBefore('?')
 
 @Composable
-private fun SakuraNavigation() {
-    val navController = rememberNavController()
+private fun SakuraNavigation(
+    navController: NavHostController,
+    onRouteChanged: (String?) -> Unit,
+) {
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
+
+    // The mini player sits above this screen, so it has to know when a player
+    // screen comes and goes.
+    LaunchedEffect(currentRoute) { onRouteChanged(currentRoute) }
 
     // The full-screen player owns every gesture while it is open, and the
     // sub-screens have a back arrow instead.

@@ -272,30 +272,19 @@ object LyricsLoader {
         source: CipherBlockSource,
         password: String,
         maxBytes: Int = 1 shl 20,
-    ): List<LyricLine>? = withContext(Dispatchers.IO) {
-        source.open()
-        try {
-            val header = SkeBlockReader.readHeader(source)
-            val key = SkeCrypto.deriveKey(password, header.salt)
-            val decryptor = SkeBlockDecryptor(header, key)
-            val reader = SkeBlockReader(source, header, decryptor, source.cipherSize, cacheBlocks = 2)
+    ): List<LyricLine>? {
+        return try {
+            // Shared with the tag reader, so a plain (unencrypted) track yields
+            // its lyrics too instead of being treated as a broken container.
+            val access = openPlaintext(source, password, cacheBlocks = 2) ?: return null
+            val size = minOf(access.size, maxBytes.toLong()).toInt()
+            if (size <= 0) return null
 
-            val available = minOf(reader.plaintextSize, maxBytes.toLong())
-            if (available <= 0) return@withContext null
-
-            val size = available.toInt()
-            val bytes = ByteArray(size)
-            var read = 0
-            while (read < size) {
-                val chunk = reader.read(read.toLong(), bytes, read, size - read)
-                if (chunk <= 0) break
-                read += chunk
-            }
-            if (read <= 0) return@withContext null
-
-            val raw = LyricsExtractor.extract(bytes) ?: return@withContext null
+            val bytes = access.reader.exact(0, size) ?: return null
+            val raw = LyricsExtractor.extract(bytes) ?: return null
             LrcParser.parse(raw).takeIf { it.isNotEmpty() }
         } catch (_: Exception) {
+            // As with tags, a failed read just means "no lyrics here".
             null
         } finally {
             runCatching { source.close() }
