@@ -13,10 +13,14 @@
 <script setup>
 import { ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import Artplayer from 'artplayer'
+import { renderAssSubtitle, clearAssSubtitle, setAssScale } from '../../composables/useAssRenderer.js'
 
 const props = defineProps({
   playUrl: { type: String, required: true },
   mimeType: { type: String, default: 'video/mp4' },
+  // { kind: 'vtt' | 'ass', content: string, name: string } or null
+  subtitle: { type: Object, default: null },
+  subtitleScale: { type: Number, default: 1 },
 })
 
 const emit = defineEmits(['error', 'ready'])
@@ -24,6 +28,8 @@ const emit = defineEmits(['error', 'ready'])
 const playerContainer = ref(null)
 const error = ref('')
 let art = null
+let playerReady = false
+let vttBlobUrl = null
 
 const MIME_MAP = {
   mp4: 'video/mp4', m4v: 'video/x-m4v', webm: 'video/webm',
@@ -37,9 +43,63 @@ function getMimeType(url) {
   return MIME_MAP[ext] || 'video/mp4'
 }
 
+function revokeVttUrl() {
+  if (vttBlobUrl) {
+    URL.revokeObjectURL(vttBlobUrl)
+    vttBlobUrl = null
+  }
+}
+
+/** Scale ArtPlayer's native (WebVTT) subtitle layer via CSS transform. */
+function applyVttScale(scale) {
+  if (!art || !art.subtitle) return
+  art.subtitle.style('transformOrigin', 'bottom center')
+  art.subtitle.style('transform', scale === 1 ? '' : `scale(${scale})`)
+}
+
+/**
+ * Apply the active subtitle:
+ *  - ASS/SSA -> JASSUB renders on a canvas above the video
+ *  - VTT/SRT -> converted to WebVTT and fed to ArtPlayer's native subtitle layer
+ *  - null    -> everything turned off
+ */
+async function applySubtitle() {
+  if (!art || !playerReady) return
+  const sub = props.subtitle
+
+  await clearAssSubtitle()
+  if (art.subtitle) art.subtitle.show = false
+
+  const previousUrl = vttBlobUrl
+  vttBlobUrl = null
+
+  try {
+    if (!sub || !sub.content) return
+
+    if (sub.kind === 'ass') {
+      await renderAssSubtitle(art.video, sub.content, props.subtitleScale)
+      return
+    }
+
+    const blob = new Blob([sub.content], { type: 'text/vtt' })
+    vttBlobUrl = URL.createObjectURL(blob)
+    await art.subtitle.switch(vttBlobUrl, { name: sub.name || '字幕', type: 'vtt' })
+    art.subtitle.show = true
+    applyVttScale(props.subtitleScale)
+  } catch (err) {
+    console.warn('[subtitle] failed to apply', err)
+  } finally {
+    if (previousUrl) URL.revokeObjectURL(previousUrl)
+  }
+}
+
 async function init() {
   error.value = ''
   await nextTick()
+
+  playerReady = false
+  await clearAssSubtitle()
+  revokeVttUrl()
 
   if (art) {
     art.destroy()
@@ -80,7 +140,9 @@ async function init() {
   })
 
   art.on('ready', () => {
+    playerReady = true
     emit('ready', art)
+    applySubtitle()
   })
 }
 
@@ -90,7 +152,18 @@ watch(() => props.playUrl, () => {
   init()
 })
 
-onBeforeUnmount(() => {
+watch(() => props.subtitle, () => {
+  applySubtitle()
+})
+
+watch(() => props.subtitleScale, async (scale) => {
+  applyVttScale(scale)
+  await setAssScale(scale)
+})
+
+onBeforeUnmount(async () => {
+  await clearAssSubtitle()
+  revokeVttUrl()
   if (art) {
     art.destroy()
     art = null

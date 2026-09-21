@@ -7,6 +7,7 @@ import { ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getFileInfo } from './useAList.js'
 import { getNameKeyFromSession, decryptName } from './useCrypto.js'
+import { buildDecryptProxyUrl } from './useDecryptProxy.js'
 
 export function useFileResolver() {
   const route = useRoute()
@@ -74,8 +75,7 @@ export function useFileResolver() {
         if (isLocal.value) {
           playUrl.value = rawUrl.value
         } else {
-          const sizeParam = rawSize.value ? `&size=${rawSize.value}` : ''
-          playUrl.value = `/ske-decrypt/?url=${encodeURIComponent(rawUrl.value)}${sizeParam}&name=${encodeURIComponent(decryptedName.value)}`
+          playUrl.value = buildDecryptProxyUrl(rawUrl.value, rawSize.value)
         }
       } else {
         playUrl.value = rawUrl.value

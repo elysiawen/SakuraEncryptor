@@ -49,6 +49,13 @@
         <div v-if="!menu.item" class="ctx-item" @click="startNewFolder">
           <span>📁</span> 新建文件夹
         </div>
+        <div
+          v-if="menu.item && !menu.item.is_dir && props.mode === 'alist'"
+          class="ctx-item"
+          @click="startDownload"
+        >
+          <span>⬇️</span> 下载
+        </div>
         <div v-if="menu.item" class="ctx-item" @click="startRename">
           <span>✏️</span> 重命名
         </div>
@@ -67,8 +74,8 @@
         :input-props="{ autocomplete: 'off' }"
       />
       <div class="modal-option">
-        <n-checkbox v-model:checked="mkdir.noEncrypt">
-          不加密创建
+        <n-checkbox v-model:checked="mkdir.encrypt">
+          加密
         </n-checkbox>
       </div>
       <template #action>
@@ -142,8 +149,10 @@ import FileGrid from './FileGrid.vue'
 import { getNameKeyFromSession, getPasswordFromSession, decryptName, encryptName, encryptFileContent } from '../../composables/useCrypto.js'
 import { globalState } from '../../composables/useGlobalState.js'
 import { getFileType } from '../../composables/useFileDetection.js'
-import { renameItem, deleteItems, makeDir, uploadFile as uploadAListFile } from '../../composables/useAList.js'
+import { renameItem, deleteItems, makeDir, getFileInfo, uploadFile as uploadAListFile } from '../../composables/useAList.js'
 import { useFabManager, FAB_BASE_DESKTOP, FAB_BASE_MOBILE, FAB_SIZE, FAB_GAP } from '../../composables/useFabManager.js'
+import { useDownloadManager } from '../../composables/useDownloadManager.js'
+import { buildDecryptProxyUrl, isEncryptedFileName, toDownloadUrl } from '../../composables/useFileDownload.js'
 
 const props = defineProps({
   mode: { type: String, required: true },
@@ -154,6 +163,7 @@ const props = defineProps({
 const route = useRoute()
 const router = useRouter()
 const { register: registerFab, unregister: unregisterFab, getOrder } = useFabManager()
+const { addTask: addDownloadTask } = useDownloadManager()
 
 const items = ref([])
 const loading = ref(false)
@@ -173,10 +183,12 @@ const menu = reactive({ show: false, x: 0, y: 0, item: null })
 
 function openMenu(e, item) {
   const pad = 8
+  const menuWidth = 160
+  const menuHeight = 180
   let x = e.clientX
   let y = e.clientY
-  if (x + 160 > window.innerWidth) x = window.innerWidth - 160 - pad
-  if (y + 120 > window.innerHeight) y = window.innerHeight - 120 - pad
+  if (x + menuWidth > window.innerWidth) x = window.innerWidth - menuWidth - pad
+  if (y + menuHeight > window.innerHeight) y = window.innerHeight - menuHeight - pad
   menu.x = x
   menu.y = y
   menu.item = item
@@ -213,11 +225,11 @@ onUnmounted(() => {
 })
 
 // ── New Folder ──
-const mkdir = reactive({ show: false, name: '', noEncrypt: false, loading: false })
+const mkdir = reactive({ show: false, name: '', encrypt: true, loading: false })
 
 function startNewFolder() {
   mkdir.name = ''
-  mkdir.noEncrypt = false
+  mkdir.encrypt = true
   mkdir.show = true
   closeMenu()
 }
@@ -231,7 +243,7 @@ async function doMkdir() {
     const path = getRoutePath()
 
     if (props.mode === 'alist') {
-      const targetName = (!mkdir.noEncrypt && nameKey)
+      const targetName = (mkdir.encrypt && nameKey)
         ? await encryptName(folderName, nameKey)
         : folderName
       await makeDir(joinPath(path, targetName))
@@ -369,6 +381,37 @@ async function doDelete() {
     error.value = err.message || '删除失败'
   } finally {
     del.loading = false
+  }
+}
+
+// ── Download ──
+async function startDownload() {
+  const item = menu.item
+  if (!item || item.is_dir) return
+  closeMenu()
+
+  try {
+    const absPath = joinPath(getRoutePath(), item.encName)
+    const info = await getFileInfo(absPath)
+    if (!info.url) throw new Error('无法获取下载链接')
+
+    if (isEncryptedFileName(item.encName)) {
+      // Decrypt through the Service Worker so the user gets the plaintext file.
+      addDownloadTask({
+        url: toDownloadUrl(buildDecryptProxyUrl(info.url, info.size)),
+        name: item.decName,
+        total: 0,
+      })
+      return
+    }
+
+    addDownloadTask({
+      url: info.url,
+      name: item.decName,
+      total: info.size || item.size || 0,
+    })
+  } catch (err) {
+    error.value = err.message || '下载失败'
   }
 }
 

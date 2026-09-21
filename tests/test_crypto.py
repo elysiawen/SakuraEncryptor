@@ -2,17 +2,24 @@
 Tests for the Sakura Encryptor crypto module.
 """
 
+import hashlib
 import os
 import tempfile
 from pathlib import Path
 
 import pytest
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from ske_cli.crypto import (
     CHUNK_SIZE,
     HEADER_SIZE,
+    HEADER_TAG_SIZE,
+    IV_SIZE,
+    LEGACY_VERSION,
     MAGIC,
+    SALT_SIZE,
     VERSION,
+    _block_nonce,
     decrypt_file,
     decrypt_name,
     decrypt_path,
@@ -155,4 +162,62 @@ class TestFileEncryption:
             enc.write_bytes(bytes(data))
 
             with pytest.raises(ValueError, match="Invalid magic"):
+                decrypt_file(enc, dec, "pw")
+
+
+# ------------------------------------------------------- Format compatibility
+def _legacy_v1_bytes(data: bytes, password: str, salt: bytes, master_iv: bytes) -> bytes:
+    """Reproduce the pre-v002 writer (no AAD) to prove backward compatibility."""
+    key = derive_key(password, salt)
+    aesgcm = AESGCM(key)
+    body = bytearray()
+    body_hash = hashlib.sha256()
+    for block_index, off in enumerate(range(0, len(data), CHUNK_SIZE)):
+        chunk = data[off : off + CHUNK_SIZE]
+        ct = aesgcm.encrypt(_block_nonce(master_iv, block_index), chunk, None)
+        body += ct
+        body_hash.update(ct)
+    header = MAGIC + LEGACY_VERSION + salt + master_iv + body_hash.digest()[:HEADER_TAG_SIZE]
+    return header + bytes(body)
+
+
+class TestFormatVersion:
+    def test_encrypt_writes_current_version(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            src = Path(tmpdir) / "input.bin"
+            enc = Path(tmpdir) / "output.ske"
+            src.write_bytes(b"payload")
+            encrypt_file(src, enc, "pw")
+            assert enc.read_bytes()[7:10] == VERSION == b"002"
+
+    def test_legacy_v1_file_still_decrypts(self):
+        data = b"legacy payload " * 4096
+        salt = bytes(range(SALT_SIZE))
+        master_iv = bytes(range(IV_SIZE))
+        blob = _legacy_v1_bytes(data, "pw", salt, master_iv)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            enc = Path(tmpdir) / "legacy.ske"
+            dec = Path(tmpdir) / "legacy.out"
+            enc.write_bytes(blob)
+
+            assert enc.read_bytes()[7:10] == LEGACY_VERSION
+            decrypt_file(enc, dec, "pw")
+            assert dec.read_bytes() == data
+
+    def test_v2_downgraded_version_is_rejected(self):
+        """A v002 body must not authenticate when relabelled as v001."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            src = Path(tmpdir) / "input.bin"
+            enc = Path(tmpdir) / "output.ske"
+            dec = Path(tmpdir) / "restored.bin"
+
+            src.write_bytes(b"secret")
+            encrypt_file(src, enc, "pw")
+
+            data = bytearray(enc.read_bytes())
+            data[7:10] = LEGACY_VERSION
+            enc.write_bytes(bytes(data))
+
+            with pytest.raises(ValueError, match="Decryption failed|Wrong password"):
                 decrypt_file(enc, dec, "pw")

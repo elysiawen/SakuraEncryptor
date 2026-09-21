@@ -5,10 +5,19 @@ AES-256-GCM encryption for file names and file content.
 Chunked encryption supports random-access decryption in the browser.
 
 File format (.ske):
-    [0:7] MAGIC "SakuraE" (7 bytes)
-: MAGIC(6) | VERSION(3) | SALT(16) | MASTER_IV(12) | HEADER_TAG(12)
-  Body    (N blocks): each block = encrypted_chunk(CHUNK_SIZE) + GCM_TAG(16)
-  Last block may be shorter than CHUNK_SIZE.
+    Header (50 bytes):
+        MAGIC(7) | VERSION(3) | SALT(16) | MASTER_IV(12) | HEADER_TAG(12)
+    Body (N blocks):
+        each block = AES-256-GCM(chunk) | GCM_TAG(16)
+        The last block may be shorter than CHUNK_SIZE.
+
+Version history:
+    001 — initial format; body blocks were encrypted without AAD.
+    002 — body blocks are encrypted with the 38-byte header prefix
+          (MAGIC | VERSION | SALT | MASTER_IV) supplied as AES-GCM
+          additional authenticated data, so the key-defining header
+          fields can no longer be tampered with undetected.
+          This module writes 002; 001 files remain readable.
 
 Name encryption is deterministic (fixed IV derived from key) so that
 identical plain names always produce the same cipher-text, enabling
@@ -33,12 +42,21 @@ from cryptography.hazmat.primitives import hashes
 # Constants
 # ---------------------------------------------------------------------------
 MAGIC = b"SakuraE"
-VERSION = b"001"
+VERSION = b"002"          # format written by this module
+LEGACY_VERSION = b"001"   # initial format (no AAD) — still readable
+SUPPORTED_VERSIONS = (VERSION, LEGACY_VERSION)
+
+# Fixed salt for the deterministic file-name key.  It MUST stay constant:
+# identical plain names have to encrypt to identical tokens so the browser can
+# rebuild the encrypted directory tree without a database (see encrypt_name).
+NAME_SALT = b"ske-name-salt-00"
+
 SALT_SIZE = 16
 IV_SIZE = 12
 TAG_SIZE = 16  # AES-GCM tag
-HEADER_TAG_SIZE = 12  # stored in header (first 12 bytes of the GCM tag for header integrity check)
+HEADER_TAG_SIZE = 12  # stored in header (first 12 bytes of the SHA-256 of the body)
 HEADER_SIZE = len(MAGIC) + len(VERSION) + SALT_SIZE + IV_SIZE + HEADER_TAG_SIZE  # 7+3+16+12+12 = 50
+AAD_SIZE = HEADER_SIZE - HEADER_TAG_SIZE  # 38: header prefix authenticated as AAD in v002
 CHUNK_SIZE = 1 * 1024 * 1024  # 1 MiB per encrypted block
 KDF_ITERATIONS = 100_000
 
@@ -128,6 +146,10 @@ def encrypt_file(src: str | Path, dst: str | Path, password: str) -> None:
     key = derive_key(password, salt)
     aesgcm = AESGCM(key)
 
+    # The header prefix defines the key; bind it into every block as AAD so
+    # salt / IV / version cannot be swapped without breaking decryption.
+    header_prefix = MAGIC + VERSION + salt + master_iv  # AAD_SIZE bytes
+
     src = Path(src)
     dst = Path(dst)
     dst.parent.mkdir(parents=True, exist_ok=True)
@@ -145,7 +167,7 @@ def encrypt_file(src: str | Path, dst: str | Path, password: str) -> None:
             if not chunk:
                 break
             nonce = _block_nonce(master_iv, block_index)
-            ct = aesgcm.encrypt(nonce, chunk, None)  # ct = ciphertext + 16-byte tag
+            ct = aesgcm.encrypt(nonce, chunk, header_prefix)  # ct = ciphertext + 16-byte tag
             fout.write(ct)
             body_hash.update(ct)
             block_index += 1
@@ -155,10 +177,7 @@ def encrypt_file(src: str | Path, dst: str | Path, password: str) -> None:
 
         # Write final header
         fout.seek(0)
-        fout.write(MAGIC)
-        fout.write(VERSION)
-        fout.write(salt)
-        fout.write(master_iv)
+        fout.write(header_prefix)
         fout.write(header_tag)
 
 
@@ -184,8 +203,11 @@ def decrypt_file(src: str | Path, dst: str | Path, password: str) -> None:
 
         if magic != MAGIC:
             raise ValueError(f"Invalid magic number: {magic!r}")
-        if version != VERSION:
+        if version not in SUPPORTED_VERSIONS:
             raise ValueError(f"Unsupported version: {version!r}")
+
+        # v002 authenticates the header prefix as AAD; v001 used no AAD.
+        aad = header[:AAD_SIZE] if version == VERSION else None
 
         key = derive_key(password, salt)
         aesgcm = AESGCM(key)
@@ -204,7 +226,7 @@ def decrypt_file(src: str | Path, dst: str | Path, password: str) -> None:
                 body_hash.update(ct)
                 nonce = _block_nonce(master_iv, block_index)
                 try:
-                    plaintext = aesgcm.decrypt(nonce, ct, None)
+                    plaintext = aesgcm.decrypt(nonce, ct, aad)
                 except Exception as exc:
                     raise ValueError(
                         f"Decryption failed at block {block_index}. "

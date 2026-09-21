@@ -69,9 +69,10 @@ import { useFileResolver } from '../composables/useFileResolver.js'
 import { usePlaylist } from '../composables/usePlaylist.js'
 import { formatSize } from '../composables/useFileDetection.js'
 import { useDownloadManager } from '../composables/useDownloadManager.js'
+import { toDownloadUrl } from '../composables/useFileDownload.js'
 
 const route = useRoute()
-const { decryptedName, playUrl, isEncrypted, rawUrl, rawSize, error, resolve, goBack } = useFileResolver()
+const { decryptedName, playUrl, isEncrypted, isLocal, rawUrl, rawSize, error, resolve, goBack } = useFileResolver()
 const playlist = usePlaylist('audio')
 const audioPlayerRef = ref(null)
 const coverUrl = ref('')
@@ -83,6 +84,17 @@ const isPlaying = computed(() => audioPlayerRef.value?.isPlaying || false)
 const formattedSize = computed(() => formatSize(rawSize.value))
 
 function handleDownload() {
+  // Encrypted files must be downloaded through the Service Worker, otherwise
+  // the user only gets the .ske container instead of the plaintext audio.
+  if (isEncrypted.value && !isLocal.value && playUrl.value) {
+    addTask({
+      url: toDownloadUrl(playUrl.value),
+      name: decryptedName.value || 'download',
+      total: 0, // plaintext size comes from the response Content-Length
+    })
+    return
+  }
+
   if (!rawUrl.value) return
   addTask({
     url: rawUrl.value,

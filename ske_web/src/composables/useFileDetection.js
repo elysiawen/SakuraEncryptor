@@ -5,6 +5,7 @@
 const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg']
 const VIDEO_EXTS = ['mp4', 'mkv', 'avi', 'mov', 'wmv', 'flv', 'webm', 'ts', 'm4v']
 const AUDIO_EXTS = ['mp3', 'wav', 'ogg', 'flac', 'aac', 'm4a']
+const SUBTITLE_EXTS = ['srt', 'ass', 'ssa', 'vtt']
 
 export function getExt(name) {
   if (!name) return ''
@@ -23,18 +24,23 @@ export function isAudio(name) {
   return AUDIO_EXTS.includes(getExt(name))
 }
 
+export function isSubtitle(name) {
+  return SUBTITLE_EXTS.includes(getExt(name))
+}
+
 export function getFileType(name) {
   const ext = getExt(name)
   if (IMAGE_EXTS.includes(ext)) return 'image'
   if (VIDEO_EXTS.includes(ext)) return 'video'
   if (AUDIO_EXTS.includes(ext)) return 'audio'
+  if (SUBTITLE_EXTS.includes(ext)) return 'subtitle'
   return 'file'
 }
 
 export function getFileIcon(item) {
   if (item.is_dir || item.isDir) return '📁'
   const type = getFileType(item.decName || item.name)
-  const icons = { image: '🖼️', video: '🎬', audio: '🎵', file: '📄' }
+  const icons = { image: '🖼️', video: '🎬', audio: '🎵', subtitle: '💬', file: '📄' }
   return icons[type] || '📄'
 }
 

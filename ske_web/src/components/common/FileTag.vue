@@ -8,7 +8,7 @@
 import { computed } from 'vue'
 
 const props = defineProps({
-  type: { type: String, required: true }, // folder, video, image, music, file
+  type: { type: String, required: true }, // folder, video, image, audio, subtitle, file
 })
 
 const labelMap = {
@@ -16,6 +16,7 @@ const labelMap = {
   video: '视频',
   image: '图片',
   audio: '音乐',
+  subtitle: '字幕',
   file: '文件',
 }
 
@@ -24,6 +25,7 @@ const tagTypeMap = {
   video: 'info',
   image: 'success',
   audio: 'error',
+  subtitle: 'warning',
   file: 'default',
 }
 

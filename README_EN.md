@@ -33,7 +33,7 @@ With this system, you can encrypt private videos, audio, and image files and sto
 
 ### 1. Local Encryption (CLI)
 
-Requires Python 3.8+.
+Requires Python 3.10+.
 
 ```bash
 cd ske_cli
@@ -61,10 +61,10 @@ npm run dev
 
 ## 🛡️ How It Works
 
-### Encryption (SKE v1.0)
+### Encryption (SKE v2.0)
 1. **Chunking** — Each file is split into 1 MB blocks.
 2. **Key Derivation** — A 256-bit Master Key is derived from the user password + random salt via PBKDF2-HMAC-SHA256 (100k iterations).
-3. **Block Encryption** — Each block is independently encrypted with AES-256-GCM using a unique nonce.
+3. **Block Encryption** — Each block is independently encrypted with AES-256-GCM using a unique nonce; the file-header prefix (Magic / version / salt / master IV) is bound in as AAD so key-defining header fields cannot be tampered with (legacy v1.0 files still decrypt).
 4. **Real-Time Decryption** — The Service Worker intercepts `/ske-decrypt/` requests, fetches encrypted blocks on demand, decrypts them in memory, and feeds the result to the player via `Content-Range` responses.
 
 ### Network Optimization

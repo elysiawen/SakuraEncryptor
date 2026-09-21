@@ -7,6 +7,11 @@ export default defineConfig({
     port: 5173,
     open: true,
   },
+  // JASSUB's worker is an ES module and relies on code-splitting, which the
+  // default "iife" worker format cannot express.
+  worker: {
+    format: 'es',
+  },
   build: {
     rollupOptions: {
       output: {

@@ -15,6 +15,7 @@ import click
 
 from ske_cli.crypto import (
     CHUNK_SIZE,
+    NAME_SALT,
     TAG_SIZE,
     derive_key,
     decrypt_file,
@@ -28,7 +29,7 @@ SKE_EXT = ".ske"
 
 def _walk_and_encrypt(src_dir: Path, dst_dir: Path, password: str, include_root: bool = False) -> None:
     """Recursively encrypt a directory tree."""
-    key = derive_key(password, b"ske-name-salt-00")  # fixed salt for name encryption
+    key = derive_key(password, NAME_SALT)
 
     for root, dirs, files in os.walk(src_dir):
         rel_root = Path(root).relative_to(src_dir)
@@ -65,7 +66,7 @@ def _walk_and_encrypt(src_dir: Path, dst_dir: Path, password: str, include_root:
 
 def _walk_and_decrypt(src_dir: Path, dst_dir: Path, password: str) -> None:
     """Recursively decrypt a directory tree."""
-    key = derive_key(password, b"ske-name-salt-00")
+    key = derive_key(password, NAME_SALT)
 
     for root, dirs, files in os.walk(src_dir):
         rel_root = Path(root).relative_to(src_dir)
@@ -134,7 +135,7 @@ def encrypt(src: str, dst: str, password: str, include_root: bool) -> None:
 
     if src_path.is_file():
         # For single files, the output is just the encrypted file in the dst directory
-        key = derive_key(password, b"ske-name-salt-00")
+        key = derive_key(password, NAME_SALT)
         enc_fname = encrypt_name(src_path.name, key) + SKE_EXT
         dst_file = dst_path / enc_fname
         dst_path.mkdir(parents=True, exist_ok=True)
@@ -158,7 +159,7 @@ def decrypt(src: str, dst: str, password: str) -> None:
         if not src_path.name.endswith(SKE_EXT):
             click.echo("Error: single file must end with .ske", err=True)
             sys.exit(1)
-        key = derive_key(password, b"ske-name-salt-00")
+        key = derive_key(password, NAME_SALT)
         enc_name_part = src_path.name[: -len(SKE_EXT)]
         try:
             dec_fname = decrypt_name(enc_name_part, key)

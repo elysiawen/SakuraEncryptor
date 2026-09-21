@@ -6,10 +6,11 @@
  */
 
 const KDF_ITERATIONS = 100_000
-const NAME_SALT = new TextEncoder().encode('ske-name-salt-00') // fixed salt for name keys
+// Must match NAME_SALT in ske_cli/crypto.py — deterministic name encryption.
+const NAME_SALT = new TextEncoder().encode('ske-name-salt-00')
 const IV_TAG = new TextEncoder().encode('ske-name-iv')
 const FILE_MAGIC = new TextEncoder().encode('SakuraE')
-const FILE_VERSION = new TextEncoder().encode('001')
+const FILE_VERSION = new TextEncoder().encode('002')
 const SALT_SIZE = 16
 const IV_SIZE = 12
 const HEADER_TAG_SIZE = 12
@@ -39,7 +40,7 @@ export async function deriveNameKey(password) {
     return deriveRawKey(password, NAME_SALT)
 }
 
-/** Derive a file-level key from password + salt embedded in .skmod header. */
+/** Derive a file-level key from password + salt embedded in the .ske header. */
 export async function deriveFileKey(password, salt) {
     return deriveRawKey(password, salt)
 }
@@ -129,6 +130,15 @@ export async function encryptFileContent(file, password) {
     const salt = crypto.getRandomValues(new Uint8Array(SALT_SIZE))
     const masterIv = crypto.getRandomValues(new Uint8Array(IV_SIZE))
     const key = await deriveFileKey(password, salt)
+
+    // v002: bind the 38-byte header prefix into every block as AAD so the
+    // key-defining fields (salt / IV / version) cannot be tampered with.
+    const aad = new Uint8Array(FILE_MAGIC.length + FILE_VERSION.length + SALT_SIZE + IV_SIZE)
+    aad.set(FILE_MAGIC, 0)
+    aad.set(FILE_VERSION, FILE_MAGIC.length)
+    aad.set(salt, FILE_MAGIC.length + FILE_VERSION.length)
+    aad.set(masterIv, FILE_MAGIC.length + FILE_VERSION.length + SALT_SIZE)
+
     const encryptedChunks = []
 
     let offset = 0
@@ -136,7 +146,11 @@ export async function encryptFileContent(file, password) {
     while (offset < file.size) {
         const chunk = new Uint8Array(await file.slice(offset, offset + CHUNK_SIZE).arrayBuffer())
         const nonce = blockNonce(masterIv, blockIndex)
-        const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: nonce }, key, chunk)
+        const encrypted = await crypto.subtle.encrypt(
+            { name: 'AES-GCM', iv: nonce, additionalData: aad },
+            key,
+            chunk,
+        )
         encryptedChunks.push(new Uint8Array(encrypted))
         offset += chunk.length
         blockIndex += 1

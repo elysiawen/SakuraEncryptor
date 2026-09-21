@@ -105,6 +105,12 @@
   --n-border: none;
 }
 
+.n-tag.tag-subtitle {
+  --n-color: rgba(245, 158, 11, 0.15);
+  --n-text-color: #f59e0b;
+  --n-border: none;
+}
+
 .n-tag.tag-encrypted {
   --n-color: rgba(139, 92, 246, 0.15);
   --n-text-color: #8b5cf6;

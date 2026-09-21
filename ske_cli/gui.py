@@ -22,6 +22,7 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 from ske_cli.crypto import (
+    NAME_SALT,
     derive_key,
     decrypt_file,
     decrypt_name,
@@ -30,7 +31,6 @@ from ske_cli.crypto import (
 )
 
 SKE_EXT = ".ske"
-NAME_SALT = b"ske-name-salt-00"
 
 # ── Color palette (matches web dark theme) ──────────────────────
 BG = "#0a0a14"

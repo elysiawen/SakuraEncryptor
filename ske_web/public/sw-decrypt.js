@@ -17,11 +17,13 @@
 
 const MAGIC = 'SakuraE'
 const HEADER_SIZE = 50
+const AAD_SIZE = HEADER_SIZE - 12  // 38: header prefix authenticated as AAD in v002
 const CHUNK_SIZE = 1024 * 1024   // 1 MiB plaintext per block
 const TAG_SIZE = 16              // AES-GCM tag
 const ENC_BLOCK_SIZE = CHUNK_SIZE + TAG_SIZE
 const KDF_ITERATIONS = 100_000
 const MAX_CACHED_BLOCKS = 64     // ~64 MiB of decrypted data
+const DOWNLOAD_BATCH_BLOCKS = 16 // blocks fetched per round during a download
 const SESSION_TTL = 10 * 60_000  // Clean idle sessions after 10 min
 
 let masterPassword = null
@@ -41,13 +43,14 @@ let perfCacheMisses = 0
 let perfLastDecryptMs = 0   // Latest block decryption latency in ms
 
 class FileSession {
-    constructor(url, salt, masterIv, key, totalSize, isLocal = false) {
+    constructor(url, salt, masterIv, key, totalSize, isLocal = false, aad = null) {
         this.url = url
         this.salt = salt
         this.masterIv = masterIv
         this.key = key
         this.totalSize = totalSize
         this.isLocal = isLocal
+        this.aad = aad  // v002 header prefix, or null for legacy v001 files
         this.lastUsed = Date.now()
 
         // Precompute plaintext metrics
@@ -174,6 +177,12 @@ async function handleDecrypt(request, url, isLocal = false) {
         const session = await getOrCreateSession(realUrl, querySize, isLocal)
         session.touch()
 
+        // Whole-file streaming download: returns plaintext and is NOT capped by
+        // MAX_RESPONSE, unlike the playback range handler below.
+        if (url.searchParams.get('download') === '1') {
+            return handleDownloadRequest(request, session)
+        }
+
         // 3. Parse Range header
         let rangeHeader = request.headers.get('Range')
         const mime = getMimeType(realUrl)
@@ -254,8 +263,12 @@ async function createSession(url, querySize, isLocal = false) {
     const magic = new TextDecoder().decode(headerBytes.slice(0, 7))
     if (magic !== MAGIC) throw new Error('Invalid .ske file (bad magic)')
 
+    const version = new TextDecoder().decode(headerBytes.slice(7, 10))
     const salt = headerBytes.slice(10, 26)
     const masterIv = headerBytes.slice(26, 38)
+    // v002 authenticates the 38-byte header prefix as AES-GCM AAD;
+    // v001 (legacy) was written without AAD.
+    const aad = version === '002' ? headerBytes.slice(0, AAD_SIZE) : null
     const key = await deriveKey(masterPassword, salt)
 
     if (!totalSize && querySize) {
@@ -263,8 +276,8 @@ async function createSession(url, querySize, isLocal = false) {
     }
     if (!totalSize) throw new Error('Cannot determine file size')
 
-    console.log(`[SW] Session ready: ${totalSize} bytes, key derived`)
-    return new FileSession(url, salt, masterIv, key, totalSize, isLocal)
+    console.log(`[SW] Session ready: ${totalSize} bytes, v${version}, key derived`)
+    return new FileSession(url, salt, masterIv, key, totalSize, isLocal, aad)
 }
 
 // ── Range request handling ────────────────────────────────────
@@ -372,7 +385,7 @@ async function fetchAndAssembleBlocks(session, startBlock, endBlock, rangeStart,
 // Fetches a contiguous range of encrypted blocks in ONE HTTP request,
 // then decrypts each individually.
 async function batchFetchBlocks(session, blockIndices) {
-    const { url, key, masterIv, totalSize } = session
+    const { url, key, masterIv, totalSize, aad } = session
 
     // Find the contiguous encrypted byte range covering all blocks
     const minBi = Math.min(...blockIndices)
@@ -414,8 +427,10 @@ async function batchFetchBlocks(session, blockIndices) {
         }
 
         const nonce = blockNonce(masterIv, bi)
+        const params = { name: 'AES-GCM', iv: nonce }
+        if (aad) params.additionalData = aad
         const t0 = performance.now()
-        const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: nonce }, key, encBlock)
+        const plain = await crypto.subtle.decrypt(params, key, encBlock)
         perfLastDecryptMs = Math.round((performance.now() - t0) * 100) / 100
         const plainData = new Uint8Array(plain)
 
@@ -432,7 +447,7 @@ async function batchFetchBlocks(session, blockIndices) {
 
 // ── Full file decrypt (non-media fallback) ────────────────────
 async function handleFullRequest(session) {
-    const { url, key, masterIv, totalSize, totalPlainSize, isLocal } = session
+    const { url, key, masterIv, totalSize, totalPlainSize, isLocal, aad } = session
 
     let bodyBytes
     if (isLocal) {
@@ -458,7 +473,9 @@ async function handleFullRequest(session) {
         const end = Math.min(offset + ENC_BLOCK_SIZE, bodyBytes.length)
         const block = bodyBytes.slice(offset, end)
         const nonce = blockNonce(masterIv, blockIndex)
-        const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: nonce }, key, block)
+        const params = { name: 'AES-GCM', iv: nonce }
+        if (aad) params.additionalData = aad
+        const plain = await crypto.subtle.decrypt(params, key, block)
         plainChunks.push(new Uint8Array(plain))
         offset = end
         blockIndex++
@@ -473,6 +490,85 @@ async function handleFullRequest(session) {
             'Accept-Ranges': 'bytes',
         },
     })
+}
+
+// ── Streaming download (full plaintext) ───────────────────────
+// Playback caps every response at MAX_RESPONSE so seeking never balloons
+// memory. Downloads must return the WHOLE plaintext file, so instead of
+// buffering everything we stream decrypted blocks out as they arrive.
+// Ranges are expressed in PLAINTEXT coordinates, which lets the download
+// manager pause and resume via ordinary Range requests.
+async function handleDownloadRequest(request, session) {
+    const { totalPlainSize } = session
+    const rangeHeader = request.headers.get('Range')
+
+    let start = 0
+    let end = totalPlainSize - 1
+    if (rangeHeader) {
+        const m = rangeHeader.match(/bytes=(\d+)-(\d*)/)
+        if (!m) return new Response('Invalid Range', { status: 416 })
+        start = parseInt(m[1], 10)
+        end = m[2] ? parseInt(m[2], 10) : totalPlainSize - 1
+    }
+    if (end >= totalPlainSize) end = totalPlainSize - 1
+
+    if (totalPlainSize > 0 && start >= totalPlainSize) {
+        return new Response('', {
+            status: 416,
+            headers: { 'Content-Range': `bytes */${totalPlainSize}` },
+        })
+    }
+
+    const length = end - start + 1
+    const startBlock = Math.floor(start / CHUNK_SIZE)
+    const endBlock = Math.floor(end / CHUNK_SIZE)
+    const offsetInFirst = start - startBlock * CHUNK_SIZE
+
+    const stream = new ReadableStream({
+        async start(controller) {
+            try {
+                let produced = 0
+                for (let first = startBlock; first <= endBlock; first += DOWNLOAD_BATCH_BLOCKS) {
+                    const last = Math.min(first + DOWNLOAD_BATCH_BLOCKS - 1, endBlock)
+                    const indices = []
+                    for (let bi = first; bi <= last; bi++) indices.push(bi)
+
+                    const batch = await batchFetchBlocks(session, indices)
+                    for (const bi of indices) {
+                        let block = batch.get(bi)
+                        if (bi === startBlock && offsetInFirst > 0) {
+                            block = block.subarray(offsetInFirst)
+                        }
+                        if (produced + block.length > length) {
+                            block = block.subarray(0, length - produced)
+                        }
+                        controller.enqueue(block)
+                        produced += block.length
+                        if (produced >= length) break
+                    }
+                    if (produced >= length) break
+
+                    // Simple back-pressure: yield so the consumer can drain.
+                    if (controller.desiredSize !== null && controller.desiredSize <= 0) {
+                        await new Promise((resolve) => setTimeout(resolve, 0))
+                    }
+                }
+                controller.close()
+            } catch (err) {
+                console.error('[SW] Download stream failed:', err)
+                controller.error(err)
+            }
+        },
+    })
+
+    const headers = {
+        'Content-Type': 'application/octet-stream',
+        'Content-Length': String(length),
+        'Accept-Ranges': 'bytes',
+    }
+    if (rangeHeader) headers['Content-Range'] = `bytes ${start}-${end}/${totalPlainSize}`
+
+    return new Response(stream, { status: rangeHeader ? 206 : 200, headers })
 }
 
 // ── LRU eviction ──────────────────────────────────────────────

@@ -33,7 +33,7 @@
 
 ### 1. 本地加密 (CLI)
 
-确保已安装 Python 3.8+。
+确保已安装 Python 3.10+。
 
 ```bash
 cd ske_cli
@@ -61,10 +61,10 @@ npm run dev
 
 ## 🛡️ 技术原理
 
-### 加密逻辑 (SKE v1.0)
+### 加密逻辑 (SKE v2.0)
 1.  **文件分块**：每个文件被切分为 1MB 的块。
 2.  **密钥导出**：利用用户密码 + 随机 Salt，通过 PBKDF2-HMAC-SHA256 (100k 迭代) 导出 256 位 Master Key。
-3.  **分块加密**：每个块独立使用 AES-256-GCM 加密，并带有独立的 Nonce。
+3.  **分块加密**：每个块独立使用 AES-256-GCM 加密，并带有独立的 Nonce；同时将文件头前缀（Magic / 版本 / Salt / Master IV）作为 AAD 参与认证，防止关键头部字段被篡改（v1.0 旧文件仍可正常解密）。
 4.  **实时解密**：Service Worker 拦截 `/ske-decrypt/` 请求，按需拉取加密分块并在内存中完成解密，随后通过 `Content-Range` 响应喂给播放器。
 
 ### 网络优化
