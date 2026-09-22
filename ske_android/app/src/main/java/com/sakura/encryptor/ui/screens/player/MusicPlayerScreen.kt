@@ -1,6 +1,7 @@
 package com.sakura.encryptor.ui.screens.player
 
 import android.app.Activity
+import android.content.res.Configuration
 import android.net.Uri
 import android.view.WindowManager
 import android.util.Log
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -28,6 +30,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Forward10
@@ -39,6 +43,7 @@ import androidx.compose.material.icons.rounded.PlaylistPlay
 import androidx.compose.material.icons.rounded.Replay10
 import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.RepeatOne
+import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material3.CircularProgressIndicator
@@ -70,6 +75,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
@@ -143,6 +149,7 @@ fun MusicPlayerScreen(
     var positionMs by remember { mutableLongStateOf(0L) }
     var durationMs by remember { mutableLongStateOf(0L) }
     var repeatMode by remember { mutableIntStateOf(Player.REPEAT_MODE_OFF) }
+    var shuffleEnabled by remember { mutableStateOf(false) }
     var isDragging by remember { mutableStateOf(false) }
     var dragValue by remember { mutableFloatStateOf(0f) }
 
@@ -502,6 +509,10 @@ fun MusicPlayerScreen(
         val player = controller ?: return@LaunchedEffect
         while (true) {
             isPlaying = player.isPlaying
+            // Re-read the modes too: this screen can be left and re-entered,
+            // and the local state must catch up with the live session.
+            repeatMode = player.repeatMode
+            shuffleEnabled = player.shuffleModeEnabled
             if (!isDragging) {
                 positionMs = player.currentPosition.coerceAtLeast(0L)
             }
@@ -521,61 +532,17 @@ fun MusicPlayerScreen(
 
     val syncedLyrics = remember(lyrics) { LrcParser.isSynced(lyrics) }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .statusBarsPadding()
-            .padding(horizontal = 24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.Rounded.ArrowBack, contentDescription = "返回")
-            }
-            Spacer(Modifier.weight(1f))
-            if (playlist.size > 1) {
-                IconButton(onClick = { showPlaylist = true }) {
-                    Icon(Icons.Rounded.PlaylistPlay, contentDescription = "播放列表")
-                }
-            }
-            IconButton(
-                onClick = {
-                    repeatMode = when (repeatMode) {
-                        Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
-                        Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
-                        else -> Player.REPEAT_MODE_OFF
-                    }
-                    controller?.repeatMode = repeatMode
-                }
-            ) {
-                Icon(
-                    imageVector = if (repeatMode == Player.REPEAT_MODE_ONE) {
-                        Icons.Rounded.RepeatOne
-                    } else {
-                        Icons.Rounded.Repeat
-                    },
-                    contentDescription = "循环模式",
-                    tint = if (repeatMode == Player.REPEAT_MODE_OFF) {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    } else {
-                        MaterialTheme.colorScheme.primary
-                    },
-                )
-            }
-        }
+    // Landscape puts the cover/controls on the left and the lyrics on the
+    // right; portrait stacks everything vertically.
+    val isLandscape =
+        LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
 
-        Spacer(Modifier.height(8.dp))
+    // ── shared building blocks for both orientations ──────────────────
 
+    @Composable
+    fun CoverArt(modifier: Modifier) {
         Box(
-            modifier = Modifier
-                .fillMaxWidth(0.52f)
-                .aspectRatio(1f)
+            modifier = modifier
                 .clip(MaterialTheme.shapes.extraLarge)
                 .background(
                     Brush.linearGradient(
@@ -623,9 +590,10 @@ fun MusicPlayerScreen(
                 }
             }
         }
+    }
 
-        Spacer(Modifier.height(18.dp))
-
+    @Composable
+    fun TrackInfo() {
         Text(
             text = tagTitle ?: currentName,
             style = MaterialTheme.typography.titleLarge,
@@ -644,22 +612,10 @@ fun MusicPlayerScreen(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+    }
 
-        Spacer(Modifier.height(10.dp))
-
-        LyricsBox(
-            lyrics = lyrics,
-            currentIndex = currentLyricIndex,
-            synced = syncedLyrics,
-            loading = lyricsLoading,
-            onSeek = { controller?.seekTo(it) },
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth(),
-        )
-
-        Spacer(Modifier.height(6.dp))
-
+    @Composable
+    fun SeekArea() {
         Slider(
             value = shownPosition.toFloat().coerceIn(0f, sliderMax),
             onValueChange = {
@@ -689,9 +645,10 @@ fun MusicPlayerScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+    }
 
-        Spacer(Modifier.height(12.dp))
-
+    @Composable
+    fun TransportRow() {
         Row(verticalAlignment = Alignment.CenterVertically) {
             FilledIconButton(
                 onClick = { playPrevious() },
@@ -756,8 +713,146 @@ fun MusicPlayerScreen(
                 Icon(Icons.Rounded.SkipNext, contentDescription = "下一首")
             }
         }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .statusBarsPadding()
+            .padding(horizontal = 24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(onClick = onBack) {
+                Icon(Icons.Rounded.ArrowBack, contentDescription = "返回")
+            }
+            Spacer(Modifier.weight(1f))
+            if (playlist.size > 1) {
+                IconButton(onClick = { showPlaylist = true }) {
+                    Icon(Icons.Rounded.PlaylistPlay, contentDescription = "播放列表")
+                }
+            }
+            IconButton(
+                // One button cycling through four playback orders:
+                // sequential → repeat-all → repeat-one → shuffle → sequential.
+                onClick = {
+                    when {
+                        !shuffleEnabled && repeatMode == Player.REPEAT_MODE_OFF ->
+                            repeatMode = Player.REPEAT_MODE_ALL
+
+                        !shuffleEnabled && repeatMode == Player.REPEAT_MODE_ALL ->
+                            repeatMode = Player.REPEAT_MODE_ONE
+
+                        !shuffleEnabled && repeatMode == Player.REPEAT_MODE_ONE -> {
+                            shuffleEnabled = true
+                            controller?.shuffleModeEnabled = true
+                        }
+
+                        else -> {
+                            shuffleEnabled = false
+                            controller?.shuffleModeEnabled = false
+                            repeatMode = Player.REPEAT_MODE_OFF
+                        }
+                    }
+                    if (!shuffleEnabled) controller?.repeatMode = repeatMode
+                }
+            ) {
+                Icon(
+                    imageVector = when {
+                        shuffleEnabled -> Icons.Rounded.Shuffle
+                        repeatMode == Player.REPEAT_MODE_ONE -> Icons.Rounded.RepeatOne
+                        else -> Icons.Rounded.Repeat
+                    },
+                    contentDescription = when {
+                        shuffleEnabled -> "随机播放"
+                        repeatMode == Player.REPEAT_MODE_ONE -> "单曲循环"
+                        repeatMode == Player.REPEAT_MODE_ALL -> "列表循环"
+                        else -> "顺序播放"
+                    },
+                    tint = if (shuffleEnabled || repeatMode != Player.REPEAT_MODE_OFF) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+            }
+        }
+
+        if (isLandscape) {
+            // Cover, track info and transport on the left; lyrics fill the rest.
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+            ) {
+                Column(
+                    modifier = Modifier
+                        .weight(0.42f)
+                        .fillMaxHeight()
+                        .verticalScroll(rememberScrollState()),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    CoverArt(modifier = Modifier.fillMaxWidth(0.75f).aspectRatio(1f))
+                    Spacer(Modifier.height(12.dp))
+                    TrackInfo()
+                    Spacer(Modifier.height(10.dp))
+                    SeekArea()
+                    Spacer(Modifier.height(12.dp))
+                    TransportRow()
+                }
+                Spacer(Modifier.width(18.dp))
+                LyricsBox(
+                    lyrics = lyrics,
+                    currentIndex = currentLyricIndex,
+                    synced = syncedLyrics,
+                    loading = lyricsLoading,
+                    onSeek = { controller?.seekTo(it) },
+                    modifier = Modifier
+                        .weight(0.58f)
+                        .fillMaxHeight()
+                        // Keep the card's bottom edge clear of the screen edge.
+                        .padding(bottom = 28.dp),
+                )
+            }
+        } else {
+            Spacer(Modifier.height(8.dp))
+
+            CoverArt(modifier = Modifier.fillMaxWidth(0.52f).aspectRatio(1f))
+
+        Spacer(Modifier.height(18.dp))
+
+        TrackInfo()
+
+        Spacer(Modifier.height(10.dp))
+
+        LyricsBox(
+            lyrics = lyrics,
+            currentIndex = currentLyricIndex,
+            synced = syncedLyrics,
+            loading = lyricsLoading,
+            onSeek = { controller?.seekTo(it) },
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+        )
+
+        Spacer(Modifier.height(6.dp))
+
+        SeekArea()
+
+        Spacer(Modifier.height(12.dp))
+
+        TransportRow()
 
         Spacer(Modifier.height(30.dp))
+        }
     }
 
     playbackError?.let { message ->
