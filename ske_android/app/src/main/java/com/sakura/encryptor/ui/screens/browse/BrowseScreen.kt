@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.CheckCircle
@@ -99,6 +100,12 @@ fun BrowseScreen(
     val loggedIn by container.aListSession.isLoggedInFlow.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
+
+    // Hoisted out of the LazyColumn branch: while data reloads the list leaves
+    // the composition, and a state held inside it would be rebuilt empty — the
+    // position survived neither entering the player nor coming back. With the
+    // state living here, the scroll position rides through reloads untouched.
+    val listState = rememberLazyListState()
 
     val activeProfile = remember(profiles, activeProfileId) {
         profiles.firstOrNull { it.id == activeProfileId }
@@ -245,7 +252,7 @@ fun BrowseScreen(
                         message = "目录中没有文件，或加密文件尚未上传。",
                     )
 
-                    else -> LazyColumn(modifier = Modifier.fillMaxSize()) {
+                    else -> LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
                         items(
                             items = state.entries,
                             key = { it.raw.name },

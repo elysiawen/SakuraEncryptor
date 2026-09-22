@@ -8,8 +8,10 @@ import com.sakura.encryptor.core.download.DownloadManager
 import com.sakura.encryptor.core.local.CryptoNotifications
 import com.sakura.encryptor.core.local.CryptoTaskRunner
 import com.sakura.encryptor.core.local.LocalSkeStore
+import com.sakura.encryptor.core.player.AudioTags
 import com.sakura.encryptor.core.player.CipherBlockSourceFactory
 import com.sakura.encryptor.core.player.DecryptedBytesReader
+import com.sakura.encryptor.core.player.LyricLine
 import com.sakura.encryptor.core.player.QueueUriResolver
 import com.sakura.encryptor.core.player.SiblingLyricsLoader
 import com.sakura.encryptor.core.player.SkeDataSourceFactory
@@ -29,6 +31,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
 /**
@@ -146,6 +149,17 @@ class AppContainer(private val appContext: Context) {
     var cacheBlocks: Int = SettingsStore.DEFAULT_CACHE_BLOCKS
         private set
 
+    /**
+     * Tags and lyrics, keyed by the stable queue locator.
+     *
+     * The player screen holds its metadata in `remember {}` state, so leaving
+     * it destroys everything and coming back re-reads the network. These maps
+     * live as long as the process: a track visited once during a session is
+     * never fetched again. Cleared together with the derived keys below.
+     */
+    val trackTags = ConcurrentHashMap<String, AudioTags>()
+    val trackLyrics = ConcurrentHashMap<String, List<LyricLine>>()
+
     val skeDataSourceFactory: SkeDataSourceFactory by lazy {
         SkeDataSourceFactory(
             sourceFactory = cipherBlockSourceFactory,
@@ -213,6 +227,9 @@ class AppContainer(private val appContext: Context) {
             queueUriResolver.invalidate()
             // Listings were decrypted with the key that is about to be dropped.
             playlistRepository.clearListings()
+            // Same for anything the tags/lyrics caches were decrypted from.
+            trackTags.clear()
+            trackLyrics.clear()
             // Do not keep derived name keys around once a password is locked.
             NameKeyCache.clear()
         }

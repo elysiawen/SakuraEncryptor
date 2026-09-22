@@ -273,21 +273,26 @@ object LyricsLoader {
         password: String,
         maxBytes: Int = 1 shl 20,
     ): List<LyricLine>? {
-        return try {
-            // Shared with the tag reader, so a plain (unencrypted) track yields
-            // its lyrics too instead of being treated as a broken container.
-            val access = openPlaintext(source, password, cacheBlocks = 2) ?: return null
-            val size = minOf(access.size, maxBytes.toLong()).toInt()
-            if (size <= 0) return null
+        // Every byte this reads comes from the network (or a file), so the whole
+        // body must run on IO. openPlaintext's internal withContext is not enough:
+        // the reads through access.reader happen HERE, on whatever dispatcher the
+        // caller was on — the main thread for Compose — and on newer Android that
+        // throws NetworkOnMainThreadException.
+        return withContext(Dispatchers.IO) {
+            try {
+                val access = openPlaintext(source, password, cacheBlocks = 2) ?: return@withContext null
+                val size = minOf(access.size, maxBytes.toLong()).toInt()
+                if (size <= 0) return@withContext null
 
-            val bytes = access.reader.exact(0, size) ?: return null
-            val raw = LyricsExtractor.extract(bytes) ?: return null
-            LrcParser.parse(raw).takeIf { it.isNotEmpty() }
-        } catch (_: Exception) {
-            // As with tags, a failed read just means "no lyrics here".
-            null
-        } finally {
-            runCatching { source.close() }
+                val bytes = access.reader.exact(0, size) ?: return@withContext null
+                val raw = LyricsExtractor.extract(bytes) ?: return@withContext null
+                LrcParser.parse(raw).takeIf { it.isNotEmpty() }
+            } catch (_: Exception) {
+                // As with tags, a failed read just means "no lyrics here".
+                null
+            } finally {
+                runCatching { source.close() }
+            }
         }
     }
 }

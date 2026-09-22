@@ -1,6 +1,8 @@
 package com.sakura.encryptor.ui.screens.player
 
+import android.app.Activity
 import android.net.Uri
+import android.view.WindowManager
 import android.util.Log
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -89,6 +91,7 @@ import androidx.media3.common.Player
 import coil.compose.AsyncImage
 import com.sakura.encryptor.BuildConfig
 import com.sakura.encryptor.core.player.AudioTagLoader
+import com.sakura.encryptor.core.player.AudioTags
 import com.sakura.encryptor.core.player.PlaybackExtras
 import com.sakura.encryptor.core.player.LrcParser
 import com.sakura.encryptor.core.player.LyricLine
@@ -175,30 +178,27 @@ fun MusicPlayerScreen(
 
     val fromCloud = source == PlaybackSource.CLOUD
 
-    // One lookup per entry, shared by the queue titles and the now-playing tags.
-    val tagTitleCache = remember { mutableMapOf<String, String?>() }
-
     /**
      * The track's own title, or null when the container carries none.
      *
      * Reading this *before* playback is what lets the media notification show the
      * real name: the notification renders the MediaItem's own metadata, and a
      * title cannot be corrected afterwards without restarting the track.
+     *
+     * Reads through [AppContainer.trackTags], so the full tag set (and the
+     * miss, cached as an empty object) is shared with the now-playing screen.
      */
     suspend fun tagTitleOf(item: PlaylistItem): String? {
-        if (tagTitleCache.containsKey(item.locator)) return tagTitleCache[item.locator]
-
-        val uri = container.playlistRepository.resolveUri(item, fromCloud)
-        val title = if (uri == null) {
-            null
-        } else {
-            runCatching {
-                AudioTagLoader.load(container.cipherBlockSourceFactory.create(Uri.parse(uri)), password)
-            }.getOrNull()?.title?.takeIf { it.isNotBlank() }
+        container.trackTags[item.locator]?.let { tags ->
+            return tags.title?.takeIf { it.isNotBlank() }
         }
 
-        tagTitleCache[item.locator] = title
-        return title
+        val uri = container.playlistRepository.resolveUri(item, fromCloud) ?: return null
+        val tags = runCatching {
+            AudioTagLoader.load(container.cipherBlockSourceFactory.create(Uri.parse(uri)), password)
+        }.getOrNull()
+        container.trackTags[item.locator] = tags ?: AudioTags()
+        return tags?.title?.takeIf { it.isNotBlank() }
     }
 
     // Which queue entry the session is on, tracked as state because reading it
@@ -225,6 +225,14 @@ fun MusicPlayerScreen(
 
     fun playPrevious() {
         controller?.seekToPreviousMediaItem()
+    }
+
+    // Keep the screen on while the player is open: glanceable playback (lyrics,
+    // cover) is the page's whole job, and a dimming screen fights that.
+    DisposableEffect(Unit) {
+        val window = (context as? Activity)?.window
+        window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        onDispose { window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
     }
 
     DisposableEffect(controller) {
@@ -417,8 +425,17 @@ fun MusicPlayerScreen(
     // Lyrics, preferring a `.lrc` sitting next to the track: that is how most
     // libraries ship them, and a file placed on purpose usually beats the
     // embedded copy. Whatever is inside the audio is the fallback.
-    LaunchedEffect(currentUri, currentLocator) {
+    LaunchedEffect(currentLocator, currentUri) {
+        val locator = currentLocator ?: return@LaunchedEffect
         val url = currentUri ?: return@LaunchedEffect
+
+        // A track visited in this session already has its lyrics cached.
+        container.trackLyrics[locator]?.let { cached ->
+            lyrics = cached
+            lyricsLoading = false
+            return@LaunchedEffect
+        }
+
         lyricsLoading = true
 
         val nameKey = runCatching { NameKeyCache.get(password) }.getOrNull()
@@ -440,6 +457,9 @@ fun MusicPlayerScreen(
             LyricsLoader.load(container.cipherBlockSourceFactory.create(Uri.parse(url)), password)
         }.getOrNull().orEmpty()
 
+        // Cache the empty result too: a track without lyrics shouldn't
+        // re-read the file on every visit.
+        container.trackLyrics[locator] = lyrics
         lyricsLoading = false
     }
 
@@ -448,11 +468,26 @@ fun MusicPlayerScreen(
     // fell back to the file name" — the session's metadata cannot, since it
     // keeps whatever title we seeded. Whatever this misses, the listener below
     // fills in from the session.
-    LaunchedEffect(currentUri) {
+    LaunchedEffect(currentLocator, currentUri) {
+        val locator = currentLocator ?: return@LaunchedEffect
         val url = currentUri ?: return@LaunchedEffect
+
+        // A track visited in this session already has its tags cached.
+        container.trackTags[locator]?.let { cached ->
+            cached.title?.let { tagTitle = it }
+            cached.artist?.let { tagArtist = it }
+            cached.album?.let { tagAlbum = it }
+            if (artwork == null) cached.artwork?.let { artwork = it }
+            return@LaunchedEffect
+        }
+
         val tags = runCatching {
             AudioTagLoader.load(container.cipherBlockSourceFactory.create(Uri.parse(url)), password)
-        }.getOrNull() ?: return@LaunchedEffect
+        }.getOrNull()
+
+        // Cache the miss too, so a tagless track is only read once per session.
+        container.trackTags[locator] = tags ?: AudioTags()
+        tags ?: return@LaunchedEffect
 
         // Only assign what was actually found, so the session's fallback
         // survives when a tag is absent here.

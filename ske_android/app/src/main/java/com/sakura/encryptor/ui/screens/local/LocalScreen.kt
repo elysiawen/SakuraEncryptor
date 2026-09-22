@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.Image
@@ -71,6 +72,10 @@ fun LocalScreen(
     onOpenDrawer: () -> Unit,
 ) {
     val context = LocalContext.current
+
+    // Hoisted above the LazyColumn branch so the scroll position survives the
+    // list leaving the composition while data reloads (same as BrowseScreen).
+    val listState = rememberLazyListState()
     val viewModel = rememberAppViewModel { container ->
         LocalViewModel(
             store = container.localSkeStore,
@@ -193,7 +198,7 @@ fun LocalScreen(
                 message = "这里还没有文件。要加密新文件，请到「加密」页。",
             )
 
-            else -> LazyColumn(modifier = Modifier.fillMaxSize()) {
+            else -> LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
                 if (!unlocked) {
                     item {
                         UnlockHintCard(onUnlock = { showUnlockDialog = true })

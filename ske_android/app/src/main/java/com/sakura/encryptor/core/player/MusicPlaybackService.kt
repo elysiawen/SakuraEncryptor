@@ -48,7 +48,20 @@ class MusicPlaybackService : MediaSessionService() {
             .setHandleAudioBecomingNoisy(true)
             .build()
 
+        // Tapping the media notification (or the lock-screen widget) opens this.
+        // Without it the notification renders fine but the tap does nothing —
+        // exactly the "点不动" symptom.
+        val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
+            ?: Intent(this, com.sakura.encryptor.MainActivity::class.java)
+        val sessionActivity = android.app.PendingIntent.getActivity(
+            this,
+            /* requestCode = */ 0,
+            launchIntent,
+            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE,
+        )
+
         mediaSession = MediaSession.Builder(this, player)
+            .setSessionActivity(sessionActivity)
             .setCallback(object : MediaSession.Callback {
                 /**
                  * Items come from this app's own UI, so they are taken as-is.

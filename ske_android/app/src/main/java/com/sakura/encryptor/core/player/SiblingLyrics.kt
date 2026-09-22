@@ -3,6 +3,8 @@ package com.sakura.encryptor.core.player
 import android.net.Uri
 import com.sakura.encryptor.core.playlist.PlaylistItem
 import com.sakura.encryptor.core.playlist.PlaylistRepository
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.nio.ByteBuffer
 import java.nio.charset.Charset
 import java.nio.charset.CodingErrorAction
@@ -41,19 +43,23 @@ class SiblingLyricsLoader(
         val uri = playlistRepository.resolveUri(lyrics, fromCloud) ?: return null
 
         val source = cipherBlockSourceFactory.create(Uri.parse(uri))
-        return try {
-            // Same rule as everywhere else: the file may or may not be a
-            // container, and a plain one still has to be readable.
-            val access = openPlaintext(source, password, cacheBlocks = 2) ?: return null
-            val size = minOf(access.size, MAX_BYTES.toLong()).toInt()
-            if (size <= 0) return null
+        // Reads through access.reader hit the network; keep them off the caller's
+        // (main) thread for the same reason as LyricsLoader.load.
+        return withContext(Dispatchers.IO) {
+            try {
+                // Same rule as everywhere else: the file may or may not be a
+                // container, and a plain one still has to be readable.
+                val access = openPlaintext(source, password, cacheBlocks = 2) ?: return@withContext null
+                val size = minOf(access.size, MAX_BYTES.toLong()).toInt()
+                if (size <= 0) return@withContext null
 
-            val bytes = access.reader.exact(0, size) ?: return null
-            LrcParser.parse(decodeText(bytes)).takeIf { it.isNotEmpty() }
-        } catch (_: Exception) {
-            null
-        } finally {
-            runCatching { source.close() }
+                val bytes = access.reader.exact(0, size) ?: return@withContext null
+                LrcParser.parse(decodeText(bytes)).takeIf { it.isNotEmpty() }
+            } catch (_: Exception) {
+                null
+            } finally {
+                runCatching { source.close() }
+            }
         }
     }
 

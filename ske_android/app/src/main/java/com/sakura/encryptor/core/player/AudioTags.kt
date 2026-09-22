@@ -624,28 +624,20 @@ internal fun TagReader.capped(position: Long, length: Int, limit: Int): ByteArra
  */
 object AudioTagLoader {
 
-    suspend fun load(source: CipherBlockSource, password: String): AudioTags? = try {
-        val access = openPlaintext(source, password)
-        if (access == null) {
+    suspend fun load(source: CipherBlockSource, password: String): AudioTags? = withContext(Dispatchers.IO) {
+        // Same as LyricsLoader: openPlaintext's withContext covers only the open,
+        // but extract() drives access.reader on THIS dispatcher. On the main
+        // thread that is a NetworkOnMainThreadException.
+        try {
+            val access = openPlaintext(source, password) ?: return@withContext null
+            AudioTagExtractor.extract(access.reader, access.size)
+        } catch (_: Exception) {
+            // Reading tags must never be able to take playback down with it. A wrong
+            // password or a damaged block simply means this track shows no metadata.
             null
-        } else {
-            val tags = AudioTagExtractor.extract(access.reader, access.size)
-            if (BuildConfig.DEBUG) {
-                Log.d(
-                    "SakuraTags",
-                    "plain=${access.isPlain} size=${access.size} title=${tags?.title} " +
-                        "artist=${tags?.artist} album=${tags?.album} art=${tags?.artwork?.size}",
-                )
-            }
-            tags
+        } finally {
+            runCatching { source.close() }
         }
-    } catch (throwable: Exception) {
-        // Reading tags must never be able to take playback down with it. A wrong
-        // password or a damaged block simply means this track shows no metadata.
-        if (BuildConfig.DEBUG) Log.w("SakuraTags", "load failed", throwable)
-        null
-    } finally {
-        runCatching { source.close() }
     }
 }
 
