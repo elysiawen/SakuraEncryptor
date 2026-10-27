@@ -21,3 +21,4 @@ export function toDownloadUrl(url) {
     const sep = url.includes('?') ? '&' : '?'
     return `${url}${sep}${DOWNLOAD_PARAM}`
 }
+

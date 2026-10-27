@@ -672,7 +672,8 @@ internal suspend fun openPlaintext(
     try {
         source.open()
 
-        val prefix = ByteArray(SkeFormat.HEADER_SIZE)
+        // Probe past the header so a v003 thumbnail envelope can be skipped.
+        val prefix = ByteArray(SkeFormat.PROBE_SIZE)
         var filled = 0
         while (filled < prefix.size) {
             val chunk = source.read(filled.toLong(), prefix, filled, prefix.size - filled)

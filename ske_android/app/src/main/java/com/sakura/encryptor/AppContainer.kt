@@ -8,6 +8,8 @@ import com.sakura.encryptor.core.download.DownloadManager
 import com.sakura.encryptor.core.local.CryptoNotifications
 import com.sakura.encryptor.core.local.CryptoTaskRunner
 import com.sakura.encryptor.core.local.LocalSkeStore
+import com.sakura.encryptor.core.media.PreviewCache
+import com.sakura.encryptor.core.media.PreviewLoader
 import com.sakura.encryptor.core.player.AudioTags
 import com.sakura.encryptor.core.player.CipherBlockSourceFactory
 import com.sakura.encryptor.core.player.DecryptedBytesReader
@@ -113,6 +115,11 @@ class AppContainer(private val appContext: Context) {
     /** Reads whole files, decrypting `.ske` containers. Used for images and subtitles. */
     val decryptedBytesReader: DecryptedBytesReader by lazy {
         DecryptedBytesReader(cipherBlockSourceFactory)
+    }
+
+    /** Grid-tile previews; reads only the v003 envelope, never the whole file. */
+    val previewLoader: PreviewLoader by lazy {
+        PreviewLoader(appContext, cipherBlockSourceFactory)
     }
 
     val subtitleRepository: SubtitleRepository by lazy {
@@ -232,6 +239,8 @@ class AppContainer(private val appContext: Context) {
             trackLyrics.clear()
             // Do not keep derived name keys around once a password is locked.
             NameKeyCache.clear()
+            // Previews are decrypted bitmaps of the vault's contents.
+            PreviewCache.clear()
         }
         vault.addOnLockListener(invalidate)
         localVault.addOnLockListener(invalidate)

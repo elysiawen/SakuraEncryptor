@@ -51,6 +51,7 @@
               <div class="picker-icon">📂</div>
               <div class="picker-text">
                 <span v-if="localFileCount === 0">点击选择文件夹</span>
+                <span v-else-if="localDirName">已选择「{{ localDirName }}」共 {{ localFileCount }} 个文件</span>
                 <span v-else>已选择 {{ localFileCount }} 个文件</span>
               </div>
               <input
@@ -102,13 +103,15 @@ import { useRouter } from 'vue-router'
 import { storeAndPostKey } from '../composables/useCrypto.js'
 import { login as alistLogin } from '../composables/useAList.js'
 import { useLocalFiles } from '../composables/useLocalFiles.js'
+import { pickLocalDirectory, supportsDirectoryHandles } from '../composables/useLocalDirectory.js'
 
 const router = useRouter()
-const { registerFiles } = useLocalFiles()
+const { registerFiles, state: localState } = useLocalFiles()
 
 const currentTab = ref('alist')
 const folderInput = ref(null)
 const localFileCount = ref(0)
+const localDirName = ref('')
 const selectedFiles = ref([])
 
 const alistServer = ref('')
@@ -127,7 +130,21 @@ onMounted(() => {
   localStorage.removeItem('ske_alist_root')
 })
 
-function triggerFolderPicker() {
+async function triggerFolderPicker() {
+  // Prefer showDirectoryPicker: it is the only variant whose result (a folder
+  // handle) can be remembered, so a reload can reconnect without re-picking.
+  if (supportsDirectoryHandles) {
+    error.value = ''
+    try {
+      const handle = await pickLocalDirectory()
+      localDirName.value = handle.name
+      localFileCount.value = localState.files.length
+    } catch (err) {
+      // Closing the picker is a normal action, not a failure.
+      if (err?.name !== 'AbortError') error.value = err.message || '无法读取该文件夹'
+    }
+    return
+  }
   folderInput.value?.click()
 }
 
@@ -153,8 +170,12 @@ async function handleUnifiedSubmit() {
       localStorage.setItem('ske_alist_server', alistServer.value)
       router.push('/browse/')
     } else {
-      if (selectedFiles.value.length === 0) throw new Error('请先选择一个文件夹或文件')
-      await registerFiles(selectedFiles.value)
+      // showDirectoryPicker already scanned and registered the folder; the
+      // <input> fallback still needs registering here.
+      if (!localState.isReady) {
+        if (selectedFiles.value.length === 0) throw new Error('请先选择一个文件夹或文件')
+        await registerFiles(selectedFiles.value)
+      }
       router.push('/local/')
     }
   } catch (err) {

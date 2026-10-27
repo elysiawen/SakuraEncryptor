@@ -7,6 +7,7 @@ import androidx.documentfile.provider.DocumentFile
 import com.sakura.encryptor.core.crypto.SkeCrypto
 import com.sakura.encryptor.core.crypto.SkeFileCipher
 import com.sakura.encryptor.core.crypto.SkeFormat
+import com.sakura.encryptor.core.media.ThumbnailGenerator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -50,7 +51,11 @@ class CryptoTaskRunner(private val context: Context) {
             val tempEncrypted = createTemp("ske")
             try {
                 copyUriToFile(uri, tempPlain)
-                SkeFileCipher.encryptFile(tempPlain, tempEncrypted, password) { done, total ->
+                // v003 carries a preview. Generation lives here rather than in
+                // SkeFileCipher so the crypto layer stays free of Android
+                // framework types (and unit-testable on the JVM).
+                val preview = runCatching { ThumbnailGenerator.generate(tempPlain) }.getOrNull()
+                SkeFileCipher.encryptFile(tempPlain, tempEncrypted, password, preview) { done, total ->
                     onProgress(Progress(displayName, index + 1, uris.size, done, total))
                 }
                 val outputName = SkeCrypto.encryptName(displayName, nameKey) + SkeFormat.SKE_EXT
@@ -107,7 +112,11 @@ class CryptoTaskRunner(private val context: Context) {
             val tempPlain = createTemp("plain")
             val tempEncrypted = createTemp("ske")
             copyUriToFile(uri, tempPlain)
-            SkeFileCipher.encryptFile(tempPlain, tempEncrypted, password) { done, total ->
+            // Previews must survive uploads too: this is the path that puts a
+            // file into the vault, and a v003 container without an envelope
+            // shows as a generic tile in every other client.
+            val preview = runCatching { ThumbnailGenerator.generate(tempPlain) }.getOrNull()
+            SkeFileCipher.encryptFile(tempPlain, tempEncrypted, password, preview) { done, total ->
                 onProgress?.invoke(done, total)
             }
             tempPlain.delete()

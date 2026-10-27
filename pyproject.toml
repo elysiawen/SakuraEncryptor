@@ -11,12 +11,18 @@ dependencies = [
     "cryptography>=42.0",
     "click>=8.0",
     "tkinterdnd2>=0.3.0",
+    "Pillow>=10.0",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
     "pyinstaller>=6.0",
+]
+# Video previews for the CLI. PyAV bundles its own decoders, so no system
+# ffmpeg is needed: `pip install .[video]` is enough.
+video = [
+    "av>=12.0",
 ]
 
 [project.scripts]

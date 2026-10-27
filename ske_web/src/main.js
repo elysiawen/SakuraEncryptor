@@ -73,7 +73,9 @@ export const themeOverrides = {
 // ── Service Worker Registration ───────────────────────────────
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker
-    .register('/sw-decrypt.js', { scope: '/' })
+    // updateViaCache: 'none' — the worker owns the container layout; a stale
+    // copy would keep using the pre-v003 body offset.
+    .register('/sw-decrypt.js', { scope: '/', updateViaCache: 'none' })
     .then((reg) => console.log('[SKE] Service Worker registered:', reg.scope))
     .catch((err) => console.error('[SKE] SW registration failed:', err))
 

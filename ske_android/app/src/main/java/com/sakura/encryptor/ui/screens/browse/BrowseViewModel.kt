@@ -1,5 +1,7 @@
 package com.sakura.encryptor.ui.screens.browse
 
+import android.graphics.Bitmap
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
@@ -9,6 +11,7 @@ import com.sakura.encryptor.core.alist.DecryptedEntry
 import com.sakura.encryptor.core.crypto.SkeCrypto
 import com.sakura.encryptor.core.crypto.SkeFormat
 import com.sakura.encryptor.core.download.DownloadManager
+import com.sakura.encryptor.core.media.PreviewLoader
 import com.sakura.encryptor.core.player.CipherBlockSourceFactory
 import com.sakura.encryptor.core.player.MediaKind
 import com.sakura.encryptor.core.player.MediaTypes
@@ -35,6 +38,7 @@ class BrowseViewModel(
     private val downloadManager: DownloadManager,
     private val profileRepository: ProfileRepository,
     private val cipherBlockSourceFactory: CipherBlockSourceFactory,
+    private val previews: PreviewLoader,
 ) : ViewModel() {
 
     data class UiState(
@@ -44,6 +48,7 @@ class BrowseViewModel(
         val isRefreshing: Boolean = false,
         val error: String? = null,
         val selected: Set<String> = emptySet(),
+        /** True while a `.ske` entry is being resolved to a playable url. */
         val isPreparing: Boolean = false,
     ) {
         val inSelectionMode: Boolean get() = selected.isNotEmpty()
@@ -65,6 +70,30 @@ class BrowseViewModel(
     val breadcrumbs: StateFlow<List<Pair<String, String>>> = _breadcrumbs.asStateFlow()
 
     private var cachedNameKey: ByteArray? = null
+
+    /** Remote path to already-resolved raw url, so a tile resolves once. */
+    private val previewUrls = HashMap<String, String>()
+
+    /**
+     * Grid preview of [entry], or `null` for folders and plaintext files.
+     *
+     * Every vault upload is a `.ske` container, whose v003 envelope holds the
+     * preview: resolving the raw url and reading two small ranges is all it
+     * takes, so a screenful of tiles never downloads the files themselves.
+     */
+    suspend fun previewOf(entry: DecryptedEntry): Bitmap? {
+        if (entry.isDir || !entry.isSke) return null
+        val remotePath = "${_state.value.path.trimEnd('/')}/${entry.raw.name}"
+
+        val url = previewUrls[remotePath] ?: runCatching {
+            val (resolved, size) = repository.resolveRemote(remotePath)
+            cipherBlockSourceFactory.rememberSize(resolved, size)
+            previewUrls[remotePath] = resolved
+            resolved
+        }.getOrNull() ?: return null
+
+        return previews.load(Uri.parse(url), entry.displayName, vault.password)
+    }
 
     // ---- cloud profiles ------------------------------------------------------
 

@@ -38,9 +38,11 @@ class BlockLruCache(private val maxEntries: Int) {
  * stream.
  *
  * Layout recap: plaintext block `i` lives at ciphertext offset
- * `HEADER_SIZE + i * (CHUNK_SIZE + TAG_SIZE)` and is at most `CHUNK_SIZE`
- * bytes long. Reading plaintext range `[p, p+n)` therefore only touches the
- * blocks that range spans — that is what makes HTTP Range seeking possible.
+ * `bodyOffset + i * (CHUNK_SIZE + TAG_SIZE)` and is at most `CHUNK_SIZE`
+ * bytes long (`bodyOffset` is the header size, plus the v003 thumbnail
+ * envelope when present). Reading plaintext range `[p, p+n)` therefore only
+ * touches the blocks that range spans — that is what makes HTTP Range seeking
+ * possible.
  */
 class SkeBlockReader(
     private val source: CipherBlockSource,
@@ -50,8 +52,8 @@ class SkeBlockReader(
     cacheBlocks: Int,
 ) {
 
-    val plaintextSize: Long = SkeHeader.plaintextSize(cipherSize)
-    private val blockCount: Long = SkeHeader.blockCount(cipherSize)
+    val plaintextSize: Long = SkeHeader.plaintextSize(cipherSize, header.bodyOffset)
+    private val blockCount: Long = SkeHeader.blockCount(cipherSize, header.bodyOffset)
     private val cache = BlockLruCache(cacheBlocks)
     private var cachedFinalBytes: Long = -1L
 
@@ -92,7 +94,7 @@ class SkeBlockReader(
         cache.get(blockIndex)?.let { return it }
         if (blockIndex >= blockCount) throw IOException("Block $blockIndex out of range")
 
-        val start = SkeFormat.HEADER_SIZE + blockIndex * SkeFormat.ENC_BLOCK_SIZE
+        val start = header.bodyOffset + blockIndex * SkeFormat.ENC_BLOCK_SIZE
         val end = minOf(start + SkeFormat.ENC_BLOCK_SIZE, source.cipherSize)
         val size = (end - start).toInt()
         if (size <= SkeFormat.TAG_SIZE) throw IOException("Truncated block $blockIndex")
@@ -116,17 +118,21 @@ class SkeBlockReader(
     fun cacheSize(): Int = cache.size()
 
     companion object {
-        /** Read and parse the 50-byte header from a source that is already open. */
+        /**
+         * Read and parse the header (plus the v003 thumbnail envelope) from a
+         * source that is already open.
+         */
         fun readHeader(source: CipherBlockSource): SkeHeader {
-            val bytes = ByteArray(SkeFormat.HEADER_SIZE)
+            val bytes = ByteArray(SkeFormat.PROBE_SIZE)
             var position = 0L
-            while (position < SkeFormat.HEADER_SIZE.toLong()) {
+            while (position < SkeFormat.PROBE_SIZE.toLong()) {
                 val offset = position.toInt()
-                val chunk = source.read(position, bytes, offset, SkeFormat.HEADER_SIZE - offset)
-                if (chunk <= 0) throw IOException("File too small to be a valid .ske")
+                val chunk = source.read(position, bytes, offset, SkeFormat.PROBE_SIZE - offset)
+                if (chunk <= 0) break
                 position += chunk
             }
-            return SkeHeader.parse(bytes)
+            val filled = minOf(position, SkeFormat.PROBE_SIZE.toLong()).toInt()
+            return SkeHeader.parse(bytes.copyOf(filled))
         }
     }
 }

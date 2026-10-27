@@ -42,6 +42,9 @@ class SettingsStore(private val context: Context) {
         val LOCAL_TREE_URI = stringPreferencesKey("local_tree_uri")
         val LOCAL_OUTPUT_URI = stringPreferencesKey("local_output_uri")
 
+        // File listings.
+        val GRID_VIEW = booleanPreferencesKey("grid_view")
+
         // Player.
         val SUBTITLE_TEXT_SIZE = intPreferencesKey("subtitle_text_size")
 
@@ -113,6 +116,20 @@ class SettingsStore(private val context: Context) {
         context.settingsDataStore.edit {
             it[Keys.CACHE_BLOCKS] = blocks.coerceIn(MIN_CACHE_BLOCKS, MAX_CACHE_BLOCKS)
         }
+
+    // ---- file listings -------------------------------------------------------
+
+    /**
+     * Whether file listings are drawn as a grid.
+     *
+     * Global on purpose: the local and the cloud screen are the same kind of
+     * list, so switching once should stick for both, and for the next launch.
+     */
+    val gridView: Flow<Boolean> =
+        context.settingsDataStore.data.map { it[Keys.GRID_VIEW] ?: false }
+
+    suspend fun setGridView(enabled: Boolean) =
+        context.settingsDataStore.edit { it[Keys.GRID_VIEW] = enabled }
 
     // ---- player --------------------------------------------------------------
 

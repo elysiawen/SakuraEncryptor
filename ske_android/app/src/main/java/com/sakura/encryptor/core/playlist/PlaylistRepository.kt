@@ -116,10 +116,26 @@ class PlaylistRepository(
      *
      * @return the playable uri, or null when the cloud lookup failed.
      */
-    suspend fun resolveUri(item: PlaylistItem, fromCloud: Boolean): String? {
-        if (!fromCloud) return item.locator
+    suspend fun resolveUri(item: PlaylistItem, fromCloud: Boolean): String? =
+        resolvePlayable(item.locator, fromCloud)
+
+    /**
+     * Turn a locator into something a player can open.
+     *
+     * Local locators are already playable; a cloud locator is a path that has to
+     * be traded for a direct url first. Passing an already resolved url is fine
+     * and cheap — the resolvers cache — which keeps callers from having to track
+     * which kind they hold.
+     */
+    suspend fun resolvePlayable(locator: String, fromCloud: Boolean): String? {
+        if (!fromCloud) return locator
+        if (locator.startsWith("http://", ignoreCase = true) ||
+            locator.startsWith("https://", ignoreCase = true)
+        ) {
+            return locator
+        }
         return runCatching {
-            val (url, size) = aListRepository.resolveRemote(item.locator)
+            val (url, size) = aListRepository.resolveRemote(locator)
             cipherBlockSourceFactory.rememberSize(url, size)
             url
         }.getOrNull()

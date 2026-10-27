@@ -9,6 +9,7 @@
  *
  * .ske body layout (chunked):
  *   [Header 50B]
+ *   [Thumbnail envelope 20B + N]      (v003 only)
  *   [Block 0: CHUNK_SIZE + 16B tag]
  *   [Block 1: CHUNK_SIZE + 16B tag]
  *   ...
@@ -17,7 +18,13 @@
 
 const MAGIC = 'SakuraE'
 const HEADER_SIZE = 50
-const AAD_SIZE = HEADER_SIZE - 12  // 38: header prefix authenticated as AAD in v002
+const AAD_SIZE = HEADER_SIZE - 12  // 38: header prefix, authenticated as AAD
+const SUPPORTED_VERSIONS = new Set(['002', '003'])
+const THUMB_MAGIC = 'SKTH'
+const THUMB_NONCE_SIZE = 12
+const THUMB_LEN_SIZE = 4
+const THUMB_ENVELOPE_SIZE = 4 + THUMB_NONCE_SIZE + THUMB_LEN_SIZE  // 20
+const PROBE_SIZE = HEADER_SIZE + THUMB_ENVELOPE_SIZE
 const CHUNK_SIZE = 1024 * 1024   // 1 MiB plaintext per block
 const TAG_SIZE = 16              // AES-GCM tag
 const ENC_BLOCK_SIZE = CHUNK_SIZE + TAG_SIZE
@@ -25,6 +32,10 @@ const KDF_ITERATIONS = 100_000
 const MAX_CACHED_BLOCKS = 64     // ~64 MiB of decrypted data
 const DOWNLOAD_BATCH_BLOCKS = 16 // blocks fetched per round during a download
 const SESSION_TTL = 10 * 60_000  // Clean idle sessions after 10 min
+const MAX_RESPONSE = 5 * 1024 * 1024      // per-range cap for playback
+const POSTER_RESPONSE = 1 * 1024 * 1024   // per-range cap for thumbnail grabs
+const THUMB_CACHE_MAX = 300               // decrypted previews kept in memory
+const THUMB_TTL = 30 * 60_000             // previews are immutable per container
 
 let masterPassword = null
 
@@ -35,6 +46,7 @@ const sessions = new Map()        // url → FileSession
 const localFiles = new Map()      // logicalPath → File object
 const blockLRU = new Map()        // "url#bi" → Uint8Array  (global LRU)
 const inflightBlocks = new Map()  // "url#bi" → Promise<Uint8Array>
+const thumbCache = new Map()      // "url|local" → { bytes, at }  (v003 previews)
 
 // ── Performance Telemetry ─────────────────────────────────────
 let perfTotalNetBytes = 0
@@ -43,18 +55,19 @@ let perfCacheMisses = 0
 let perfLastDecryptMs = 0   // Latest block decryption latency in ms
 
 class FileSession {
-    constructor(url, salt, masterIv, key, totalSize, isLocal = false, aad = null) {
+    constructor(url, salt, masterIv, key, totalSize, isLocal = false, aad = null, bodyOffset = HEADER_SIZE) {
         this.url = url
         this.salt = salt
         this.masterIv = masterIv
         this.key = key
         this.totalSize = totalSize
         this.isLocal = isLocal
-        this.aad = aad  // v002 header prefix, or null for legacy v001 files
+        this.aad = aad  // 38-byte header prefix, authenticated as AAD
+        this.bodyOffset = bodyOffset  // header + thumbnail envelope (v003)
         this.lastUsed = Date.now()
 
         // Precompute plaintext metrics
-        const bodySize = totalSize - HEADER_SIZE
+        const bodySize = totalSize - bodyOffset
         this.totalBlocks = Math.ceil(bodySize / ENC_BLOCK_SIZE)
         const lastEncBlockSize = bodySize - (this.totalBlocks - 1) * ENC_BLOCK_SIZE
         const lastPlainSize = lastEncBlockSize - TAG_SIZE
@@ -88,6 +101,7 @@ self.addEventListener('message', async (e) => {
         sessions.clear()
         blockLRU.clear()
         inflightBlocks.clear()
+        thumbCache.clear()
         perfTotalNetBytes = 0
         perfCacheHits = 0
         perfCacheMisses = 0
@@ -131,8 +145,12 @@ self.addEventListener('message', async (e) => {
 self.addEventListener('fetch', (event) => {
     const url = new URL(event.request.url)
     
+    // Encrypted preview (v003 envelope) — no body block is touched
+    if (url.pathname.startsWith('/ske-thumb')) {
+        event.respondWith(handleThumbnail(url))
+    }
     // Cloud Decrypt
-    if (url.pathname.startsWith('/ske-decrypt')) {
+    else if (url.pathname.startsWith('/ske-decrypt')) {
         event.respondWith(handleDecrypt(event.request, url))
     }
     // Local files (decrypted or served verbatim)
@@ -153,21 +171,153 @@ self.addEventListener('fetch', (event) => {
     }
 })
 
-// ── Main handler ──────────────────────────────────────────────
-async function handleDecrypt(request, url, isLocal = false) {
-    // 1. Ensure password
-    if (!masterPassword) {
-        const clientsList = await self.clients.matchAll({ type: 'window' })
-        for (const client of clientsList) {
-            client.postMessage({ type: 'REQUEST_PASSWORD' })
-        }
-        await new Promise((r) => {
-            let t = 0
-            const iv = setInterval(() => { t += 50; if (masterPassword || t >= 1500) { clearInterval(iv); r() } }, 50)
-        })
-        if (!masterPassword) {
+// ── Password plumbing ─────────────────────────────────────────
+/** Wait (briefly) for the page to hand us the master password. */
+async function ensurePassword() {
+    if (masterPassword) return true
+
+    const clientsList = await self.clients.matchAll({ type: 'window' })
+    for (const client of clientsList) {
+        client.postMessage({ type: 'REQUEST_PASSWORD' })
+    }
+    await new Promise((resolve) => {
+        let waited = 0
+        const iv = setInterval(() => {
+            waited += 50
+            if (masterPassword || waited >= 1500) {
+                clearInterval(iv)
+                resolve()
+            }
+        }, 50)
+    })
+    return !!masterPassword
+}
+
+// ── Thumbnail endpoint (v003 envelope) ────────────────────────
+/**
+ * Serve the preview stored inside a v003 container.
+ *
+ * The envelope has its own nonce and AAD, so it can be decrypted without
+ * touching a single body block: the whole request costs `70 + THUMB_LEN` bytes
+ * instead of the 1 MiB the playback path has to pull for the first block.
+ *
+ * Query contract:
+ *   url=<upstream .ske link>            remote entries
+ *   local=<path in the local vault>     local entries
+ * Responds 404 when the container carries no preview, so the caller can fall
+ * back to the full image.
+ */
+async function handleThumbnail(url) {
+    const isLocal = url.searchParams.has('local')
+    const target = isLocal
+        ? decodeURIComponent(url.searchParams.get('local') || '').replace(/^\/+/, '')
+        : url.searchParams.get('url')
+    if (!target) return new Response('No URL provided', { status: 400 })
+
+    try {
+        if (!(await ensurePassword())) {
             return new Response('No decryption key set.', { status: 403 })
         }
+
+        const cacheKey = `${isLocal ? 'local' : 'remote'}|${target}`
+        const cached = thumbCache.get(cacheKey)
+        if (cached && Date.now() - cached.at < THUMB_TTL) {
+            return thumbnailResponse(cached.bytes)
+        }
+
+        const probe = await readUpstreamRange(target, isLocal, 0, PROBE_SIZE - 1)
+        if (probe.length < PROBE_SIZE) return new Response('', { status: 404 })
+
+        const decoder = new TextDecoder()
+        if (decoder.decode(probe.slice(0, 7)) !== MAGIC) return new Response('', { status: 404 })
+        // Only v003 has an envelope; v002 needs the fallback path.
+        if (decoder.decode(probe.slice(7, 10)) !== '003') {
+            return new Response('', { status: 404 })
+        }
+
+        const envelope = probe.slice(HEADER_SIZE, PROBE_SIZE)
+        if (decoder.decode(envelope.slice(0, 4)) !== THUMB_MAGIC) {
+            return new Response('Corrupted thumbnail envelope', { status: 404 })
+        }
+
+        const nonce = envelope.slice(4, 4 + THUMB_NONCE_SIZE)
+        const thumbLen = new DataView(
+            envelope.buffer,
+            envelope.byteOffset + 4 + THUMB_NONCE_SIZE,
+            THUMB_LEN_SIZE,
+        ).getUint32(0, false)
+        if (!thumbLen) return new Response('', { status: 404 })
+
+        const ctStart = HEADER_SIZE + THUMB_ENVELOPE_SIZE
+        const ciphertext = await readUpstreamRange(target, isLocal, ctStart, ctStart + thumbLen - 1)
+        if (ciphertext.length !== thumbLen) {
+            return new Response('Corrupted thumbnail envelope', { status: 404 })
+        }
+
+        // AAD mirrors the writer: header prefix | magic | ciphertext length.
+        const aad = new Uint8Array(AAD_SIZE + 4 + THUMB_LEN_SIZE)
+        aad.set(probe.slice(0, AAD_SIZE), 0)
+        aad.set(new TextEncoder().encode(THUMB_MAGIC), AAD_SIZE)
+        new DataView(aad.buffer).setUint32(AAD_SIZE + 4, thumbLen, false)
+
+        let preview
+        try {
+            const key = await deriveKey(masterPassword, probe.slice(10, 26))
+            preview = new Uint8Array(await crypto.subtle.decrypt(
+                { name: 'AES-GCM', iv: nonce, additionalData: aad },
+                key,
+                ciphertext,
+            ))
+        } catch (err) {
+            console.warn('[SW] Thumbnail decryption failed:', err.message)
+            return new Response('Thumbnail decryption failed', { status: 403 })
+        }
+
+        perfTotalNetBytes += probe.length + ciphertext.length
+        thumbCache.set(cacheKey, { bytes: preview, at: Date.now() })
+        while (thumbCache.size > THUMB_CACHE_MAX) {
+            thumbCache.delete(thumbCache.keys().next().value)
+        }
+        return thumbnailResponse(preview)
+    } catch (err) {
+        console.error('[SW] Thumbnail error:', err)
+        return new Response(`Thumbnail error: ${err.message}`, { status: 500 })
+    }
+}
+
+function thumbnailResponse(bytes) {
+    return new Response(bytes, {
+        status: 200,
+        headers: {
+            'Content-Type': 'image/jpeg',
+            'Content-Length': String(bytes.length),
+            // Previews are keyed by password; never let the browser keep them
+            // after a password change. The worker's own cache is cleared then.
+            'Cache-Control': 'no-store',
+        },
+    })
+}
+
+/** Read [start, end] (inclusive) from a remote link or a registered local file. */
+async function readUpstreamRange(target, isLocal, start, end) {
+    if (isLocal) {
+        const file = localFiles.get(target)
+        if (!file) throw new Error('Local file not found')
+        return new Uint8Array(await file.slice(start, end + 1).arrayBuffer())
+    }
+
+    const resp = await fetch(target, { headers: { Range: `bytes=${start}-${end}` } })
+    if (resp.status === 206) return new Uint8Array(await resp.arrayBuffer())
+    if (!resp.ok) throw new Error(`Upstream fetch failed: ${resp.status}`)
+    // Server ignored Range: slice the full body locally.
+    const full = new Uint8Array(await resp.arrayBuffer())
+    return full.slice(start, end + 1)
+}
+
+// ── Main handler ──────────────────────────────────────────────
+async function handleDecrypt(request, url, isLocal = false) {
+    if (!(await ensurePassword())) {
+        return new Response('No decryption key set.', { status: 403 })
     }
 
     let realUrl = isLocal ? decodeURIComponent(url.pathname.replace('/ske-local', '')) : url.searchParams.get('url')
@@ -176,7 +326,7 @@ async function handleDecrypt(request, url, isLocal = false) {
     const querySize = isLocal ? localFiles.get(realUrl)?.size : url.searchParams.get('size')
 
     try {
-        // 2. Get or create session (header + key cached here)
+        // 1. Get or create session (header + key cached here)
         const session = await getOrCreateSession(realUrl, querySize, isLocal)
         session.touch()
 
@@ -186,7 +336,7 @@ async function handleDecrypt(request, url, isLocal = false) {
             return handleDownloadRequest(request, session)
         }
 
-        // 3. Parse Range header
+        // 2. Parse Range header
         let rangeHeader = request.headers.get('Range')
         const mime = getMimeType(realUrl)
         const isMedia = mime.startsWith('video/') || mime.startsWith('audio/')
@@ -197,7 +347,11 @@ async function handleDecrypt(request, url, isLocal = false) {
         }
 
         if (rangeHeader) {
-            return handleRangeRequest(rangeHeader, session)
+            // Poster grabs (video thumbnails) only need one decodable frame.
+            // A smaller response stops the media element from pre-reading
+            // megabytes it will never use.
+            const isPoster = url.searchParams.get('poster') === '1'
+            return handleRangeRequest(rangeHeader, session, isPoster ? POSTER_RESPONSE : MAX_RESPONSE)
         }
 
         // Full file fallback (non-media, small files)
@@ -240,18 +394,18 @@ async function createSession(url, querySize, isLocal = false) {
     if (isLocal) {
         const file = localFiles.get(url)
         if (!file) throw new Error('Local file lost')
-        headerBytes = new Uint8Array(await file.slice(0, HEADER_SIZE).arrayBuffer())
+        headerBytes = new Uint8Array(await file.slice(0, PROBE_SIZE).arrayBuffer())
         totalSize = file.size
     } else {
         const headerResp = await fetch(url, {
-            headers: { Range: `bytes=0-${HEADER_SIZE - 1}` },
+            headers: { Range: `bytes=0-${PROBE_SIZE - 1}` },
         })
 
         if (headerResp.status === 206) {
             headerBytes = new Uint8Array(await headerResp.arrayBuffer())
         } else {
             const full = new Uint8Array(await headerResp.arrayBuffer())
-            headerBytes = full.slice(0, HEADER_SIZE)
+            headerBytes = full.slice(0, PROBE_SIZE)
         }
 
         // Determine total file size from network
@@ -269,22 +423,44 @@ async function createSession(url, querySize, isLocal = false) {
     const version = new TextDecoder().decode(headerBytes.slice(7, 10))
     const salt = headerBytes.slice(10, 26)
     const masterIv = headerBytes.slice(26, 38)
-    // v002 authenticates the 38-byte header prefix as AES-GCM AAD;
-    // v001 (legacy) was written without AAD.
-    const aad = version === '002' ? headerBytes.slice(0, AAD_SIZE) : null
+    if (!SUPPORTED_VERSIONS.has(version)) {
+        throw new Error(`Unsupported .ske version: ${version}`)
+    }
+    // Every supported version authenticates the 38-byte header prefix as AAD.
+    const aad = headerBytes.slice(0, AAD_SIZE)
     const key = await deriveKey(masterPassword, salt)
+
+    // v003 inserts an encrypted thumbnail between the header and the body, so
+    // the first block starts after the envelope. v002 starts at byte 50.
+    let bodyOffset = HEADER_SIZE
+    if (version === '003') {
+        if (headerBytes.length < PROBE_SIZE) {
+            throw new Error('Corrupted .ske thumbnail envelope')
+        }
+        const thumbMagic = new TextDecoder().decode(headerBytes.slice(HEADER_SIZE, HEADER_SIZE + 4))
+        if (thumbMagic !== THUMB_MAGIC) {
+            throw new Error('Corrupted .ske thumbnail envelope')
+        }
+        const lenView = new DataView(
+            headerBytes.buffer,
+            headerBytes.byteOffset + HEADER_SIZE + 16,
+            4,
+        )
+        bodyOffset = HEADER_SIZE + THUMB_ENVELOPE_SIZE + lenView.getUint32(0, false)
+    }
 
     if (!totalSize && querySize) {
         totalSize = parseInt(querySize, 10)
     }
     if (!totalSize) throw new Error('Cannot determine file size')
+    if (totalSize < bodyOffset) throw new Error('Corrupted .ske thumbnail envelope')
 
-    console.log(`[SW] Session ready: ${totalSize} bytes, v${version}, key derived`)
-    return new FileSession(url, salt, masterIv, key, totalSize, isLocal, aad)
+    console.log(`[SW] Session ready: ${totalSize} bytes, v${version}, body@${bodyOffset}, key derived`)
+    return new FileSession(url, salt, masterIv, key, totalSize, isLocal, aad, bodyOffset)
 }
 
 // ── Range request handling ────────────────────────────────────
-function handleRangeRequest(rangeHeader, session) {
+function handleRangeRequest(rangeHeader, session, maxResponse = MAX_RESPONSE) {
     const match = rangeHeader.match(/bytes=(\d+)-(\d*)/)
     if (!match) return new Response('Invalid Range', { status: 416 })
 
@@ -293,10 +469,9 @@ function handleRangeRequest(rangeHeader, session) {
     let rangeStart = parseInt(match[1], 10)
     let rangeEnd = match[2] ? parseInt(match[2], 10) : totalPlainSize - 1
 
-    // Cap response to 5 MiB
-    const MAX_RESPONSE = 5 * 1024 * 1024
-    if (rangeEnd - rangeStart + 1 > MAX_RESPONSE) {
-        rangeEnd = rangeStart + MAX_RESPONSE - 1
+    // Cap per-response size (5 MiB normally, much less for poster grabs)
+    if (rangeEnd - rangeStart + 1 > maxResponse) {
+        rangeEnd = rangeStart + maxResponse - 1
     }
     if (rangeEnd >= totalPlainSize) rangeEnd = totalPlainSize - 1
 
@@ -388,13 +563,13 @@ async function fetchAndAssembleBlocks(session, startBlock, endBlock, rangeStart,
 // Fetches a contiguous range of encrypted blocks in ONE HTTP request,
 // then decrypts each individually.
 async function batchFetchBlocks(session, blockIndices) {
-    const { url, key, masterIv, totalSize, aad } = session
+    const { url, key, masterIv, totalSize, aad, bodyOffset } = session
 
     // Find the contiguous encrypted byte range covering all blocks
     const minBi = Math.min(...blockIndices)
     const maxBi = Math.max(...blockIndices)
-    const encStart = HEADER_SIZE + minBi * ENC_BLOCK_SIZE
-    const encEnd = Math.min(HEADER_SIZE + (maxBi + 1) * ENC_BLOCK_SIZE - 1, totalSize - 1)
+    const encStart = bodyOffset + minBi * ENC_BLOCK_SIZE
+    const encEnd = Math.min(bodyOffset + (maxBi + 1) * ENC_BLOCK_SIZE - 1, totalSize - 1)
 
     const fetchSize = encEnd - encStart + 1
     console.log(`[SW] Batch fetch blocks ${minBi}-${maxBi} (${blockIndices.length} blocks, ${fetchSize} bytes, local=${session.isLocal})`)
@@ -450,21 +625,21 @@ async function batchFetchBlocks(session, blockIndices) {
 
 // ── Full file decrypt (non-media fallback) ────────────────────
 async function handleFullRequest(session) {
-    const { url, key, masterIv, totalSize, totalPlainSize, isLocal, aad } = session
+    const { url, key, masterIv, totalSize, totalPlainSize, isLocal, aad, bodyOffset } = session
 
     let bodyBytes
     if (isLocal) {
         const file = localFiles.get(url)
-        bodyBytes = new Uint8Array(await file.slice(HEADER_SIZE).arrayBuffer())
+        bodyBytes = new Uint8Array(await file.slice(bodyOffset).arrayBuffer())
     } else {
         const bodyResp = await fetch(url, {
-            headers: { Range: `bytes=${HEADER_SIZE}-${totalSize - 1}` },
+            headers: { Range: `bytes=${bodyOffset}-${totalSize - 1}` },
         })
         if (bodyResp.status === 206) {
             bodyBytes = new Uint8Array(await bodyResp.arrayBuffer())
         } else {
             const full = new Uint8Array(await bodyResp.arrayBuffer())
-            bodyBytes = full.slice(HEADER_SIZE)
+            bodyBytes = full.slice(bodyOffset)
         }
     }
 

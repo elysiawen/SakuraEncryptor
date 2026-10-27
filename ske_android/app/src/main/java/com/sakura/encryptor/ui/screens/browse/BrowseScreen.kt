@@ -15,8 +15,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
@@ -51,6 +57,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -59,14 +66,18 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.launch
 import com.sakura.encryptor.core.alist.DecryptedEntry
 import com.sakura.encryptor.core.player.MediaKind
 import com.sakura.encryptor.core.player.MediaTypes
 import com.sakura.encryptor.ui.appContainer
 import com.sakura.encryptor.ui.components.LoadingState
+import com.sakura.encryptor.ui.components.MediaTile
 import com.sakura.encryptor.ui.components.SakuraTopBar
 import com.sakura.encryptor.ui.components.StateMessage
+import com.sakura.encryptor.ui.components.TileBadges
 import com.sakura.encryptor.ui.components.UnlockPanel
+import com.sakura.encryptor.ui.components.ViewModeToggle
 import com.sakura.encryptor.ui.navigation.PlaybackSource
 import com.sakura.encryptor.ui.rememberAppViewModel
 import com.sakura.encryptor.ui.util.formatBytes
@@ -87,6 +98,7 @@ fun BrowseScreen(
             downloadManager = c.downloadManager,
             profileRepository = c.profileRepository,
             cipherBlockSourceFactory = c.cipherBlockSourceFactory,
+            previews = c.previewLoader,
         )
     }
 
@@ -106,6 +118,10 @@ fun BrowseScreen(
     // position survived neither entering the player nor coming back. With the
     // state living here, the scroll position rides through reloads untouched.
     val listState = rememberLazyListState()
+    val gridState = rememberLazyGridState()
+    // Remembered across launches, and shared with the local screen.
+    val grid by container.settings.gridView.collectAsStateWithLifecycle(initialValue = false)
+    val scope = rememberCoroutineScope()
 
     val activeProfile = remember(profiles, activeProfileId) {
         profiles.firstOrNull { it.id == activeProfileId }
@@ -178,6 +194,12 @@ fun BrowseScreen(
                         Icon(Icons.Rounded.Delete, contentDescription = "删除")
                     }
                 } else if (ready) {
+                    if (state.entries.isNotEmpty()) {
+                        ViewModeToggle(
+                            grid = grid,
+                            onToggle = { scope.launch { container.settings.setGridView(!grid) } },
+                        )
+                    }
                     IconButton(onClick = viewModel::refresh) {
                         Icon(Icons.Rounded.Refresh, contentDescription = "刷新")
                     }
@@ -252,7 +274,50 @@ fun BrowseScreen(
                         message = "目录中没有文件，或加密文件尚未上传。",
                     )
 
-                    else -> LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+                    else -> if (grid) {
+                        LazyVerticalGrid(
+                            columns = GridCells.Adaptive(104.dp),
+                            state = gridState,
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            gridItems(items = state.entries, key = { it.raw.name }) { entry ->
+                                val kind = MediaTypes.kindOf(entry.displayName)
+                                MediaTile(
+                                    name = entry.displayName,
+                                    icon = iconFor(entry, kind),
+                                    // Unlock state is part of the key so the
+                                    // tile retries once the password is known.
+                                    cacheKey = "remote:${state.path}/${entry.raw.name}:$unlocked",
+                                    loadPreview = { viewModel.previewOf(entry) },
+                                    isSelected = entry.raw.name in state.selected,
+                                    onOpen = {
+                                        if (state.inSelectionMode) {
+                                            viewModel.toggleSelection(entry.raw.name)
+                                        } else if (entry.isDir) {
+                                            viewModel.openFolder(entry)
+                                        } else {
+                                            viewModel.play(entry)
+                                        }
+                                    },
+                                    onLongPress = { viewModel.toggleSelection(entry.raw.name) },
+                                    badges = {
+                                        TileBadges(
+                                            locked = entry.isSke,
+                                            video = kind == MediaKind.VIDEO,
+                                            sizeText = if (!entry.isDir && entry.size > 0) {
+                                                formatBytes(entry.size)
+                                            } else {
+                                                null
+                                            },
+                                        )
+                                    },
+                                )
+                            }
+                        }
+                    } else LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
                         items(
                             items = state.entries,
                             key = { it.raw.name },

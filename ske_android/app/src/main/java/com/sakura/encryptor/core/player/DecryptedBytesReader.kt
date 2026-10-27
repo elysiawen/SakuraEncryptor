@@ -27,7 +27,8 @@ class DecryptedBytesReader(private val sourceFactory: CipherBlockSourceFactory) 
             val cipherSize = source.cipherSize
             if (cipherSize <= 0) throw IOException("无法确定文件大小")
 
-            val headLength = minOf(cipherSize, SkeFormat.HEADER_SIZE.toLong()).toInt()
+            // Read past the header so a v003 thumbnail envelope can be skipped.
+            val headLength = minOf(cipherSize, SkeFormat.PROBE_SIZE.toLong()).toInt()
             val head = readRange(source, 0, headLength)
             val isContainer = head.size >= SkeFormat.MAGIC_SIZE &&
                 head.copyOf(SkeFormat.MAGIC_SIZE).contentEquals(SkeFormat.MAGIC)

@@ -45,7 +45,8 @@ class SkeDataSource(
         try {
             source.open()
 
-            val prefix = readAt(source, 0, SkeFormat.HEADER_SIZE)
+            // Read past the header so a v003 thumbnail envelope can be skipped.
+            val prefix = readAt(source, 0, SkeFormat.PROBE_SIZE)
             val isContainer = prefix.size >= SkeFormat.MAGIC_SIZE &&
                 prefix.copyOf(SkeFormat.MAGIC_SIZE).contentEquals(SkeFormat.MAGIC)
 

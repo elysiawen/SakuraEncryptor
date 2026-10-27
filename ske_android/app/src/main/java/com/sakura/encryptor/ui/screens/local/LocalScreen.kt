@@ -16,8 +16,15 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
@@ -41,6 +48,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -49,15 +57,19 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.launch
 import com.sakura.encryptor.core.local.LocalSkeStore
 import com.sakura.encryptor.core.player.MediaKind
 import com.sakura.encryptor.core.player.MediaTypes
 import com.sakura.encryptor.ui.appContainer
 import com.sakura.encryptor.ui.components.LoadingState
 import com.sakura.encryptor.ui.components.LocalUnlockDialog
+import com.sakura.encryptor.ui.components.MediaTile
 import com.sakura.encryptor.ui.components.SakuraTopBar
 import com.sakura.encryptor.ui.components.StateMessage
 import com.sakura.encryptor.ui.components.TaskProgressDialog
+import com.sakura.encryptor.ui.components.TileBadges
+import com.sakura.encryptor.ui.components.ViewModeToggle
 import com.sakura.encryptor.ui.navigation.PlaybackSource
 import com.sakura.encryptor.ui.rememberAppViewModel
 import com.sakura.encryptor.ui.util.formatBytes
@@ -76,6 +88,7 @@ fun LocalScreen(
     // Hoisted above the LazyColumn branch so the scroll position survives the
     // list leaving the composition while data reloads (same as BrowseScreen).
     val listState = rememberLazyListState()
+    val gridState = rememberLazyGridState()
     val viewModel = rememberAppViewModel { container ->
         LocalViewModel(
             store = container.localSkeStore,
@@ -84,6 +97,7 @@ fun LocalScreen(
             localVault = container.localVault,
             keyStore = container.keyStore,
             notifications = container.cryptoNotifications,
+            previews = container.previewLoader,
         )
     }
 
@@ -91,6 +105,10 @@ fun LocalScreen(
     val rememberDefault by viewModel.rememberDefault.collectAsStateWithLifecycle()
     val container = appContainer()
     val unlocked by container.localVault.isUnlockedFlow.collectAsStateWithLifecycle()
+
+    // Remembered across launches: the next visit reuses the last choice.
+    val grid by container.settings.gridView.collectAsStateWithLifecycle(initialValue = false)
+    val scope = rememberCoroutineScope()
 
     var decryptTarget by remember { mutableStateOf<LocalSkeStore.LocalEntry?>(null) }
     var showUnlockDialog by remember { mutableStateOf(false) }
@@ -148,6 +166,30 @@ fun LocalScreen(
         }
     }
 
+    /** Shared by the list row and the grid tile: play, or queue until unlocked. */
+    fun openEntry(entry: LocalSkeStore.LocalEntry) {
+        if (!entry.isSke) {
+            if (MediaTypes.kindOf(entry.name) == MediaKind.OTHER) {
+                Toast.makeText(context, "「${entry.name}」不是可播放的媒体文件", Toast.LENGTH_SHORT).show()
+            } else {
+                onOpenPlayer(entry.uri.toString(), entry.name, PlaybackSource.LOCAL, state.treeUri.orEmpty())
+            }
+            return
+        }
+
+        if (unlocked) {
+            val resolved = viewModel.displayNameOf(entry)
+            if (MediaTypes.kindOf(resolved) == MediaKind.OTHER) {
+                Toast.makeText(context, "「$resolved」不是可播放的媒体文件", Toast.LENGTH_SHORT).show()
+            } else {
+                onOpenPlayer(entry.uri.toString(), resolved, PlaybackSource.LOCAL, state.treeUri.orEmpty())
+            }
+        } else {
+            pendingPlay = entry
+            showUnlockDialog = true
+        }
+    }
+
     val treeLabel = state.treeUri
         ?.let { Uri.decode(it).substringAfterLast(':').substringAfterLast('/') }
         ?.takeIf { it.isNotBlank() }
@@ -162,6 +204,12 @@ fun LocalScreen(
             subtitle = treeLabel ?: "尚未选择目录",
             onMenu = onOpenDrawer,
             actions = {
+                if (state.entries.isNotEmpty()) {
+                    ViewModeToggle(
+                        grid = grid,
+                        onToggle = { scope.launch { container.settings.setGridView(!grid) } },
+                    )
+                }
                 if (state.treeUri != null) {
                     IconButton(onClick = viewModel::refresh) {
                         Icon(Icons.Rounded.Refresh, contentDescription = "刷新")
@@ -198,7 +246,47 @@ fun LocalScreen(
                 message = "这里还没有文件。要加密新文件，请到「加密」页。",
             )
 
-            else -> LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+            else -> if (grid) {
+                LazyVerticalGrid(
+                    columns = GridCells.Adaptive(104.dp),
+                    state = gridState,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    if (!unlocked) {
+                        item(span = { GridItemSpan(maxLineSpan) }) {
+                            UnlockHintCard(onUnlock = { showUnlockDialog = true })
+                        }
+                    }
+
+                    gridItems(items = state.entries, key = { it.uri.toString() }) { entry ->
+                        val nameIsLocked = !unlocked && entry.isSke
+                        val name = if (nameIsLocked) "加密文件" else viewModel.displayNameOf(entry)
+
+                        MediaTile(
+                            name = name,
+                            icon = iconFor(entry, name, nameIsLocked),
+                            // The key carries the lock state, so unlocking
+                            // re-runs the loader instead of reusing a miss.
+                            cacheKey = "local:${entry.uri}:$unlocked",
+                            loadPreview = { viewModel.previewOf(entry) },
+                            onOpen = { openEntry(entry) },
+                            onLongPress = {
+                                if (entry.isSke) requireUnlocked { decryptTarget = entry }
+                            },
+                            badges = {
+                                TileBadges(
+                                    locked = entry.isSke,
+                                    video = !nameIsLocked &&
+                                        MediaTypes.kindOf(name) == MediaKind.VIDEO,
+                                )
+                            },
+                        )
+                    }
+                }
+            } else LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
                 if (!unlocked) {
                     item {
                         UnlockHintCard(onUnlock = { showUnlockDialog = true })
@@ -216,42 +304,7 @@ fun LocalScreen(
                             viewModel.displayNameOf(entry)
                         },
                         nameIsLocked = nameIsLocked,
-                        onClick = {
-                            if (!entry.isSke) {
-                                // Plain media plays straight away — no password needed.
-                                if (MediaTypes.kindOf(entry.name) == MediaKind.OTHER) {
-                                    Toast.makeText(
-                                        context,
-                                        "「${entry.name}」不是可播放的媒体文件",
-                                        Toast.LENGTH_SHORT,
-                                    ).show()
-                                } else {
-                                    onOpenPlayer(
-                                        entry.uri.toString(),
-                                        entry.name,
-                                        PlaybackSource.LOCAL,
-                                        state.treeUri.orEmpty(),
-                                    )
-                                }
-                                return@LocalFileRow
-                            }
-                            if (unlocked) {
-                                val resolved = viewModel.displayNameOf(entry)
-                                if (MediaTypes.kindOf(resolved) == MediaKind.OTHER) {
-                                    Toast.makeText(context, "「$resolved」不是可播放的媒体文件", Toast.LENGTH_SHORT).show()
-                                } else {
-                                    onOpenPlayer(
-                                        entry.uri.toString(),
-                                        resolved,
-                                        PlaybackSource.LOCAL,
-                                        state.treeUri.orEmpty(),
-                                    )
-                                }
-                            } else {
-                                pendingPlay = entry
-                                showUnlockDialog = true
-                            }
-                        },
+                        onClick = { openEntry(entry) },
                         onLongClick = {
                             if (entry.isSke) {
                                 requireUnlocked { decryptTarget = entry }

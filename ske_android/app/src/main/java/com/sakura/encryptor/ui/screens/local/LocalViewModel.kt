@@ -1,6 +1,7 @@
 package com.sakura.encryptor.ui.screens.local
 
 import android.net.Uri
+import android.graphics.Bitmap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
@@ -8,6 +9,7 @@ import com.sakura.encryptor.core.crypto.SkeCrypto
 import com.sakura.encryptor.core.local.CryptoNotifications
 import com.sakura.encryptor.core.local.CryptoTaskRunner
 import com.sakura.encryptor.core.local.LocalSkeStore
+import com.sakura.encryptor.core.media.PreviewLoader
 import com.sakura.encryptor.core.security.KeyStoreManager
 import com.sakura.encryptor.core.session.NameKeyCache
 import com.sakura.encryptor.core.session.VaultSession
@@ -32,6 +34,7 @@ class LocalViewModel(
     private val localVault: VaultSession,
     private val keyStore: KeyStoreManager,
     private val notifications: CryptoNotifications,
+    private val previews: PreviewLoader,
 ) : ViewModel() {
 
     data class UiState(
@@ -221,6 +224,10 @@ class LocalViewModel(
 
     fun displayNameOf(entry: LocalSkeStore.LocalEntry): String =
         _state.value.displayNames[entry.uri.toString()] ?: entry.name
+
+    /** Grid preview of [entry]; `null` while locked or when the file has none. */
+    suspend fun previewOf(entry: LocalSkeStore.LocalEntry): Bitmap? =
+        previews.load(entry.uri, displayNameOf(entry), localVault.password)
 
     private fun emit(text: String) = viewModelScope.launch { _messages.send(text) }
 }

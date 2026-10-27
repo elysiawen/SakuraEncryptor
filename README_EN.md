@@ -91,8 +91,9 @@ The Android client covers four areas: cloud browsing/playback of encrypted files
 ### Encryption (SKE v2.0)
 1. **Chunking** — Each file is split into 1 MB blocks.
 2. **Key Derivation** — A 256-bit Master Key is derived from the user password + random salt via PBKDF2-HMAC-SHA256 (100k iterations).
-3. **Block Encryption** — Each block is independently encrypted with AES-256-GCM using a unique nonce; the file-header prefix (Magic / version / salt / master IV) is bound in as AAD so key-defining header fields cannot be tampered with (legacy v1.0 files still decrypt).
+3. **Block Encryption** — Each block is independently encrypted with AES-256-GCM using a unique nonce; the file-header prefix (Magic / version / salt / master IV) is bound in as AAD so key-defining header fields cannot be tampered with.
 4. **Real-Time Decryption** — The Service Worker intercepts `/ske-decrypt/` requests, fetches encrypted blocks on demand, decrypts them in memory, and feeds the result to the player via `Content-Range` responses.
+5. **Encrypted Preview (v3.0)** — Images *and* videos may carry a 512px AES-GCM-encrypted JPEG preview between the header and the body (`SKTH` envelope; `THUMB_LEN = 0` means "no preview"), which keeps the body byte-identical to the original file. The web client decrypts just this envelope through `/ske-thumb` (≈40 KB), so grids never pull a 1 MiB ciphertext block nor decode a video frame for a tile. Images are downscaled with Pillow; videos are sampled with PyAV (`pip install .[video]`, which bundles its own decoders), falling back to a system ffmpeg and skipping entirely when neither is available (encryption is unaffected). The browser samples a frame while encrypting in the web app. Previews are also skipped when the source is already small, or when they would cost more than a quarter of the source. Legacy v2.0 files keep decrypting.
 
 ### File-Name Encryption
 File names are encrypted too: a *deterministic* AES-GCM construction (fixed salt-derived key plus a key-derived fixed IV) means identical plain names always produce identical tokens, so the encrypted directory tree can be rebuilt without any database.

@@ -15,14 +15,18 @@ import java.io.RandomAccessFile
 object SkeFileCipher {
 
     /**
-     * Encrypt [src] into [dst] (both regular files).
+     * Encrypt [src] into [dst] (both regular files), writing the v003 layout.
      *
+     * @param thumbnail encrypted JPEG preview to store in the envelope; `null`
+     *   writes an empty envelope, exactly like a CLI file whose source was not
+     *   worth previewing. Use `ThumbnailGenerator` to build one.
      * @param onProgress invoked as `(bytesProcessed, totalBytes)` of plaintext.
      */
     fun encryptFile(
         src: File,
         dst: File,
         password: String,
+        thumbnail: ByteArray? = null,
         onProgress: ((Long, Long) -> Unit)? = null,
     ) {
         dst.parentFile?.mkdirs()
@@ -31,14 +35,32 @@ object SkeFileCipher {
         val masterIv = SkeCrypto.randomBytes(SkeFormat.IV_SIZE)
         val key = SkeCrypto.deriveKey(password, salt)
 
-        // MAGIC | VERSION | SALT | MASTER_IV — bound into every block as AAD (v002).
+        // MAGIC | VERSION | SALT | MASTER_IV — bound into every block as AAD.
         val headerPrefix = SkeFormat.MAGIC + SkeFormat.VERSION + salt + masterIv
         val digest = SkeCrypto.newSha256()
         val total = src.length()
 
+        // The envelope is always written, even when empty: THUMB_LEN == 0 is
+        // how "no preview" is expressed, and readers locate the body through it.
+        val thumbNonce = SkeCrypto.randomBytes(SkeFormat.THUMB_NONCE_SIZE)
+        val thumbCipher = if (thumbnail == null || thumbnail.isEmpty()) {
+            ByteArray(0)
+        } else {
+            SkeCrypto.gcmEncrypt(
+                key,
+                thumbNonce,
+                thumbnail,
+                thumbnailAad(headerPrefix, thumbnail.size + SkeFormat.TAG_SIZE),
+            )
+        }
+
         RandomAccessFile(dst, "rw").use { raf ->
             raf.setLength(0)
             raf.write(ByteArray(SkeFormat.HEADER_SIZE)) // placeholder
+            raf.write(SkeFormat.THUMB_MAGIC)
+            raf.write(thumbNonce)
+            raf.write(encodeThumbLength(thumbCipher.size))
+            raf.write(thumbCipher)
 
             val buffer = ByteArray(SkeFormat.CHUNK_SIZE)
             var blockIndex = 0L
@@ -88,17 +110,23 @@ object SkeFileCipher {
         val key: ByteArray
 
         RandomAccessFile(src, "r").use { raf ->
-            val headerBytes = ByteArray(SkeFormat.HEADER_SIZE)
+            // Read past the header so a v003 thumbnail envelope can be skipped.
+            val headerBytes = ByteArray(SkeFormat.PROBE_SIZE)
             val readHeader = readFully(raf, headerBytes)
             if (readHeader < SkeFormat.HEADER_SIZE) {
                 throw InvalidSkeFileException("File too small to be a valid .ske")
             }
-            header = SkeHeader.parse(headerBytes)
+            header = SkeHeader.parse(headerBytes.copyOf(readHeader))
             key = SkeCrypto.deriveKey(password, header.salt)
+
+            if (cipherSize < header.bodyOffset) {
+                throw InvalidSkeFileException("Corrupted thumbnail envelope")
+            }
+            raf.seek(header.bodyOffset.toLong())
 
             val aad = header.aad
             val digest = SkeCrypto.newSha256()
-            val plainTotal = SkeHeader.plaintextSize(cipherSize)
+            val plainTotal = SkeHeader.plaintextSize(cipherSize, header.bodyOffset)
 
             dst.outputStream().buffered().use { out ->
                 val buffer = ByteArray(SkeFormat.ENC_BLOCK_SIZE)
@@ -134,6 +162,76 @@ object SkeFileCipher {
         }
     }
 
+    /**
+     * Decrypt the preview stored in a v003 container.
+     *
+     * Costs one ~40 KB read instead of a whole-file decrypt, which is what
+     * makes previews usable in a list.
+     *
+     * @return the JPEG bytes, or `null` when the file carries no preview
+     *   (v002, or a v003 with `THUMB_LEN == 0`).
+     * @throws InvalidSkeFileException for a broken envelope,
+     * @throws SkeDecryptionException  for a wrong password / corrupted preview.
+     */
+    fun decryptThumbnail(src: File, password: String): ByteArray? {
+        val header: SkeHeader
+        val ciphertext: ByteArray
+
+        RandomAccessFile(src, "r").use { raf ->
+            val probe = ByteArray(SkeFormat.PROBE_SIZE)
+            val readHeader = readFully(raf, probe)
+            if (readHeader < SkeFormat.HEADER_SIZE) {
+                throw InvalidSkeFileException("File too small to be a valid .ske")
+            }
+
+            header = SkeHeader.parse(probe.copyOf(readHeader))
+            if (header.thumbnailLength <= 0) return null
+
+            val available = src.length() - SkeFormat.PROBE_SIZE
+            if (header.thumbnailLength > available) {
+                throw InvalidSkeFileException("Corrupted thumbnail envelope")
+            }
+            ciphertext = ByteArray(header.thumbnailLength)
+            if (readFully(raf, ciphertext) != ciphertext.size) {
+                throw InvalidSkeFileException("Truncated thumbnail envelope")
+            }
+        }
+
+        return decryptThumbnail(header, ciphertext, password)
+    }
+
+    /**
+     * Decrypt a preview that was read separately from the container — a range
+     * request over HTTP, or the first bytes of an SAF stream.
+     */
+    internal fun decryptThumbnail(
+        header: SkeHeader,
+        ciphertext: ByteArray,
+        password: String,
+    ): ByteArray {
+        val aad = thumbnailAad(header.aad, ciphertext.size)
+        val key = SkeCrypto.deriveKey(password, header.salt)
+        return try {
+            SkeCrypto.gcmDecrypt(key, header.thumbnailNonce, ciphertext, aad)
+        } catch (e: Exception) {
+            throw SkeDecryptionException(
+                "Thumbnail decryption failed. Wrong password or corrupted file.", e
+            )
+        }
+    }
+
+    /** AAD for the v003 envelope: header prefix + "SKTH" + big-endian ciphertext length. */
+    private fun thumbnailAad(headerPrefix: ByteArray, cipherLength: Int): ByteArray =
+        headerPrefix + SkeFormat.THUMB_MAGIC + encodeThumbLength(cipherLength)
+
+    /** 4-byte big-endian length, matching `struct.pack(">I", ...)` in crypto.py. */
+    private fun encodeThumbLength(length: Int): ByteArray = byteArrayOf(
+        (length ushr 24).toByte(),
+        (length ushr 16).toByte(),
+        (length ushr 8).toByte(),
+        length.toByte(),
+    )
+
     internal fun readFully(input: InputStream, buffer: ByteArray): Int {
         var offset = 0
         while (offset < buffer.size) {
@@ -164,7 +262,7 @@ object SkeFileCipher {
  */
 class SkeBlockDecryptor(private val header: SkeHeader, private val key: ByteArray) {
 
-    private val aad: ByteArray? = header.aad
+    private val aad: ByteArray = header.aad
 
     /** Decrypt ciphertext block [blockIndex] (tag included) into plaintext. */
     fun decryptBlock(blockIndex: Long, ciphertext: ByteArray): ByteArray {

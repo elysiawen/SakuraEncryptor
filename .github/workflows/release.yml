@@ -9,6 +9,7 @@ on:
       - 'ske_cli/**'
       - 'ske_web/**'
       - 'ske_android/**'
+      - 'scripts/**'
       - 'pyproject.toml'
       - '.github/workflows/release.yml'
   workflow_dispatch:
@@ -81,7 +82,21 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install pyinstaller
-          pip install .
+          # The [video] extra pulls in PyAV. It is optional for the source
+          # install, but the released binary must decrypt video previews, so
+          # it has to be present *at build time*: PyInstaller only bundles what
+          # is importable, and crypto.py imports av lazily inside a function.
+          # pyinstaller-hooks-contrib ships hook-av (collects every FFmpeg DLL
+          # from av.libs) and hook-tkinterdnd2 (collects the platform tkdnd
+          # sub-directory), so no custom hook is needed.
+          pip install ".[video]"
+
+          # v3 files carry an encrypted JPEG preview; video previews come from
+          # PyAV. Prove both paths work here, because PyInstaller only bundles
+          # what is importable at build time and crypto.py imports PyAV lazily —
+          # a build machine without it yields a working exe that silently drops
+          # every video preview.
+          python scripts/verify_thumbnails.py
 
           ICON_ARG=""
           if [ "${{ matrix.platform }}" == "windows" ] && [ -f "ske_cli/icon.ico" ]; then
@@ -97,6 +112,11 @@ jobs:
           fi
 
           pyinstaller --onefile --windowed --name "${{ matrix.artifact_name }}" $ICON_ARG $ADD_DATA ske_cli/gui.py
+
+          # A bundle that silently lost tkdnd or FFmpeg still builds fine and
+          # only breaks on the user's machine, where nothing points back at the
+          # packaging step.
+          python scripts/verify_bundle.py "build/${{ matrix.artifact_name }}"
 
       - name: Build (Linux ARM64 via QEMU)
         if: matrix.use_qemu
@@ -118,7 +138,11 @@ jobs:
             source /tmp/venv/bin/activate
             pip install --upgrade pip
             pip install pyinstaller
-            pip install .
+            # Same reasoning as the native build: PyAV must be installed or the
+            # video-preview code path is silently stripped from the binary.
+            pip install ".[video]"
+
+            python scripts/verify_thumbnails.py
 
             ADD_DATA=""
             if [ -f "ske_cli/icon.ico" ]; then
@@ -126,6 +150,10 @@ jobs:
             fi
 
             pyinstaller --onefile --windowed --name "${{ matrix.artifact_name }}" $ADD_DATA ske_cli/gui.py
+
+            # See the native build: this catches a bundle that lost tkdnd or
+            # FFmpeg while still producing an exe.
+            python scripts/verify_bundle.py "build/${{ matrix.artifact_name }}"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4

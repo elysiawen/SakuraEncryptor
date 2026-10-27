@@ -9,10 +9,32 @@
       @change="handleUploadSelect"
     />
 
+    <div class="view-switch">
+      <button
+        class="view-btn"
+        :class="{ active: viewMode === 'grid' }"
+        title="网格视图（缩略图）"
+        @click="viewMode = 'grid'"
+      >
+        ▦
+      </button>
+      <button
+        class="view-btn"
+        :class="{ active: viewMode === 'list' }"
+        title="列表视图"
+        @click="viewMode = 'list'"
+      >
+        ☰
+      </button>
+    </div>
+
     <FileGrid
       :items="items"
       :loading="loading"
       :error="error"
+      :view="viewMode"
+      :mode="props.mode"
+      :parent-path="getRoutePath()"
       @click="handleClick"
       @retry="loadCurrentPath"
       @contextmenu="openMenu"
@@ -170,6 +192,12 @@ const { addTask: addDownloadTask } = useDownloadManager()
 const items = ref([])
 const loading = ref(false)
 const error = ref('')
+
+// Grid is the default: thumbnails are the point of the view, and the choice is
+// remembered per browser.
+const VIEW_KEY = 'ske_file_view'
+const viewMode = ref(localStorage.getItem(VIEW_KEY) === 'list' ? 'list' : 'grid')
+watch(viewMode, (value) => localStorage.setItem(VIEW_KEY, value))
 const uploadInput = ref(null)
 const uploadFabBottom = computed(() => {
   const order = getOrder('upload')
@@ -578,6 +606,40 @@ watch(
   flex: 1;
   position: relative;
   min-height: 100%;
+}
+
+/* ── View switch ── */
+.view-switch {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.view-btn {
+  width: 34px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  color: var(--text-secondary);
+  background: var(--bg-glass);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.view-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--border-glass-hover);
+}
+
+.view-btn.active {
+  color: #fff;
+  background: var(--accent-gradient);
+  border-color: transparent;
 }
 
 .hidden-file-input {

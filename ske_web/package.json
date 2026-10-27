@@ -12,6 +12,7 @@
         "artplayer": "^5.2.0",
         "jassub": "^2.5.16",
         "jsmediatags": "^3.9.7",
+        "mp4box": "^2.5.0",
         "naive-ui": "^2.44.1",
         "vue": "^3.5.0",
         "vue-router": "^4.5.0"
