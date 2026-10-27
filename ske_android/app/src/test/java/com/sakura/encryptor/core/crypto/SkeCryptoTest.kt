@@ -55,15 +55,15 @@ class SkeCryptoTest {
     @Test
     fun `name key and tokens match python`() {
         val key = SkeCrypto.deriveNameKey("sakura-pass")
-        assertEquals("70d2793173d58260c53a0eb6a80de2eac16d146726bcd8304aa62e922a7b00a6", hex(key))
+        assertEquals("cc20be524aea1abb57d4f68dc2edeb44f3710fded52fb9581959de656ba831c6", hex(key))
 
-        assertEquals("kJLHVtK33bNsfXHJaxyHPRj5pQaH7j2qRQ", SkeCrypto.encryptName("hello.mp4", key))
+        assertEquals("-WDapQ3GsjxJfy6fEt-tJuO1fQSTvy6RgA", SkeCrypto.encryptName("hello.mp4", key))
         assertEquals(
-            "EFAt0x8IkCXtMAAMA4CgT-4Xn9eJvYp911HWBtRCyld9",
+            "eaIwIMB5_6rIsHX-E9ylPnPDHCs2SH8ac7ZOiZ7zCk_b",
             SkeCrypto.encryptName("视频 测试.mkv", key)
         )
-        assertEquals("mWBEuB9EVFDyJJ6t8c4XPBQ", SkeCrypto.encryptName("a", key))
-        assertEquals("Hl8a0jcol3uIrRi9_cA6X2JG0WJpXQ", SkeCrypto.encryptName("樱花", key))
+        assertEquals("8F07rQb78nknIdjJwUquKi0", SkeCrypto.encryptName("a", key))
+        assertEquals("d60HIehZAmgeaRpqWbNNYSvR13deXw", SkeCrypto.encryptName("樱花", key))
     }
 
     @Test
@@ -117,11 +117,12 @@ class SkeCryptoTest {
 
     @Test
     fun `size geometry matches the python sample`() {
-        // Python: 2,300,000 plaintext bytes -> 3 blocks -> 50 + 2,300,000 + 3*16
-        assertEquals(3L, SkeHeader.blockCount(2_300_098L))
-        assertEquals(2_300_000L, SkeHeader.plaintextSize(2_300_098L))
-        assertEquals(0L, SkeHeader.blockCount(50L))
-        assertEquals(0L, SkeHeader.plaintextSize(50L))
+        // Python: 2,300,000 plaintext bytes -> 99 probe + 2,300,000 + 3*16 tags
+        val cipherSize = SkeFormat.PROBE_SIZE + 2_300_000L + 3 * SkeFormat.TAG_SIZE
+        assertEquals(3L, SkeHeader.blockCount(cipherSize))
+        assertEquals(2_300_000L, SkeHeader.plaintextSize(cipherSize))
+        assertEquals(0L, SkeHeader.blockCount(SkeFormat.PROBE_SIZE.toLong()))
+        assertEquals(0L, SkeHeader.plaintextSize(SkeFormat.PROBE_SIZE.toLong()))
     }
 
     // -----------------------------------------------------------------------
@@ -140,9 +141,8 @@ class SkeCryptoTest {
 
         SkeFileCipher.encryptFile(src, enc, "pw-123")
         assertEquals(
-            "cipher size must be header + envelope + plaintext + one tag per block",
-            SkeFormat.HEADER_SIZE + SkeFormat.THUMB_ENVELOPE_SIZE +
-                plain.size + 3 * SkeFormat.TAG_SIZE,
+            "cipher size must be header + options + envelope + plaintext + one tag per block",
+            SkeFormat.PROBE_SIZE + plain.size + 3 * SkeFormat.TAG_SIZE,
             enc.length().toInt()
         )
 
@@ -158,10 +158,7 @@ class SkeCryptoTest {
         val dec = File(dir, "empty.out")
 
         SkeFileCipher.encryptFile(src, enc, "pw")
-        assertEquals(
-            (SkeFormat.HEADER_SIZE + SkeFormat.THUMB_ENVELOPE_SIZE).toLong(),
-            enc.length()
-        )
+        assertEquals(SkeFormat.PROBE_SIZE.toLong(), enc.length())
 
         SkeFileCipher.decryptFile(enc, dec, "pw")
         assertEquals(0, dec.length().toInt())
@@ -219,8 +216,8 @@ class SkeCryptoTest {
         SkeFileCipher.encryptFile(src, enc, "pw")
 
         val bytes = enc.readBytes()
-        // Must land in the body: the first 20 bytes after the header are the
-        // (empty) thumbnail envelope and are not covered by any block tag.
+        // Must land in the body: options and the (empty) thumbnail envelope
+        // precede it and are not covered by any block tag.
         val at = SkeHeader.parse(bytes).bodyOffset + 10
         bytes[at] = (bytes[at].toInt() xor 0xFF).toByte()
         val broken = File(dir, "broken.ske").apply { writeBytes(bytes) }
@@ -231,7 +228,7 @@ class SkeCryptoTest {
     }
 
     // -----------------------------------------------------------------------
-    // v003 thumbnail envelope
+    // Thumbnail envelope
     // -----------------------------------------------------------------------
 
     private fun jpegStub(size: Int = 900): ByteArray =
@@ -256,12 +253,11 @@ class SkeCryptoTest {
         SkeFileCipher.encryptFile(src, enc, "pw", thumbnail)
 
         val header = SkeHeader.parse(enc.readBytes())
-        assertEquals(SkeFormat.VERSION_003_STR, header.version.toString(Charsets.US_ASCII))
+        assertEquals(SkeFormat.VERSION_STR, header.version.toString(Charsets.US_ASCII))
         assertTrue("the envelope must hold the encrypted preview", header.hasEmbeddedThumbnail)
         assertEquals(thumbnail.size + SkeFormat.TAG_SIZE, header.thumbnailLength)
         assertEquals(
-            SkeFormat.HEADER_SIZE + SkeFormat.THUMB_ENVELOPE_SIZE +
-                thumbnail.size + SkeFormat.TAG_SIZE,
+            SkeFormat.PROBE_SIZE + thumbnail.size + SkeFormat.TAG_SIZE,
             header.bodyOffset
         )
 
@@ -283,12 +279,8 @@ class SkeCryptoTest {
         SkeFileCipher.encryptFile(src, enc, "pw")
 
         val header = SkeHeader.parse(enc.readBytes())
-        assertTrue("v003 always has the envelope", header.hasThumbnail)
+        assertEquals(SkeFormat.PROBE_SIZE, header.bodyOffset)
         assertEquals(0, header.thumbnailLength)
-        assertEquals(
-            SkeFormat.HEADER_SIZE + SkeFormat.THUMB_ENVELOPE_SIZE,
-            header.bodyOffset
-        )
         assertNull(SkeFileCipher.decryptThumbnail(enc, "pw"))
     }
 
@@ -305,7 +297,7 @@ class SkeCryptoTest {
     }
 
     @Test
-    fun `v002 container reports no thumbnail`() {
+    fun `container with an empty envelope reports no thumbnail`() {
         val dir = tempDir()
         val enc = File(dir, "cli_empty.ske").apply { writeBytes(resourceBytes("vectors/cli_empty.ske")) }
 
@@ -330,30 +322,30 @@ class SkeCryptoTest {
     }
 
     @Test
-    fun `decrypts a v003 file produced by the python cli`() {
+    fun `decrypts a file with a preview produced by the python cli`() {
         val dir = tempDir()
         val password = "sakura-test-密码-123"
-        val expected = resourceBytes("vectors/cli_v003.txt")
-        val enc = File(dir, "cli_v003.ske").apply { writeBytes(resourceBytes("vectors/cli_v003.ske")) }
+        val expected = resourceBytes("vectors/cli_preview.txt")
+        val enc = File(dir, "cli_preview.ske").apply { writeBytes(resourceBytes("vectors/cli_preview.ske")) }
 
-        // v003 carries an encrypted thumbnail between the header and the body.
+        // The envelope with the encrypted preview sits between header and body.
         val header = SkeHeader.parse(enc.readBytes())
-        assertEquals(SkeFormat.VERSION_003_STR, header.version.toString(Charsets.US_ASCII))
-        assertTrue("v003 body must start after the envelope", header.bodyOffset > SkeFormat.HEADER_SIZE)
+        assertEquals(SkeFormat.VERSION_STR, header.version.toString(Charsets.US_ASCII))
+        assertTrue("body must start after the envelope", header.bodyOffset > SkeFormat.HEADER_SIZE)
         assertEquals(
             expected.size.toLong(),
             SkeHeader.plaintextSize(enc.length(), header.bodyOffset)
         )
 
-        val dec = File(dir, "cli_v003.out")
+        val dec = File(dir, "cli_preview.out")
         SkeFileCipher.decryptFile(enc, dec, password)
         assertArrayEquals(expected, dec.readBytes())
     }
 
     @Test
-    fun `decrypts the thumbnail of the v003 file produced by the python cli`() {
+    fun `decrypts the thumbnail of the file produced by the python cli`() {
         val dir = tempDir()
-        val enc = File(dir, "cli_v003.ske").apply { writeBytes(resourceBytes("vectors/cli_v003.ske")) }
+        val enc = File(dir, "cli_preview.ske").apply { writeBytes(resourceBytes("vectors/cli_preview.ske")) }
 
         val thumbnail = SkeFileCipher.decryptThumbnail(enc, "sakura-test-密码-123")
 
@@ -368,22 +360,23 @@ class SkeCryptoTest {
     }
 
     @Test
-    fun `v003 block random access skips the thumbnail envelope`() {
+    fun `block random access skips the thumbnail envelope`() {
         val password = "sakura-test-密码-123"
-        val cipher = resourceBytes("vectors/cli_v003.ske")
+        val cipher = resourceBytes("vectors/cli_preview.ske")
         val header = SkeHeader.parse(cipher)
         val decryptor = SkeBlockDecryptor.create(header, password)
 
         val start = header.bodyOffset
         val end = minOf(start + SkeFormat.ENC_BLOCK_SIZE, cipher.size)
         val plaintext = decryptor.decryptBlock(0L, cipher.copyOfRange(start, end))
-        assertArrayEquals(resourceBytes("vectors/cli_v003.txt"), plaintext)
+        assertArrayEquals(resourceBytes("vectors/cli_preview.txt"), plaintext)
     }
 
     @Test
-    fun `tampered v003 thumbnail envelope is rejected`() {
-        val bytes = resourceBytes("vectors/cli_v003.ske")
-        bytes[SkeFormat.HEADER_SIZE] = 'X'.code.toByte()
+    fun `tampered thumbnail envelope is rejected`() {
+        val bytes = resourceBytes("vectors/cli_preview.ske")
+        val envelopeMagic = SkeFormat.HEADER_SIZE + SkeFormat.OPTIONS_SIZE
+        bytes[envelopeMagic] = 'X'.code.toByte()
 
         assertThrows(InvalidSkeFileException::class.java) {
             SkeHeader.parse(bytes)

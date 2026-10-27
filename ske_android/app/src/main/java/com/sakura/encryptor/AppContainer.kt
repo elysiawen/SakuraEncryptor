@@ -117,7 +117,7 @@ class AppContainer(private val appContext: Context) {
         DecryptedBytesReader(cipherBlockSourceFactory)
     }
 
-    /** Grid-tile previews; reads only the v003 envelope, never the whole file. */
+    /** Grid-tile previews; reads only the thumbnail envelope, never the whole file. */
     val previewLoader: PreviewLoader by lazy {
         PreviewLoader(appContext, cipherBlockSourceFactory)
     }

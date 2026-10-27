@@ -8,27 +8,63 @@
  *   - Adjacent blocks are batch-fetched in a single HTTP Range request.
  *
  * .ske body layout (chunked):
- *   [Header 50B]
- *   [Thumbnail envelope 20B + N]      (v003 only)
+ *   [Header 55B]                      MAGIC | VERSION | SALT | MASTER_IV | SHMAC
+ *   [Options 22B]                     KEY_CHECK | KDF_ITERATIONS | FLAGS
+ *   [Thumbnail envelope 22B + N]      (always present)
  *   [Block 0: CHUNK_SIZE + 16B tag]
  *   [Block 1: CHUNK_SIZE + 16B tag]
  *   ...
  *   [Block N: <=CHUNK_SIZE + 16B tag]  (last block)
+ *
+ * SHMAC is HMAC-SHA256(key, prefix | options | envelope | body)[:16], and the
+ * 38-byte prefix plus the options block are the AAD of every body block.
  */
 
-const MAGIC = 'SakuraE'
-const HEADER_SIZE = 50
-const AAD_SIZE = HEADER_SIZE - 12  // 38: header prefix, authenticated as AAD
-const SUPPORTED_VERSIONS = new Set(['002', '003'])
-const THUMB_MAGIC = 'SKTH'
+const MAGIC = 'SakuraEK'
+const VERSION_SIZE = 3
+const SALT_SIZE = 16
+const IV_SIZE = 12
+const SHMAC_SIZE = 16
+const SALT_AT = MAGIC.length + VERSION_SIZE          // 11
+const IV_AT = SALT_AT + SALT_SIZE                    // 27
+const HEADER_SIZE = IV_AT + IV_SIZE + SHMAC_SIZE     // 55
+const AAD_PREFIX_SIZE = HEADER_SIZE - SHMAC_SIZE     // 39: the part that defines the key
+const SUPPORTED_VERSIONS = new Set(['001'])
+const THUMB_MAGIC = 'SKETH'
 const THUMB_NONCE_SIZE = 12
-const THUMB_LEN_SIZE = 4
-const THUMB_ENVELOPE_SIZE = 4 + THUMB_NONCE_SIZE + THUMB_LEN_SIZE  // 20
-const PROBE_SIZE = HEADER_SIZE + THUMB_ENVELOPE_SIZE
+const THUMB_LEN_SIZE = 5
+const THUMB_MAGIC_LEN = THUMB_MAGIC.length
+const THUMB_ENVELOPE_SIZE = THUMB_MAGIC_LEN + THUMB_NONCE_SIZE + THUMB_LEN_SIZE  // 22
+
+// Options block: key check | work factor | reserved flags (zero).
+const KEY_CHECK_SIZE = 16
+const KEY_CHECK_LABEL = new TextEncoder().encode('ske-keycheck')
+const KDF_ITERATIONS_SIZE = 5
+const OPTIONS_FLAGS_SIZE = 1
+const OPTIONS_SIZE = KEY_CHECK_SIZE + KDF_ITERATIONS_SIZE + OPTIONS_FLAGS_SIZE  // 22
+const AAD_SIZE = AAD_PREFIX_SIZE + OPTIONS_SIZE  // 60: bound into every block
+
+/** THUMB_LEN is a 5-byte big-endian ciphertext length (GCM tag included). */
+function readThumbLength(bytes, offset) {
+    let value = 0
+    for (let i = 0; i < THUMB_LEN_SIZE; i++) value = value * 256 + bytes[offset + i]
+    return value
+}
+
+function writeThumbLength(bytes, offset, value) {
+    let remaining = value
+    for (let i = THUMB_LEN_SIZE - 1; i >= 0; i--) {
+        bytes[offset + i] = remaining % 256
+        remaining = Math.floor(remaining / 256)
+    }
+}
+// Header + options + envelope: enough bytes to locate the first body block.
+const ENVELOPE_START = HEADER_SIZE + OPTIONS_SIZE
+const PROBE_SIZE = ENVELOPE_START + THUMB_ENVELOPE_SIZE
 const CHUNK_SIZE = 1024 * 1024   // 1 MiB plaintext per block
 const TAG_SIZE = 16              // AES-GCM tag
 const ENC_BLOCK_SIZE = CHUNK_SIZE + TAG_SIZE
-const KDF_ITERATIONS = 100_000
+const MAX_KDF_ITERATIONS = 2_000_000  // reject hostile files that would stall the CPU
 const MAX_CACHED_BLOCKS = 64     // ~64 MiB of decrypted data
 const DOWNLOAD_BATCH_BLOCKS = 16 // blocks fetched per round during a download
 const SESSION_TTL = 10 * 60_000  // Clean idle sessions after 10 min
@@ -46,7 +82,7 @@ const sessions = new Map()        // url → FileSession
 const localFiles = new Map()      // logicalPath → File object
 const blockLRU = new Map()        // "url#bi" → Uint8Array  (global LRU)
 const inflightBlocks = new Map()  // "url#bi" → Promise<Uint8Array>
-const thumbCache = new Map()      // "url|local" → { bytes, at }  (v003 previews)
+const thumbCache = new Map()      // "url|local" → { bytes, at }  (decrypted previews)
 
 // ── Performance Telemetry ─────────────────────────────────────
 let perfTotalNetBytes = 0
@@ -55,7 +91,7 @@ let perfCacheMisses = 0
 let perfLastDecryptMs = 0   // Latest block decryption latency in ms
 
 class FileSession {
-    constructor(url, salt, masterIv, key, totalSize, isLocal = false, aad = null, bodyOffset = HEADER_SIZE) {
+    constructor(url, salt, masterIv, key, totalSize, isLocal = false, aad = null, bodyOffset = PROBE_SIZE) {
         this.url = url
         this.salt = salt
         this.masterIv = masterIv
@@ -63,7 +99,7 @@ class FileSession {
         this.totalSize = totalSize
         this.isLocal = isLocal
         this.aad = aad  // 38-byte header prefix, authenticated as AAD
-        this.bodyOffset = bodyOffset  // header + thumbnail envelope (v003)
+        this.bodyOffset = bodyOffset  // header + thumbnail envelope
         this.lastUsed = Date.now()
 
         // Precompute plaintext metrics
@@ -145,7 +181,7 @@ self.addEventListener('message', async (e) => {
 self.addEventListener('fetch', (event) => {
     const url = new URL(event.request.url)
     
-    // Encrypted preview (v003 envelope) — no body block is touched
+    // Encrypted preview (thumbnail envelope) — no body block is touched
     if (url.pathname.startsWith('/ske-thumb')) {
         event.respondWith(handleThumbnail(url))
     }
@@ -193,9 +229,9 @@ async function ensurePassword() {
     return !!masterPassword
 }
 
-// ── Thumbnail endpoint (v003 envelope) ────────────────────────
+// ── Thumbnail endpoint (thumbnail envelope) ───────────────────
 /**
- * Serve the preview stored inside a v003 container.
+ * Serve the preview stored inside a container's thumbnail envelope.
  *
  * The envelope has its own nonce and AAD, so it can be decrypted without
  * touching a single body block: the whole request costs `70 + THUMB_LEN` bytes
@@ -229,40 +265,40 @@ async function handleThumbnail(url) {
         if (probe.length < PROBE_SIZE) return new Response('', { status: 404 })
 
         const decoder = new TextDecoder()
-        if (decoder.decode(probe.slice(0, 7)) !== MAGIC) return new Response('', { status: 404 })
-        // Only v003 has an envelope; v002 needs the fallback path.
-        if (decoder.decode(probe.slice(7, 10)) !== '003') {
+        if (decoder.decode(probe.slice(0, MAGIC.length)) !== MAGIC) {
+            return new Response('', { status: 404 })
+        }
+        if (!SUPPORTED_VERSIONS.has(
+            decoder.decode(probe.slice(MAGIC.length, MAGIC.length + VERSION_SIZE)),
+        )) {
             return new Response('', { status: 404 })
         }
 
-        const envelope = probe.slice(HEADER_SIZE, PROBE_SIZE)
-        if (decoder.decode(envelope.slice(0, 4)) !== THUMB_MAGIC) {
+        const envelope = probe.slice(ENVELOPE_START, PROBE_SIZE)
+        if (decoder.decode(envelope.slice(0, THUMB_MAGIC_LEN)) !== THUMB_MAGIC) {
             return new Response('Corrupted thumbnail envelope', { status: 404 })
         }
 
-        const nonce = envelope.slice(4, 4 + THUMB_NONCE_SIZE)
-        const thumbLen = new DataView(
-            envelope.buffer,
-            envelope.byteOffset + 4 + THUMB_NONCE_SIZE,
-            THUMB_LEN_SIZE,
-        ).getUint32(0, false)
+        const nonce = envelope.slice(THUMB_MAGIC_LEN, THUMB_MAGIC_LEN + THUMB_NONCE_SIZE)
+        const thumbLen = readThumbLength(envelope, THUMB_MAGIC_LEN + THUMB_NONCE_SIZE)
         if (!thumbLen) return new Response('', { status: 404 })
 
-        const ctStart = HEADER_SIZE + THUMB_ENVELOPE_SIZE
+        const ctStart = PROBE_SIZE
         const ciphertext = await readUpstreamRange(target, isLocal, ctStart, ctStart + thumbLen - 1)
         if (ciphertext.length !== thumbLen) {
             return new Response('Corrupted thumbnail envelope', { status: 404 })
         }
 
-        // AAD mirrors the writer: header prefix | magic | ciphertext length.
-        const aad = new Uint8Array(AAD_SIZE + 4 + THUMB_LEN_SIZE)
-        aad.set(probe.slice(0, AAD_SIZE), 0)
+        // AAD mirrors the writer: prefix | options | magic | ciphertext length.
+        const aad = new Uint8Array(AAD_SIZE + THUMB_MAGIC_LEN + THUMB_LEN_SIZE)
+        aad.set(probe.slice(0, AAD_PREFIX_SIZE), 0)
+        aad.set(probe.slice(HEADER_SIZE, HEADER_SIZE + OPTIONS_SIZE), AAD_PREFIX_SIZE)
         aad.set(new TextEncoder().encode(THUMB_MAGIC), AAD_SIZE)
-        new DataView(aad.buffer).setUint32(AAD_SIZE + 4, thumbLen, false)
+        writeThumbLength(aad, AAD_SIZE + THUMB_MAGIC_LEN, thumbLen)
 
         let preview
         try {
-            const key = await deriveKey(masterPassword, probe.slice(10, 26))
+            const key = await deriveContainerKey(probe)
             preview = new Uint8Array(await crypto.subtle.decrypt(
                 { name: 'AES-GCM', iv: nonce, additionalData: aad },
                 key,
@@ -417,37 +453,43 @@ async function createSession(url, querySize, isLocal = false) {
     }
 
     if (!headerBytes) throw new Error('Failed to get header')
-    const magic = new TextDecoder().decode(headerBytes.slice(0, 7))
+    const decoder = new TextDecoder()
+    const magic = decoder.decode(headerBytes.slice(0, MAGIC.length))
     if (magic !== MAGIC) throw new Error('Invalid .ske file (bad magic)')
 
-    const version = new TextDecoder().decode(headerBytes.slice(7, 10))
-    const salt = headerBytes.slice(10, 26)
-    const masterIv = headerBytes.slice(26, 38)
+    const version = decoder.decode(headerBytes.slice(MAGIC.length, MAGIC.length + VERSION_SIZE))
+    const salt = headerBytes.slice(SALT_AT, SALT_AT + SALT_SIZE)
+    const masterIv = headerBytes.slice(IV_AT, IV_AT + IV_SIZE)
     if (!SUPPORTED_VERSIONS.has(version)) {
         throw new Error(`Unsupported .ske version: ${version}`)
     }
-    // Every supported version authenticates the 38-byte header prefix as AAD.
-    const aad = headerBytes.slice(0, AAD_SIZE)
-    const key = await deriveKey(masterPassword, salt)
-
-    // v003 inserts an encrypted thumbnail between the header and the body, so
-    // the first block starts after the envelope. v002 starts at byte 50.
-    let bodyOffset = HEADER_SIZE
-    if (version === '003') {
-        if (headerBytes.length < PROBE_SIZE) {
-            throw new Error('Corrupted .ske thumbnail envelope')
-        }
-        const thumbMagic = new TextDecoder().decode(headerBytes.slice(HEADER_SIZE, HEADER_SIZE + 4))
-        if (thumbMagic !== THUMB_MAGIC) {
-            throw new Error('Corrupted .ske thumbnail envelope')
-        }
-        const lenView = new DataView(
-            headerBytes.buffer,
-            headerBytes.byteOffset + HEADER_SIZE + 16,
-            4,
-        )
-        bodyOffset = HEADER_SIZE + THUMB_ENVELOPE_SIZE + lenView.getUint32(0, false)
+    if (headerBytes.length < PROBE_SIZE) {
+        throw new Error('Corrupted .ske container')
     }
+
+    // The options block carries the password probe and the work factor, and
+    // is the AAD tail of every block: neither can be swapped underneath us.
+    const key = await deriveContainerKey(headerBytes)
+    // AAD = 38-byte prefix + options; SHMAC sits between them on disk, so the
+    // two pieces have to be concatenated rather than sliced in one go.
+    const aad = concatBuffers([
+        headerBytes.slice(0, AAD_PREFIX_SIZE),
+        headerBytes.slice(HEADER_SIZE, HEADER_SIZE + OPTIONS_SIZE),
+    ])
+
+    // An encrypted thumbnail always sits between the options and the body, so
+    // the first block starts after the envelope.
+    const thumbMagic = new TextDecoder().decode(
+        headerBytes.slice(ENVELOPE_START, ENVELOPE_START + THUMB_MAGIC_LEN),
+    )
+    if (thumbMagic !== THUMB_MAGIC) {
+        throw new Error('Corrupted .ske thumbnail envelope')
+    }
+    const thumbLen = readThumbLength(
+        headerBytes,
+        ENVELOPE_START + THUMB_MAGIC_LEN + THUMB_NONCE_SIZE,
+    )
+    const bodyOffset = PROBE_SIZE + thumbLen
 
     if (!totalSize && querySize) {
         totalSize = parseInt(querySize, 10)
@@ -801,18 +843,81 @@ function evictLRU() {
 }
 
 // ── Crypto helpers ────────────────────────────────────────────
-async function deriveKey(password, salt) {
+
+/** PBKDF2-HMAC-SHA256 from the container's password and work factor. */
+async function deriveKeyBytes(password, salt, iterations) {
+    if (!(iterations >= 1 && iterations <= MAX_KDF_ITERATIONS)) {
+        throw new Error(`Unsupported KDF iteration count: ${iterations}`)
+    }
     const enc = new TextEncoder()
     const baseKey = await crypto.subtle.importKey(
-        'raw', enc.encode(password), 'PBKDF2', false, ['deriveKey'],
+        'raw', enc.encode(password), 'PBKDF2', false, ['deriveBits'],
     )
-    return crypto.subtle.deriveKey(
-        { name: 'PBKDF2', salt, iterations: KDF_ITERATIONS, hash: 'SHA-256' },
-        baseKey,
-        { name: 'AES-GCM', length: 256 },
-        false,
-        ['decrypt'],
+    const bits = await crypto.subtle.deriveBits(
+        { name: 'PBKDF2', salt, iterations, hash: 'SHA-256' }, baseKey, 256,
     )
+    return new Uint8Array(bits)
+}
+
+async function importAesKey(rawKey) {
+    return crypto.subtle.importKey(
+        'raw', rawKey, { name: 'AES-GCM' }, false, ['decrypt'],
+    )
+}
+
+/** KEY_CHECK: HMAC-SHA256(key, "ske-keycheck")[:16]. */
+async function keyCheckProbe(rawKey) {
+    const hmacKey = await crypto.subtle.importKey(
+        'raw', rawKey, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
+    )
+    const sig = new Uint8Array(await crypto.subtle.sign('HMAC', hmacKey, KEY_CHECK_LABEL))
+    return sig.slice(0, KEY_CHECK_SIZE)
+}
+
+/** Constant-time comparison, mirroring Python's `hmac.compare_digest`. */
+function constantTimeEqual(a, b) {
+    if (a.length !== b.length) return false
+    let diff = 0
+    for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i]
+    return diff === 0
+}
+
+/**
+ * Validate the options block and return its KDF work factor.
+ *
+ * Reserved flags must be zero and the work factor must be sane, so a hostile
+ * file cannot pin the CPU.
+ */
+function readOptionsIterations(options) {
+    for (let i = KEY_CHECK_SIZE + KDF_ITERATIONS_SIZE; i < OPTIONS_SIZE; i++) {
+        if (options[i] !== 0) throw new Error('Unsupported .ske options')
+    }
+    let iterations = 0
+    for (let i = 0; i < KDF_ITERATIONS_SIZE; i++) {
+        iterations = iterations * 256 + options[KEY_CHECK_SIZE + i]
+    }
+    if (!(iterations >= 1 && iterations <= MAX_KDF_ITERATIONS)) {
+        throw new Error(`Unsupported KDF iteration count: ${iterations}`)
+    }
+    return iterations
+}
+
+/**
+ * Derive the container key from a PROBE_SIZE prefix of the file.
+ *
+ * The work factor comes from the file itself, and a wrong password is rejected
+ * through the key check before a single block or preview is touched.
+ */
+async function deriveContainerKey(probe) {
+    if (probe.length < PROBE_SIZE) throw new Error('Corrupted .ske container')
+    const options = probe.slice(HEADER_SIZE, HEADER_SIZE + OPTIONS_SIZE)
+    const iterations = readOptionsIterations(options)
+    const rawKey = await deriveKeyBytes(masterPassword, probe.slice(SALT_AT, SALT_AT + SALT_SIZE), iterations)
+    const expected = options.slice(0, KEY_CHECK_SIZE)
+    if (!constantTimeEqual(expected, await keyCheckProbe(rawKey))) {
+        throw new Error('Wrong password.')
+    }
+    return importAesKey(rawKey)
 }
 
 function blockNonce(masterIv, blockIndex) {

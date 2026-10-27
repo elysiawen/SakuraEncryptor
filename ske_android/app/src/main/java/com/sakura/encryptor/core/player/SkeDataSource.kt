@@ -7,6 +7,7 @@ import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
 import com.sakura.encryptor.core.crypto.SkeBlockDecryptor
 import com.sakura.encryptor.core.crypto.SkeCrypto
+import com.sakura.encryptor.core.crypto.SkeDecryptionException
 import com.sakura.encryptor.core.crypto.SkeFormat
 import com.sakura.encryptor.core.crypto.SkeHeader
 import java.io.IOException
@@ -45,7 +46,7 @@ class SkeDataSource(
         try {
             source.open()
 
-            // Read past the header so a v003 thumbnail envelope can be skipped.
+            // Read past the header so the thumbnail envelope can be skipped.
             val prefix = readAt(source, 0, SkeFormat.PROBE_SIZE)
             val isContainer = prefix.size >= SkeFormat.MAGIC_SIZE &&
                 prefix.copyOf(SkeFormat.MAGIC_SIZE).contentEquals(SkeFormat.MAGIC)
@@ -53,8 +54,7 @@ class SkeDataSource(
             val totalSize = if (isContainer) {
                 val header = SkeHeader.parse(prefix)
                 val password = factory.passwordFor(uri)
-                val key = factory.deriveKeyFor(uri, password, header.salt)
-                val decryptor = SkeBlockDecryptor(header, key)
+                val decryptor = factory.decryptorFor(uri, password, header)
 
                 val blockReader = SkeBlockReader(
                     source = source,
@@ -95,7 +95,10 @@ class SkeDataSource(
             runCatching { source.close() }
             this.source = null
             this.reader = null
-            throw if (e is IOException) e else IOException("Failed to open stream", e)
+            // Keep the cause in the message: a wrong password must not degrade
+            // into a generic "failed to open" in the player's error toast.
+            throw if (e is IOException) e
+            else IOException("Failed to open stream: ${e.message}", e)
         }
     }
 
@@ -154,7 +157,7 @@ class SkeDataSource(
  * profile's password.
  *
  * PBKDF2 with 100,000 iterations costs ~100 ms; the player calls `open()` on
- * every seek, so keys are memoised per (uri, password, salt).
+ * every seek, so keys are memoised per (uri, password, salt, iterations).
  */
 class SkeDataSourceFactory(
     private val sourceFactory: CipherBlockSourceFactory,
@@ -172,15 +175,35 @@ class SkeDataSourceFactory(
         passwordProvider(uri)?.takeIf { it.isNotEmpty() }
             ?: throw IOException("尚未解锁，无法解密该文件")
 
-    internal fun deriveKeyFor(uri: Uri, password: String, salt: ByteArray): ByteArray {
+    /**
+     * Build a decryptor for [header], reusing the memoised key when possible.
+     *
+     * A wrong password is rejected here through the container's key check
+     * instead of surfacing later as a GCM failure mid-playback.
+     */
+    internal fun decryptorFor(uri: Uri, password: String, header: SkeHeader): SkeBlockDecryptor {
+        val key = deriveKeyFor(uri, password, header)
+        if (!SkeCrypto.constantTimeEquals(header.keyCheck, SkeCrypto.keyCheck(key))) {
+            throw SkeDecryptionException("Wrong password.")
+        }
+        return SkeBlockDecryptor(header, key)
+    }
+
+    private fun deriveKeyFor(uri: Uri, password: String, header: SkeHeader): ByteArray {
+        // The work factor is part of the identity of the key: containers written
+        // with a different cost must not share a cache entry.
         val cacheKey = buildString {
             append(uri)
             append('|')
             append(password.hashCode())
             append('|')
-            append(salt.joinToString("") { "%02x".format(it) })
+            append(header.salt.joinToString("") { "%02x".format(it) })
+            append('|')
+            append(header.kdfIterations)
         }
-        return derivedKeys.getOrPut(cacheKey) { SkeCrypto.deriveKey(password, salt) }
+        return derivedKeys.getOrPut(cacheKey) {
+            SkeCrypto.deriveKey(password, header.salt, header.kdfIterations)
+        }
     }
 
     /** Drop memoised keys, e.g. when a password changes or the vault locks. */

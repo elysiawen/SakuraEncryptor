@@ -397,7 +397,7 @@ fun SettingsScreen(
                 }
                 Spacer(Modifier.height(12.dp))
                 Text(
-                    text = "与 CLI / Web 端共用 .ske v2.0 格式：AES-256-GCM 分块加密 + PBKDF2 " +
+                    text = "与 CLI / Web 端共用 .ske 版本 001 格式：AES-256-GCM 分块加密 + PBKDF2 " +
                         "(100,000 次迭代)。密码仅存在于设备内存，服务器只接触密文。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,

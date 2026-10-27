@@ -1,48 +1,56 @@
 package com.sakura.encryptor.core.crypto
 
 /**
- * Parsed 50-byte `.ske` header plus geometry helpers for random access.
+ * Parsed `.ske` header, options block and geometry helpers for random access.
  *
  * The header stores salt + master IV so any client can derive the key and
- * seek directly to an arbitrary block.
+ * seek directly to an arbitrary block; the options block carries the key
+ * check and the KDF work factor.
  */
 class SkeHeader(
     val raw: ByteArray,
     val version: ByteArray,
     val salt: ByteArray,
     val masterIv: ByteArray,
-    val headerTag: ByteArray,
+    /** Truncated HMAC over prefix + options + envelope + body. */
+    val shmac: ByteArray,
+    /** Options block: key check | KDF iterations | flags. */
+    val options: ByteArray,
+    val keyCheck: ByteArray,
+    val kdfIterations: Int,
     /**
-     * Offset of the first body block: [SkeFormat.HEADER_SIZE], plus the
-     * encrypted thumbnail envelope for v003 containers.
+     * Offset of the first body block: header + options + the encrypted
+     * thumbnail envelope, which every container carries.
      */
-    val bodyOffset: Int = SkeFormat.HEADER_SIZE,
-    /** Nonce of the v003 thumbnail envelope; empty when there is no envelope. */
+    val bodyOffset: Int = SkeFormat.PROBE_SIZE,
+    /** Nonce of the thumbnail envelope. */
     val thumbnailNonce: ByteArray = ByteArray(0),
     /** Ciphertext length of the thumbnail, GCM tag included; 0 when absent. */
     val thumbnailLength: Int = 0,
 ) {
 
-    /** True for containers that carry the envelope, even an empty one. */
-    val hasThumbnail: Boolean get() = SkeFormat.hasThumbnailEnvelope(version)
-
-    /** True when a preview is actually stored (some v003 files carry none). */
-    val hasEmbeddedThumbnail: Boolean get() = hasThumbnail && thumbnailLength > 0
+    /** True when a preview is actually stored (some containers carry none). */
+    val hasEmbeddedThumbnail: Boolean get() = thumbnailLength > 0
 
     /**
-     * The 38-byte header prefix (MAGIC|VERSION|SALT|MASTER_IV), authenticated as
-     * AES-GCM additional data by every supported container version.
+     * AAD for every body block: the 39-byte prefix (MAGIC|VERSION|SALT|MASTER_IV)
+     * followed by the options block, so neither can be swapped underneath.
      */
-    val aad: ByteArray get() = raw.copyOf(SkeFormat.AAD_SIZE)
+    val aad: ByteArray
+        get() = ByteArray(SkeFormat.AAD_SIZE).also {
+            raw.copyInto(it, 0, 0, SkeFormat.AAD_PREFIX_SIZE)
+            options.copyInto(it, SkeFormat.AAD_PREFIX_SIZE)
+        }
 
     companion object {
         /**
          * Parse a header from [bytes].
          *
-         * Must be at least [SkeFormat.HEADER_SIZE] long; v003 containers need
-         * [SkeFormat.PROBE_SIZE] bytes so the thumbnail envelope can be skipped.
+         * Must be at least [SkeFormat.PROBE_SIZE] long, so the options block
+         * and the thumbnail envelope can be decoded.
          *
-         * @throws InvalidSkeFileException when magic/version/envelope are invalid.
+         * @throws InvalidSkeFileException when magic/version/options/envelope
+         *   are invalid, or when the KDF work factor is out of range.
          */
         fun parse(bytes: ByteArray): SkeHeader {
             if (bytes.size < SkeFormat.HEADER_SIZE) throw InvalidSkeFileException("File too small to be a valid .ske")
@@ -50,9 +58,13 @@ class SkeHeader(
             val raw = bytes.copyOf(SkeFormat.HEADER_SIZE)
             val magic = raw.copyOfRange(0, SkeFormat.MAGIC_SIZE)
             val version = raw.copyOfRange(SkeFormat.MAGIC_SIZE, SkeFormat.MAGIC_SIZE + SkeFormat.VERSION_SIZE)
-            val salt = raw.copyOfRange(10, 26)
-            val masterIv = raw.copyOfRange(26, 38)
-            val headerTag = raw.copyOfRange(38, 50)
+            val saltAt = SkeFormat.MAGIC_SIZE + SkeFormat.VERSION_SIZE
+            val salt = raw.copyOfRange(saltAt, saltAt + SkeFormat.SALT_SIZE)
+            val masterIv = raw.copyOfRange(
+                SkeFormat.AAD_PREFIX_SIZE - SkeFormat.IV_SIZE,
+                SkeFormat.AAD_PREFIX_SIZE,
+            )
+            val shmac = raw.copyOfRange(SkeFormat.AAD_PREFIX_SIZE, SkeFormat.HEADER_SIZE)
 
             if (!magic.contentEquals(SkeFormat.MAGIC)) {
                 throw InvalidSkeFileException("Invalid magic number: not a Sakura Encryptor file")
@@ -61,28 +73,62 @@ class SkeHeader(
                 throw InvalidSkeFileException("Unsupported .ske version: ${version.toString(Charsets.US_ASCII)}")
             }
 
-            val envelope = if (SkeFormat.hasThumbnailEnvelope(version)) {
-                parseThumbnailEnvelope(bytes)
-            } else {
-                null
-            }
+            val options = parseOptions(bytes)
+            val envelope = parseThumbnailEnvelope(bytes)
             return SkeHeader(
                 raw = raw,
                 version = version,
                 salt = salt,
                 masterIv = masterIv,
-                headerTag = headerTag,
-                bodyOffset = envelope?.bodyOffset ?: SkeFormat.HEADER_SIZE,
-                thumbnailNonce = envelope?.nonce ?: ByteArray(0),
-                thumbnailLength = envelope?.length ?: 0,
+                shmac = shmac,
+                options = options.bytes,
+                keyCheck = options.keyCheck,
+                kdfIterations = options.iterations,
+                bodyOffset = envelope.bodyOffset,
+                thumbnailNonce = envelope.nonce,
+                thumbnailLength = envelope.length,
             )
         }
 
-        /** Decoded v003 envelope: where the body starts plus the thumbnail geometry. */
+        /** Decoded options block. */
+        private class Options(
+            val bytes: ByteArray,
+            val keyCheck: ByteArray,
+            val iterations: Int,
+        )
+
+        /**
+         * Decode the options block that follows the header.
+         *
+         * @throws InvalidSkeFileException on reserved flags or an out-of-range
+         *   work factor (a hostile file must not be able to stall the client).
+         */
+        private fun parseOptions(bytes: ByteArray): Options {
+            val start = SkeFormat.HEADER_SIZE
+            if (bytes.size < start + SkeFormat.OPTIONS_SIZE) {
+                throw InvalidSkeFileException("Corrupted .ske options")
+            }
+            val block = bytes.copyOfRange(start, start + SkeFormat.OPTIONS_SIZE)
+            val keyCheck = block.copyOfRange(0, SkeFormat.KEY_CHECK_SIZE)
+            val flagsAt = SkeFormat.KEY_CHECK_SIZE + SkeFormat.KDF_ITERATIONS_SIZE
+            for (i in flagsAt until SkeFormat.OPTIONS_SIZE) {
+                if (block[i].toInt() != 0) throw InvalidSkeFileException("Unsupported .ske options")
+            }
+            var iterations = 0L
+            for (i in 0 until SkeFormat.KDF_ITERATIONS_SIZE) {
+                iterations = (iterations shl 8) or (block[SkeFormat.KEY_CHECK_SIZE + i].toLong() and 0xFF)
+            }
+            if (iterations < 1 || iterations > SkeFormat.MAX_KDF_ITERATIONS) {
+                throw InvalidSkeFileException("Unsupported KDF iteration count: $iterations")
+            }
+            return Options(block, keyCheck, iterations.toInt())
+        }
+
+        /** Decoded envelope: where the body starts plus the thumbnail geometry. */
         private class ThumbEnvelope(val bodyOffset: Int, val nonce: ByteArray, val length: Int)
 
         /**
-         * Decode the v003 envelope that sits between the header and the body.
+         * Decode the envelope that sits between the options and the body.
          *
          * @throws InvalidSkeFileException when the probe is too short or the
          *   envelope magic is wrong.
@@ -91,7 +137,7 @@ class SkeHeader(
             if (bytes.size < SkeFormat.PROBE_SIZE) {
                 throw InvalidSkeFileException("Corrupted thumbnail envelope")
             }
-            val magicStart = SkeFormat.HEADER_SIZE
+            val magicStart = SkeFormat.HEADER_SIZE + SkeFormat.OPTIONS_SIZE
             val magic = bytes.copyOfRange(magicStart, magicStart + SkeFormat.THUMB_MAGIC_SIZE)
             if (!magic.contentEquals(SkeFormat.THUMB_MAGIC)) {
                 throw InvalidSkeFileException("Corrupted thumbnail envelope")
@@ -99,19 +145,23 @@ class SkeHeader(
             val nonceAt = magicStart + SkeFormat.THUMB_MAGIC_SIZE
             val nonce = bytes.copyOfRange(nonceAt, nonceAt + SkeFormat.THUMB_NONCE_SIZE)
             val lengthAt = nonceAt + SkeFormat.THUMB_NONCE_SIZE
-            val length = ((bytes[lengthAt].toInt() and 0xFF) shl 24) or
-                ((bytes[lengthAt + 1].toInt() and 0xFF) shl 16) or
-                ((bytes[lengthAt + 2].toInt() and 0xFF) shl 8) or
-                (bytes[lengthAt + 3].toInt() and 0xFF)
+            var parsed = 0L
+            for (i in 0 until SkeFormat.THUMB_LEN_SIZE) {
+                parsed = (parsed shl 8) or (bytes[lengthAt + i].toLong() and 0xFF)
+            }
+            if (parsed > Int.MAX_VALUE) {
+                throw InvalidSkeFileException("Corrupted thumbnail envelope")
+            }
+            val length = parsed.toInt()
             return ThumbEnvelope(
-                bodyOffset = SkeFormat.HEADER_SIZE + SkeFormat.THUMB_ENVELOPE_SIZE + length,
+                bodyOffset = SkeFormat.PROBE_SIZE + length,
                 nonce = nonce,
                 length = length,
             )
         }
 
         /** Number of encrypted blocks for a ciphertext of [cipherSize] bytes. */
-        fun blockCount(cipherSize: Long, bodyOffset: Int = SkeFormat.HEADER_SIZE): Long {
+        fun blockCount(cipherSize: Long, bodyOffset: Int = SkeFormat.PROBE_SIZE): Long {
             val body = cipherSize - bodyOffset
             if (body <= 0) return 0
             return (body + SkeFormat.ENC_BLOCK_SIZE - 1) / SkeFormat.ENC_BLOCK_SIZE
@@ -123,7 +173,7 @@ class SkeHeader(
          * Every block carries a 16-byte GCM tag that is not part of the payload,
          * so the plaintext is shorter than the ciphertext body by TAG_SIZE * blocks.
          */
-        fun plaintextSize(cipherSize: Long, bodyOffset: Int = SkeFormat.HEADER_SIZE): Long {
+        fun plaintextSize(cipherSize: Long, bodyOffset: Int = SkeFormat.PROBE_SIZE): Long {
             val blocks = blockCount(cipherSize, bodyOffset)
             if (blocks <= 0) return 0
             val body = cipherSize - bodyOffset

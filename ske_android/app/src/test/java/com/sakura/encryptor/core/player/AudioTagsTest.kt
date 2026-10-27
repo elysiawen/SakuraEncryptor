@@ -225,10 +225,10 @@ class AudioTagsTest {
 
         val access = openPlaintext(ByteArraySource(enc.readBytes()), "wrong")
 
-        // The header parses either way; it is block decryption that refuses. The
-        // loader has to degrade to "no tags" instead of throwing, because a wrong
+        // The key check rejects the password while the file is being opened, so
+        // the loader has to degrade to "no tags" instead of throwing: a wrong
         // password must never be able to take playback down with it.
-        assertNotNull(access)
+        assertNull(access)
         assertNull(AudioTagLoader.load(ByteArraySource(enc.readBytes()), "wrong"))
     }
 

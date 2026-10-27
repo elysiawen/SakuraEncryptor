@@ -51,7 +51,7 @@ class CryptoTaskRunner(private val context: Context) {
             val tempEncrypted = createTemp("ske")
             try {
                 copyUriToFile(uri, tempPlain)
-                // v003 carries a preview. Generation lives here rather than in
+                // Every container carries a preview envelope. Generation lives here rather than in
                 // SkeFileCipher so the crypto layer stays free of Android
                 // framework types (and unit-testable on the JVM).
                 val preview = runCatching { ThumbnailGenerator.generate(tempPlain) }.getOrNull()
@@ -113,7 +113,7 @@ class CryptoTaskRunner(private val context: Context) {
             val tempEncrypted = createTemp("ske")
             copyUriToFile(uri, tempPlain)
             // Previews must survive uploads too: this is the path that puts a
-            // file into the vault, and a v003 container without an envelope
+            // file into the vault, and a container with an empty envelope
             // shows as a generic tile in every other client.
             val preview = runCatching { ThumbnailGenerator.generate(tempPlain) }.getOrNull()
             SkeFileCipher.encryptFile(tempPlain, tempEncrypted, password, preview) { done, total ->

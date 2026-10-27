@@ -3,30 +3,91 @@
  *
  * Mirrors the Python CLI's PBKDF2 + AES-256-GCM logic so that
  * the browser can derive the same key and decrypt names / files.
+ *
+ * Container layout (byte-for-byte identical to `ske_cli/crypto.py`):
+ *   Header (55): MAGIC(8) | VERSION(3) | SALT(16) | MASTER_IV(12) | SHMAC(16)
+ *   Options (22): KEY_CHECK(16) | KDF_ITERATIONS(5, BE) | FLAGS(1)
+ *   Envelope (22 + N): THUMB_MAGIC(5) | THUMB_NONCE(12) | THUMB_LEN(5, BE) | THUMB_CT(N)
+ *   Body: AES-256-GCM(chunk) | tag(16) per block
  */
 
 const KDF_ITERATIONS = 100_000
+const MAX_KDF_ITERATIONS = 2_000_000
 // Must match NAME_SALT in ske_cli/crypto.py — deterministic name encryption.
-const NAME_SALT = new TextEncoder().encode('ske-name-salt-00')
+const NAME_SALT = new TextEncoder().encode('skenamesalt-00-s')
 const IV_TAG = new TextEncoder().encode('ske-name-iv')
-const FILE_MAGIC = new TextEncoder().encode('SakuraE')
-const FILE_VERSION = new TextEncoder().encode('003')
+const FILE_MAGIC = new TextEncoder().encode('SakuraEK')
+const FILE_VERSION = new TextEncoder().encode('001')
 const SALT_SIZE = 16
 const IV_SIZE = 12
-const HEADER_TAG_SIZE = 12
 const CHUNK_SIZE = 1024 * 1024
 
-// v003 thumbnail envelope: magic | nonce | ciphertext length (big-endian)
-const THUMB_MAGIC = new TextEncoder().encode('SKTH')
+// Options block: key check | work factor | reserved flags (zero).
+const KEY_CHECK_SIZE = 16
+const KEY_CHECK_LABEL = new TextEncoder().encode('ske-keycheck')
+const KDF_ITERATIONS_SIZE = 5
+const OPTIONS_FLAGS_SIZE = 1
+const OPTIONS_SIZE = KEY_CHECK_SIZE + KDF_ITERATIONS_SIZE + OPTIONS_FLAGS_SIZE  // 22
+
+/** Truncated HMAC over prefix + options + envelope + body. */
+const SHMAC_SIZE = 16
+
+/** 39 — MAGIC | VERSION | SALT | MASTER_IV, the part that defines the key. */
+const AAD_PREFIX_SIZE =
+    FILE_MAGIC.length + FILE_VERSION.length + SALT_SIZE + IV_SIZE
+
+// Thumbnail envelope: magic | nonce | ciphertext length (big-endian)
+const THUMB_MAGIC = new TextEncoder().encode('SKETH')
 const THUMB_NONCE_SIZE = 12
-const THUMB_LEN_SIZE = 4
-const THUMB_ENVELOPE_SIZE = 4 + THUMB_NONCE_SIZE + THUMB_LEN_SIZE
+const THUMB_LEN_SIZE = 5
+const THUMB_ENVELOPE_SIZE = THUMB_MAGIC.length + THUMB_NONCE_SIZE + THUMB_LEN_SIZE
+
+/** Big-endian fixed-width integer, matching Python's `int.to_bytes`. */
+function writeBigEndianInt(bytes, offset, value, size) {
+    let remaining = value
+    for (let i = size - 1; i >= 0; i--) {
+        bytes[offset + i] = remaining % 256
+        remaining = Math.floor(remaining / 256)
+    }
+}
+
+function concatBytes(...parts) {
+    const total = parts.reduce((sum, part) => sum + part.length, 0)
+    const out = new Uint8Array(total)
+    let at = 0
+    for (const part of parts) {
+        out.set(part, at)
+        at += part.length
+    }
+    return out
+}
+
+/** HMAC-SHA256 over [data], keyed by the raw file key. */
+async function hmacSha256(rawKey, data) {
+    const hmacKey = await crypto.subtle.importKey(
+        'raw',
+        rawKey,
+        { name: 'HMAC', hash: 'SHA-256' },
+        false,
+        ['sign'],
+    )
+    return new Uint8Array(await crypto.subtle.sign('HMAC', hmacKey, data))
+}
 const THUMB_MAX_SIDE = 512
 const VIDEO_NAME_RE = /\.(mp4|m4v|mkv|mov|avi|webm|ts|m2ts|flv|wmv|mpg|mpeg|3gp)$/i
 const POSTER_TIMEOUT_MS = 15000
 
-/** Derive a raw 256-bit key from password + salt via PBKDF2. */
-async function deriveRawKey(password, salt) {
+/**
+ * Derive a raw 256-bit key from password + salt via PBKDF2.
+ *
+ * File encryption passes the work factor that ends up in the container's
+ * options block; name encryption keeps the default, because its salt is a
+ * constant and there is nowhere to store a per-file value.
+ */
+async function deriveRawKey(password, salt, iterations = KDF_ITERATIONS) {
+    if (!(iterations >= 1 && iterations <= MAX_KDF_ITERATIONS)) {
+        throw new Error(`Unsupported KDF iteration count: ${iterations}`)
+    }
     const enc = new TextEncoder()
     const baseKey = await crypto.subtle.importKey(
         'raw',
@@ -36,10 +97,10 @@ async function deriveRawKey(password, salt) {
         ['deriveBits', 'deriveKey'],
     )
     return crypto.subtle.deriveKey(
-        { name: 'PBKDF2', salt, iterations: KDF_ITERATIONS, hash: 'SHA-256' },
+        { name: 'PBKDF2', salt, iterations, hash: 'SHA-256' },
         baseKey,
         { name: 'AES-GCM', length: 256 },
-        true, // extractable — needed to export for SW
+        true, // extractable — needed to export for SW and for the key check
         ['encrypt', 'decrypt'],
     )
 }
@@ -50,8 +111,8 @@ export async function deriveNameKey(password) {
 }
 
 /** Derive a file-level key from password + salt embedded in the .ske header. */
-export async function deriveFileKey(password, salt) {
-    return deriveRawKey(password, salt)
+export async function deriveFileKey(password, salt, iterations = KDF_ITERATIONS) {
+    return deriveRawKey(password, salt, iterations)
 }
 
 /** Fixed 12-byte IV for deterministic name encryption (matches Python). */
@@ -133,7 +194,7 @@ export function getPasswordFromSession() {
 }
 
 /**
- * Encrypt a browser File into the .ske v003 container format used by the CLI.
+ * Encrypt a browser File into the .ske container format used by the CLI.
  *
  * A 512px preview is generated for images and stored in the encrypted
  * thumbnail envelope, never inside the plaintext — the body stays
@@ -143,35 +204,35 @@ export function getPasswordFromSession() {
 export async function encryptFileContent(file, password) {
     if (!password) throw new Error('缺少加密主密码')
 
+    const iterations = KDF_ITERATIONS
     const salt = crypto.getRandomValues(new Uint8Array(SALT_SIZE))
     const masterIv = crypto.getRandomValues(new Uint8Array(IV_SIZE))
-    const key = await deriveFileKey(password, salt)
+    const key = await deriveFileKey(password, salt, iterations)
+    const rawKey = new Uint8Array(await crypto.subtle.exportKey('raw', key))
 
-    // The header prefix defines the key; it is bound into every block as AAD
-    // so salt / IV / version cannot be swapped without breaking decryption.
-    const headerPrefix = new Uint8Array(
-        FILE_MAGIC.length + FILE_VERSION.length + SALT_SIZE + IV_SIZE,
+    // MAGIC | VERSION | SALT | MASTER_IV: the bytes that define the key.
+    const headerPrefix = concatBytes(FILE_MAGIC, FILE_VERSION, salt, masterIv)
+
+    // Options block: key check | KDF iterations | reserved flags (zero).
+    // The probe lets a reader reject a wrong password without touching a
+    // single block; both it and the work factor are bound into the AAD.
+    const options = new Uint8Array(OPTIONS_SIZE)
+    options.set(
+        (await hmacSha256(rawKey, KEY_CHECK_LABEL)).slice(0, KEY_CHECK_SIZE),
+        0,
     )
-    headerPrefix.set(FILE_MAGIC, 0)
-    headerPrefix.set(FILE_VERSION, FILE_MAGIC.length)
-    headerPrefix.set(salt, FILE_MAGIC.length + FILE_VERSION.length)
-    headerPrefix.set(masterIv, FILE_MAGIC.length + FILE_VERSION.length + SALT_SIZE)
+    writeBigEndianInt(options, KEY_CHECK_SIZE, iterations, KDF_ITERATIONS_SIZE)
 
-    // ── Encrypted preview (v003 envelope) ────────────────────────────
+    const aad = concatBytes(headerPrefix, options)
+
+    // ── Encrypted preview (thumbnail envelope) ───────────────────────
     const thumbnail = await makePreview(file)
     const thumbNonce = crypto.getRandomValues(new Uint8Array(THUMB_NONCE_SIZE))
     let thumbCiphertext = new Uint8Array(0)
     if (thumbnail) {
-        const thumbAad = new Uint8Array(
-            headerPrefix.length + THUMB_MAGIC.length + THUMB_LEN_SIZE,
-        )
-        thumbAad.set(headerPrefix, 0)
-        thumbAad.set(THUMB_MAGIC, headerPrefix.length)
-        new DataView(thumbAad.buffer).setUint32(
-            headerPrefix.length + THUMB_MAGIC.length,
-            thumbnail.length + 16, // GCM tag included
-            false,
-        )
+        const thumbLenBytes = new Uint8Array(THUMB_LEN_SIZE)
+        writeBigEndianInt(thumbLenBytes, 0, thumbnail.length + 16, THUMB_LEN_SIZE) // tag included
+        const thumbAad = concatBytes(aad, THUMB_MAGIC, thumbLenBytes)
         thumbCiphertext = new Uint8Array(await crypto.subtle.encrypt(
             { name: 'AES-GCM', iv: thumbNonce, additionalData: thumbAad },
             key,
@@ -182,38 +243,51 @@ export async function encryptFileContent(file, password) {
     const envelope = new Uint8Array(THUMB_ENVELOPE_SIZE)
     envelope.set(THUMB_MAGIC, 0)
     envelope.set(thumbNonce, THUMB_MAGIC.length)
-    new DataView(envelope.buffer).setUint32(
+    writeBigEndianInt(
+        envelope,
         THUMB_MAGIC.length + THUMB_NONCE_SIZE,
         thumbCiphertext.length,
-        false,
+        THUMB_LEN_SIZE,
     )
 
     // ── Body ─────────────────────────────────────────────────────────
-    const encryptedChunks = []
+    // Everything SHMAC covers is laid out in one buffer as it is produced:
+    // the tag keys the container as a whole, so a storage server cannot
+    // truncate or swap the body the way it could with a plain hash.
+    const blockCount = Math.ceil(file.size / CHUNK_SIZE)
+    const bodySize = file.size + blockCount * 16
+    const macInput = new Uint8Array(
+        headerPrefix.length + OPTIONS_SIZE + THUMB_ENVELOPE_SIZE +
+            thumbCiphertext.length + bodySize,
+    )
+    let at = 0
+    for (const part of [headerPrefix, options, envelope, thumbCiphertext]) {
+        macInput.set(part, at)
+        at += part.length
+    }
+    const bodyStart = at
+
     let offset = 0
     let blockIndex = 0
     while (offset < file.size) {
         const chunk = new Uint8Array(await file.slice(offset, offset + CHUNK_SIZE).arrayBuffer())
         const nonce = blockNonce(masterIv, blockIndex)
-        const encrypted = await crypto.subtle.encrypt(
-            { name: 'AES-GCM', iv: nonce, additionalData: headerPrefix },
+        const encrypted = new Uint8Array(await crypto.subtle.encrypt(
+            { name: 'AES-GCM', iv: nonce, additionalData: aad },
             key,
             chunk,
-        )
-        encryptedChunks.push(new Uint8Array(encrypted))
+        ))
+        macInput.set(encrypted, bodyStart + offset + blockIndex * 16)
         offset += chunk.length
         blockIndex += 1
     }
 
-    const encryptedBody = new Blob(encryptedChunks, { type: 'application/octet-stream' })
-    const bodyHash = new Uint8Array(await crypto.subtle.digest('SHA-256', await encryptedBody.arrayBuffer()))
-    const header = new Uint8Array(
-        FILE_MAGIC.length + FILE_VERSION.length + SALT_SIZE + IV_SIZE + HEADER_TAG_SIZE,
-    )
+    const shmac = (await hmacSha256(rawKey, macInput)).slice(0, SHMAC_SIZE)
+    const header = new Uint8Array(AAD_PREFIX_SIZE + SHMAC_SIZE)
     header.set(headerPrefix, 0)
-    header.set(bodyHash.slice(0, HEADER_TAG_SIZE), headerPrefix.length)
+    header.set(shmac, AAD_PREFIX_SIZE)
 
-    return new Blob([header, envelope, thumbCiphertext, encryptedBody], {
+    return new Blob([header, macInput.subarray(AAD_PREFIX_SIZE)], {
         type: 'application/octet-stream',
     })
 }
@@ -230,7 +304,7 @@ function blockNonce(masterIv, blockIndex) {
 
 // ── Preview generation ─────────────────────────────────────────
 //
-// The preview is only ever stored in the v003 envelope, so the plaintext is
+// The preview is only ever stored in the thumbnail envelope, so the plaintext is
 // never rewritten: decrypting the container still yields the exact original
 // bytes, EXIF and all.
 

@@ -1,4 +1,4 @@
-"""Verify a built PyInstaller bundle still carries v3's thumbnail dependencies.
+"""Verify a built PyInstaller bundle still carries the preview dependencies.
 
 Usage::
 
@@ -64,7 +64,7 @@ def main(argv: list[str]) -> int:
             print(f"::error::{failure}")
         return 1
 
-    print("bundle carries the v3 thumbnail and drag-and-drop dependencies")
+    print("bundle carries the preview and drag-and-drop dependencies")
     return 0
 
 

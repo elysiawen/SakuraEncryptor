@@ -77,7 +77,7 @@ class BrowseViewModel(
     /**
      * Grid preview of [entry], or `null` for folders and plaintext files.
      *
-     * Every vault upload is a `.ske` container, whose v003 envelope holds the
+     * Every vault upload is a `.ske` container, whose thumbnail envelope holds the
      * preview: resolving the raw url and reading two small ranges is all it
      * takes, so a screenful of tiles never downloads the files themselves.
      */

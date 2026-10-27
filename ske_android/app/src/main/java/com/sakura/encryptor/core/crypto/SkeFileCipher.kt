@@ -7,15 +7,15 @@ import java.io.RandomAccessFile
 /**
  * Whole-file `.ske` encryption / decryption.
  *
- * The header is written last because its integrity tag is the SHA-256 of the
- * entire ciphertext body. Encryption therefore writes a 50-byte placeholder,
- * streams the body while hashing it, then seeks back to fill the header in —
- * the same strategy as `crypto.py`.
+ * The header is written last because SHMAC is an HMAC over the prefix, the
+ * options block, the envelope and the whole body. Encryption therefore writes
+ * a placeholder header, streams the body while feeding the MAC, then seeks
+ * back to fill in the prefix and the tag — the same strategy as `crypto.py`.
  */
 object SkeFileCipher {
 
     /**
-     * Encrypt [src] into [dst] (both regular files), writing the v003 layout.
+     * Encrypt [src] into [dst] (both regular files), writing the version 001 layout.
      *
      * @param thumbnail encrypted JPEG preview to store in the envelope; `null`
      *   writes an empty envelope, exactly like a CLI file whose source was not
@@ -33,11 +33,14 @@ object SkeFileCipher {
 
         val salt = SkeCrypto.randomBytes(SkeFormat.SALT_SIZE)
         val masterIv = SkeCrypto.randomBytes(SkeFormat.IV_SIZE)
-        val key = SkeCrypto.deriveKey(password, salt)
+        val iterations = SkeFormat.KDF_ITERATIONS
+        val key = SkeCrypto.deriveKey(password, salt, iterations)
 
-        // MAGIC | VERSION | SALT | MASTER_IV — bound into every block as AAD.
+        // MAGIC | VERSION | SALT | MASTER_IV, then the options block: both are
+        // bound into every block as AAD, so neither can be swapped underneath.
         val headerPrefix = SkeFormat.MAGIC + SkeFormat.VERSION + salt + masterIv
-        val digest = SkeCrypto.newSha256()
+        val options = optionsBlock(key, iterations)
+        val aad = headerPrefix + options
         val total = src.length()
 
         // The envelope is always written, even when empty: THUMB_LEN == 0 is
@@ -50,17 +53,24 @@ object SkeFileCipher {
                 key,
                 thumbNonce,
                 thumbnail,
-                thumbnailAad(headerPrefix, thumbnail.size + SkeFormat.TAG_SIZE),
+                thumbnailAad(aad, thumbnail.size + SkeFormat.TAG_SIZE),
             )
         }
+        val envelope = SkeFormat.THUMB_MAGIC +
+            thumbNonce +
+            encodeBigEndian(thumbCipher.size.toLong(), SkeFormat.THUMB_LEN_SIZE) +
+            thumbCipher
 
         RandomAccessFile(dst, "rw").use { raf ->
             raf.setLength(0)
             raf.write(ByteArray(SkeFormat.HEADER_SIZE)) // placeholder
-            raf.write(SkeFormat.THUMB_MAGIC)
-            raf.write(thumbNonce)
-            raf.write(encodeThumbLength(thumbCipher.size))
-            raf.write(thumbCipher)
+            raf.write(options)
+            raf.write(envelope)
+
+            val mac = SkeCrypto.newHmac(key)
+            mac.update(headerPrefix)
+            mac.update(options)
+            mac.update(envelope)
 
             val buffer = ByteArray(SkeFormat.CHUNK_SIZE)
             var blockIndex = 0L
@@ -73,10 +83,10 @@ object SkeFileCipher {
                     val chunk = if (read == buffer.size) buffer else buffer.copyOf(read)
 
                     val nonce = SkeCrypto.blockNonce(masterIv, blockIndex)
-                    val ct = SkeCrypto.gcmEncrypt(key, nonce, chunk, headerPrefix)
+                    val ct = SkeCrypto.gcmEncrypt(key, nonce, chunk, aad)
 
                     raf.write(ct)
-                    digest.update(ct)
+                    mac.update(ct)
 
                     processed += read
                     blockIndex++
@@ -84,10 +94,9 @@ object SkeFileCipher {
                 }
             }
 
-            val headerTag = digest.digest().copyOf(SkeFormat.HEADER_TAG_SIZE)
             raf.seek(0)
             raf.write(headerPrefix)
-            raf.write(headerTag)
+            raf.write(mac.doFinal().copyOf(SkeFormat.SHMAC_SIZE))
         }
     }
 
@@ -110,22 +119,39 @@ object SkeFileCipher {
         val key: ByteArray
 
         RandomAccessFile(src, "r").use { raf ->
-            // Read past the header so a v003 thumbnail envelope can be skipped.
+            // Read past the header so the thumbnail envelope can be skipped.
             val headerBytes = ByteArray(SkeFormat.PROBE_SIZE)
             val readHeader = readFully(raf, headerBytes)
             if (readHeader < SkeFormat.HEADER_SIZE) {
                 throw InvalidSkeFileException("File too small to be a valid .ske")
             }
             header = SkeHeader.parse(headerBytes.copyOf(readHeader))
-            key = SkeCrypto.deriveKey(password, header.salt)
+            key = SkeCrypto.deriveKey(password, header.salt, header.kdfIterations)
+
+            // Fail fast: the password probe costs nothing compared to a block.
+            if (!SkeCrypto.constantTimeEquals(header.keyCheck, SkeCrypto.keyCheck(key))) {
+                throw SkeDecryptionException("Wrong password.")
+            }
 
             if (cipherSize < header.bodyOffset) {
                 throw InvalidSkeFileException("Corrupted thumbnail envelope")
             }
+
+            // SHMAC covers the envelope too, so read it back before seeking to
+            // the first block (it may extend past PROBE_SIZE).
+            val envelopeStart = SkeFormat.HEADER_SIZE + SkeFormat.OPTIONS_SIZE
+            raf.seek(envelopeStart.toLong())
+            val envelope = ByteArray(header.bodyOffset - envelopeStart)
+            if (readFully(raf, envelope) != envelope.size) {
+                throw InvalidSkeFileException("Truncated thumbnail envelope")
+            }
             raf.seek(header.bodyOffset.toLong())
 
             val aad = header.aad
-            val digest = SkeCrypto.newSha256()
+            val mac = SkeCrypto.newHmac(key)
+            mac.update(header.raw, 0, SkeFormat.AAD_PREFIX_SIZE)
+            mac.update(header.options)
+            mac.update(envelope)
             val plainTotal = SkeHeader.plaintextSize(cipherSize, header.bodyOffset)
 
             dst.outputStream().buffered().use { out ->
@@ -137,7 +163,7 @@ object SkeFileCipher {
                     val read = readFully(raf, buffer)
                     if (read <= 0) break
                     val ct = if (read == buffer.size) buffer else buffer.copyOf(read)
-                    digest.update(ct)
+                    mac.update(ct)
 
                     val nonce = SkeCrypto.blockNonce(header.masterIv, blockIndex)
                     val plaintext = try {
@@ -155,21 +181,21 @@ object SkeFileCipher {
                 }
             }
 
-            val computed = digest.digest().copyOf(SkeFormat.HEADER_TAG_SIZE)
-            if (!SkeCrypto.constantTimeEquals(computed, header.headerTag)) {
-                throw SkeDecryptionException("Header integrity check failed. File may be corrupted.")
+            val computed = mac.doFinal().copyOf(SkeFormat.SHMAC_SIZE)
+            if (!SkeCrypto.constantTimeEquals(computed, header.shmac)) {
+                throw SkeDecryptionException("Integrity check failed (SHMAC mismatch). File may be corrupted.")
             }
         }
     }
 
     /**
-     * Decrypt the preview stored in a v003 container.
+     * Decrypt the preview stored in the container's thumbnail envelope.
      *
      * Costs one ~40 KB read instead of a whole-file decrypt, which is what
      * makes previews usable in a list.
      *
      * @return the JPEG bytes, or `null` when the file carries no preview
-     *   (v002, or a v003 with `THUMB_LEN == 0`).
+     *   (`THUMB_LEN == 0`).
      * @throws InvalidSkeFileException for a broken envelope,
      * @throws SkeDecryptionException  for a wrong password / corrupted preview.
      */
@@ -209,8 +235,12 @@ object SkeFileCipher {
         ciphertext: ByteArray,
         password: String,
     ): ByteArray {
+        val key = SkeCrypto.deriveKey(password, header.salt, header.kdfIterations)
+        if (!SkeCrypto.constantTimeEquals(header.keyCheck, SkeCrypto.keyCheck(key))) {
+            throw SkeDecryptionException("Wrong password.")
+        }
+
         val aad = thumbnailAad(header.aad, ciphertext.size)
-        val key = SkeCrypto.deriveKey(password, header.salt)
         return try {
             SkeCrypto.gcmDecrypt(key, header.thumbnailNonce, ciphertext, aad)
         } catch (e: Exception) {
@@ -220,17 +250,22 @@ object SkeFileCipher {
         }
     }
 
-    /** AAD for the v003 envelope: header prefix + "SKTH" + big-endian ciphertext length. */
-    private fun thumbnailAad(headerPrefix: ByteArray, cipherLength: Int): ByteArray =
-        headerPrefix + SkeFormat.THUMB_MAGIC + encodeThumbLength(cipherLength)
+    /** Options block: key check | KDF iterations | reserved flags (zero). */
+    private fun optionsBlock(key: ByteArray, iterations: Int): ByteArray {
+        val block = ByteArray(SkeFormat.OPTIONS_SIZE)
+        SkeCrypto.keyCheck(key).copyInto(block, 0)
+        encodeBigEndian(iterations.toLong(), SkeFormat.KDF_ITERATIONS_SIZE)
+            .copyInto(block, SkeFormat.KEY_CHECK_SIZE)
+        return block
+    }
 
-    /** 4-byte big-endian length, matching `struct.pack(">I", ...)` in crypto.py. */
-    private fun encodeThumbLength(length: Int): ByteArray = byteArrayOf(
-        (length ushr 24).toByte(),
-        (length ushr 16).toByte(),
-        (length ushr 8).toByte(),
-        length.toByte(),
-    )
+    /** AAD for the envelope: header prefix + options + "SKETH" + ciphertext length. */
+    private fun thumbnailAad(aad: ByteArray, cipherLength: Int): ByteArray =
+        aad + SkeFormat.THUMB_MAGIC + encodeBigEndian(cipherLength.toLong(), SkeFormat.THUMB_LEN_SIZE)
+
+    /** Big-endian fixed-width integer, matching the Python `int.to_bytes` calls. */
+    private fun encodeBigEndian(value: Long, size: Int): ByteArray =
+        ByteArray(size) { i -> (value ushr (8 * (size - 1 - i))).toByte() }
 
     internal fun readFully(input: InputStream, buffer: ByteArray): Int {
         var offset = 0
@@ -277,7 +312,12 @@ class SkeBlockDecryptor(private val header: SkeHeader, private val key: ByteArra
     }
 
     companion object {
-        fun create(header: SkeHeader, password: String): SkeBlockDecryptor =
-            SkeBlockDecryptor(header, SkeCrypto.deriveKey(password, header.salt))
+        fun create(header: SkeHeader, password: String): SkeBlockDecryptor {
+            val key = SkeCrypto.deriveKey(password, header.salt, header.kdfIterations)
+            if (!SkeCrypto.constantTimeEquals(header.keyCheck, SkeCrypto.keyCheck(key))) {
+                throw SkeDecryptionException("Wrong password.")
+            }
+            return SkeBlockDecryptor(header, key)
+        }
     }
 }

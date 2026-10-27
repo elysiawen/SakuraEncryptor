@@ -8,7 +8,7 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 
 /**
- * Builds the v003 preview payload: a JPEG whose longest side is
+ * Builds the preview payload: a JPEG whose longest side is
  * [SkeFormat.THUMB_MAX_SIDE].
  *
  * Mirrors `generate_thumbnail()` in `ske_cli/crypto.py`, including the two

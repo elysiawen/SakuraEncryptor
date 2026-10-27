@@ -2,7 +2,6 @@ package com.sakura.encryptor.core.player
 
 import android.net.Uri
 import com.sakura.encryptor.core.crypto.SkeBlockDecryptor
-import com.sakura.encryptor.core.crypto.SkeCrypto
 import com.sakura.encryptor.core.crypto.SkeFormat
 import com.sakura.encryptor.core.crypto.SkeHeader
 import kotlinx.coroutines.Dispatchers
@@ -27,7 +26,7 @@ class DecryptedBytesReader(private val sourceFactory: CipherBlockSourceFactory) 
             val cipherSize = source.cipherSize
             if (cipherSize <= 0) throw IOException("无法确定文件大小")
 
-            // Read past the header so a v003 thumbnail envelope can be skipped.
+            // Read past the header so the thumbnail envelope can be skipped.
             val headLength = minOf(cipherSize, SkeFormat.PROBE_SIZE.toLong()).toInt()
             val head = readRange(source, 0, headLength)
             val isContainer = head.size >= SkeFormat.MAGIC_SIZE &&
@@ -41,8 +40,9 @@ class DecryptedBytesReader(private val sourceFactory: CipherBlockSourceFactory) 
             if (password.isNullOrEmpty()) throw IOException("尚未解锁，无法解密该文件")
 
             val header = SkeHeader.parse(head)
-            val key = SkeCrypto.deriveKey(password, header.salt)
-            val decryptor = SkeBlockDecryptor(header, key)
+            // create() derives with the work factor recorded in the container
+            // and rejects a wrong password before any block is read.
+            val decryptor = SkeBlockDecryptor.create(header, password)
             val reader = SkeBlockReader(source, header, decryptor, cipherSize, CACHE_BLOCKS)
 
             val plaintextSize = reader.plaintextSize

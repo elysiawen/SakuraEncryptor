@@ -2,7 +2,6 @@
 Tests for the Sakura Encryptor crypto module.
 """
 
-import hashlib
 import os
 import shutil
 import subprocess
@@ -11,20 +10,20 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from ske_cli.crypto import (
-    AAD_SIZE,
     CHUNK_SIZE,
     HEADER_SIZE,
-    HEADER_TAG_SIZE,
-    IV_SIZE,
+    KDF_ITERATIONS,
     MAGIC,
-    SALT_SIZE,
+    MAX_KDF_ITERATIONS,
+    OPTIONS_SIZE,
+    PROBE_SIZE,
+    TAG_SIZE,
     THUMB_HEADER_SIZE,
+    THUMB_MAGIC,
+    THUMB_NONCE_SIZE,
     VERSION,
-    VERSION_002,
-    _block_nonce,
     decrypt_file,
     decrypt_name,
     decrypt_path,
@@ -119,8 +118,8 @@ class TestFileEncryption:
             # Check header
             with open(enc, "rb") as f:
                 header = f.read(HEADER_SIZE)
-            assert header[:7] == MAGIC
-            assert header[7:10] == VERSION
+            assert header[: len(MAGIC)] == MAGIC
+            assert header[len(MAGIC) : len(MAGIC) + len(VERSION)] == VERSION
 
             decrypt_file(enc, dec, password)
             assert dec.read_bytes() == data
@@ -173,34 +172,19 @@ class TestFileEncryption:
 
 
 # ------------------------------------------------------- Format compatibility
-def _v2_bytes(data: bytes, password: str, salt: bytes, master_iv: bytes) -> bytes:
-    """Reproduce the v002 writer: AAD-protected body, no thumbnail envelope."""
-    key = derive_key(password, salt)
-    aesgcm = AESGCM(key)
-    header_prefix = MAGIC + VERSION_002 + salt + master_iv
-    body = bytearray()
-    body_hash = hashlib.sha256()
-    for block_index, off in enumerate(range(0, len(data), CHUNK_SIZE)):
-        chunk = data[off : off + CHUNK_SIZE]
-        ct = aesgcm.encrypt(_block_nonce(master_iv, block_index), chunk, header_prefix)
-        body += ct
-        body_hash.update(ct)
-    header = header_prefix + body_hash.digest()[:HEADER_TAG_SIZE]
-    assert len(header_prefix) == AAD_SIZE
-    return header + bytes(body)
-
-
 class TestFormatVersion:
-    def test_encrypt_writes_current_version(self):
+    def test_encrypt_writes_version_001(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             src = Path(tmpdir) / "input.bin"
             enc = Path(tmpdir) / "output.ske"
             src.write_bytes(b"payload")
             encrypt_file(src, enc, "pw")
-            assert enc.read_bytes()[7:10] == VERSION == b"003"
+            version_at = len(MAGIC)
+            assert enc.read_bytes()[version_at : version_at + len(VERSION)] == VERSION == b"001"
 
-    def test_v1_version_is_rejected(self):
-        """The unreleased 001 format is refused outright."""
+    @pytest.mark.parametrize("version", [b"000", b"002", b"003", b"999"])
+    def test_other_version_bytes_are_rejected(self, version):
+        """Pre-release labels (002 / 003) and anything else are refused."""
         with tempfile.TemporaryDirectory() as tmpdir:
             src = Path(tmpdir) / "input.bin"
             enc = Path(tmpdir) / "output.ske"
@@ -210,14 +194,15 @@ class TestFormatVersion:
             encrypt_file(src, enc, "pw")
 
             data = bytearray(enc.read_bytes())
-            data[7:10] = b"001"
+            version_at = len(MAGIC)
+            data[version_at : version_at + len(VERSION)] = version
             enc.write_bytes(bytes(data))
 
             with pytest.raises(ValueError, match="Unsupported version"):
                 decrypt_file(enc, dec, "pw")
 
-    def test_v3_relabelled_as_v2_is_rejected(self):
-        """A v003 body starts 20 bytes late, so relabelling it as v002 must fail."""
+    def test_container_without_envelope_is_rejected(self):
+        """The old 002 layout (header straight into the body) must not decode."""
         with tempfile.TemporaryDirectory() as tmpdir:
             src = Path(tmpdir) / "input.bin"
             enc = Path(tmpdir) / "output.ske"
@@ -226,29 +211,73 @@ class TestFormatVersion:
             src.write_bytes(b"secret" * 1000)
             encrypt_file(src, enc, "pw")
 
-            data = bytearray(enc.read_bytes())
-            assert data[7:10] == VERSION
-            data[7:10] = VERSION_002
-            enc.write_bytes(bytes(data))
+            blob = enc.read_bytes()
+            envelope_at = HEADER_SIZE + OPTIONS_SIZE
+            assert blob[envelope_at : envelope_at + len(THUMB_MAGIC)] == THUMB_MAGIC
+            # Strip the envelope: the reader still expects it right there.
+            enc.write_bytes(blob[:envelope_at] + blob[PROBE_SIZE:])
 
-            with pytest.raises(ValueError, match="Decryption failed|Wrong password"):
+            with pytest.raises(ValueError, match="Corrupted thumbnail envelope"):
                 decrypt_file(enc, dec, "pw")
 
-    def test_v2_file_without_envelope_still_decrypts(self):
-        data = b"aad protected payload " * 2048
-        salt = bytes(range(SALT_SIZE))
-        master_iv = bytes(range(IV_SIZE))
-        blob = _v2_bytes(data, "pw", salt, master_iv)
 
+class TestHeaderOptions:
+    ITERS_AT = HEADER_SIZE + 16  # KEY_CHECK(16) then KDF_ITERATIONS(5)
+
+    def test_options_record_the_work_factor(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            enc = Path(tmpdir) / "v2.ske"
-            dec = Path(tmpdir) / "v2.out"
-            enc.write_bytes(blob)
+            src = Path(tmpdir) / "in.bin"
+            enc = Path(tmpdir) / "out.ske"
+            src.write_bytes(b"abc")
+            encrypt_file(src, enc, "pw")
 
-            assert enc.read_bytes()[7:10] == VERSION_002
-            decrypt_file(enc, dec, "pw")
-            assert dec.read_bytes() == data
-            assert decrypt_thumbnail(enc, "pw") is None
+            blob = enc.read_bytes()
+            assert int.from_bytes(blob[self.ITERS_AT : self.ITERS_AT + 5], "big") == KDF_ITERATIONS
+
+    def test_changed_work_factor_rejects_the_password(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            src = Path(tmpdir) / "in.bin"
+            enc = Path(tmpdir) / "out.ske"
+            dec = Path(tmpdir) / "out.bin"
+            src.write_bytes(b"abc")
+            encrypt_file(src, enc, "pw")
+
+            data = bytearray(enc.read_bytes())
+            data[self.ITERS_AT : self.ITERS_AT + 5] = (KDF_ITERATIONS + 1).to_bytes(5, "big")
+            enc.write_bytes(bytes(data))
+
+            with pytest.raises(ValueError, match="Wrong password"):
+                decrypt_file(enc, dec, "pw")
+
+    def test_absurd_work_factor_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            src = Path(tmpdir) / "in.bin"
+            enc = Path(tmpdir) / "out.ske"
+            dec = Path(tmpdir) / "out.bin"
+            src.write_bytes(b"abc")
+            encrypt_file(src, enc, "pw")
+
+            data = bytearray(enc.read_bytes())
+            data[self.ITERS_AT : self.ITERS_AT + 5] = (MAX_KDF_ITERATIONS + 1).to_bytes(5, "big")
+            enc.write_bytes(bytes(data))
+
+            with pytest.raises(ValueError, match="Unsupported KDF iteration count"):
+                decrypt_file(enc, dec, "pw")
+
+    def test_truncated_body_is_caught_by_shmac(self):
+        """Every remaining block still decrypts; only the keyed MAC sees the loss."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            src = Path(tmpdir) / "in.bin"
+            enc = Path(tmpdir) / "out.ske"
+            dec = Path(tmpdir) / "out.bin"
+            src.write_bytes(b"x" * (CHUNK_SIZE + 1000))
+            encrypt_file(src, enc, "pw")
+
+            blob = enc.read_bytes()
+            enc.write_bytes(blob[: PROBE_SIZE + CHUNK_SIZE + TAG_SIZE])
+
+            with pytest.raises(ValueError, match="Integrity check failed"):
+                decrypt_file(enc, dec, "pw")
 
 
 # ------------------------------------------------------------- Thumbnails
@@ -260,11 +289,13 @@ def _make_image(path: Path, size=(1200, 900), fmt: str = "JPEG"):
 
 
 def _thumb_envelope(blob: bytes) -> tuple[bytes, bytes]:
-    """Return (thumb_nonce, thumb_ciphertext) from a v003 container."""
-    start = HEADER_SIZE + 4  # skip THUMB_MAGIC
-    nonce = blob[start : start + 12]
-    length = int.from_bytes(blob[start + 12 : start + 16], "big")
-    return nonce, blob[start + 16 : start + 16 + length]
+    """Return (thumb_nonce, thumb_ciphertext) from a container."""
+    envelope_at = HEADER_SIZE + OPTIONS_SIZE
+    start = envelope_at + len(THUMB_MAGIC)
+    nonce = blob[start : start + THUMB_NONCE_SIZE]
+    length = int.from_bytes(blob[start + THUMB_NONCE_SIZE : envelope_at + THUMB_HEADER_SIZE], "big")
+    ct_start = envelope_at + THUMB_HEADER_SIZE
+    return nonce, blob[ct_start : ct_start + length]
 
 
 class TestThumbnail:
@@ -298,7 +329,8 @@ class TestThumbnail:
             encrypt_file(img, enc, "pw")
 
             blob = enc.read_bytes()
-            assert blob[7:10] == VERSION
+            version_at = len(MAGIC)
+            assert blob[version_at : version_at + len(VERSION)] == VERSION
             nonce, thumb_ct = _thumb_envelope(blob)
             assert len(nonce) == 12
             assert thumb_ct
@@ -321,8 +353,9 @@ class TestThumbnail:
             encrypt_file(src, enc, "pw")
 
             blob = enc.read_bytes()
-            assert len(blob) >= HEADER_SIZE + THUMB_HEADER_SIZE
-            assert int.from_bytes(blob[HEADER_SIZE + 16 : HEADER_SIZE + 20], "big") == 0
+            assert len(blob) >= HEADER_SIZE + OPTIONS_SIZE + THUMB_HEADER_SIZE
+            length_at = HEADER_SIZE + OPTIONS_SIZE + len(THUMB_MAGIC) + THUMB_NONCE_SIZE
+            assert int.from_bytes(blob[length_at : HEADER_SIZE + OPTIONS_SIZE + THUMB_HEADER_SIZE], "big") == 0
             assert decrypt_thumbnail(enc, "pw") is None
 
             decrypt_file(enc, dec, "pw")
@@ -342,8 +375,9 @@ class TestThumbnail:
 
             assert generate_thumbnail(img) is None
             encrypt_file(img, enc, "pw")
+            length_at = HEADER_SIZE + OPTIONS_SIZE + len(THUMB_MAGIC) + THUMB_NONCE_SIZE
             assert int.from_bytes(
-                enc.read_bytes()[HEADER_SIZE + 16 : HEADER_SIZE + 20], "big"
+                enc.read_bytes()[length_at : HEADER_SIZE + OPTIONS_SIZE + THUMB_HEADER_SIZE], "big"
             ) == 0
             assert decrypt_thumbnail(enc, "pw") is None
 
@@ -366,7 +400,8 @@ class TestThumbnail:
             _make_image(img)
             encrypt_file(img, enc, "right")
 
-            with pytest.raises(ValueError, match="Thumbnail decryption failed"):
+            # The key check rejects the password before the preview is touched.
+            with pytest.raises(ValueError, match="Wrong password"):
                 decrypt_thumbnail(enc, "wrong")
 
     def test_corrupted_envelope_raises(self):
@@ -377,7 +412,8 @@ class TestThumbnail:
             encrypt_file(img, enc, "pw")
 
             data = bytearray(enc.read_bytes())
-            data[HEADER_SIZE : HEADER_SIZE + 4] = b"XXXX"
+            envelope_at = HEADER_SIZE + OPTIONS_SIZE
+            data[envelope_at : envelope_at + len(THUMB_MAGIC)] = b"X" * len(THUMB_MAGIC)
             enc.write_bytes(bytes(data))
 
             with pytest.raises(ValueError, match="Corrupted thumbnail envelope"):
@@ -392,7 +428,7 @@ class TestThumbnail:
 
             blob = enc.read_bytes()
             _, thumb_ct = _thumb_envelope(blob)
-            enc.write_bytes(blob[: HEADER_SIZE + THUMB_HEADER_SIZE + len(thumb_ct) - 1])
+            enc.write_bytes(blob[: HEADER_SIZE + OPTIONS_SIZE + THUMB_HEADER_SIZE + len(thumb_ct) - 1])
 
             with pytest.raises(ValueError, match="Truncated thumbnail envelope"):
                 decrypt_thumbnail(enc, "pw")
@@ -405,7 +441,7 @@ class TestThumbnail:
             encrypt_file(img, enc, "pw")
 
             data = bytearray(enc.read_bytes())
-            data[HEADER_SIZE + THUMB_HEADER_SIZE] ^= 0xFF
+            data[HEADER_SIZE + OPTIONS_SIZE + THUMB_HEADER_SIZE] ^= 0xFF
             enc.write_bytes(bytes(data))
 
             with pytest.raises(ValueError, match="Thumbnail decryption failed"):
@@ -458,7 +494,10 @@ class TestVideoThumbnail:
 
             enc = Path(tmpdir) / "clip.ske"
             encrypt_file(src, enc, "pw")
-            assert int.from_bytes(enc.read_bytes()[66:70], "big") == 0
+            length_at = HEADER_SIZE + OPTIONS_SIZE + len(THUMB_MAGIC) + THUMB_NONCE_SIZE
+            assert int.from_bytes(
+                enc.read_bytes()[length_at : HEADER_SIZE + OPTIONS_SIZE + THUMB_HEADER_SIZE], "big"
+            ) == 0
 
             dec = Path(tmpdir) / "clip.out"
             decrypt_file(enc, dec, "pw")

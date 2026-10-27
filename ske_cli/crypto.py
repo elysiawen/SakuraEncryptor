@@ -5,30 +5,45 @@ AES-256-GCM encryption for file names and file content.
 Chunked encryption supports random-access decryption in the browser.
 
 File format (.ske):
-    Header (50 bytes):
-        MAGIC(7) | VERSION(3) | SALT(16) | MASTER_IV(12) | HEADER_TAG(12)
-    Thumbnail envelope (20 + N bytes, v003 only):
-        THUMB_MAGIC(4) | THUMB_NONCE(12) | THUMB_LEN(4, big-endian) | THUMB_CT(N)
+    Header (55 bytes):
+        MAGIC(8) | VERSION(3) | SALT(16) | MASTER_IV(12) | SHMAC(16)
+    Options (22 bytes):
+        KEY_CHECK(16) | KDF_ITERATIONS(5, big-endian) | FLAGS(1)
+    Thumbnail envelope (22 + N bytes, always present):
+        THUMB_MAGIC(5) | THUMB_NONCE(12) | THUMB_LEN(5, big-endian) | THUMB_CT(N)
         THUMB_LEN counts the ciphertext including its 16-byte GCM tag.
         THUMB_LEN == 0 means the file carries no thumbnail.
     Body (N blocks):
         each block = AES-256-GCM(chunk) | GCM_TAG(16)
         The last block may be shorter than CHUNK_SIZE.
 
-Version history:
-    002 — body blocks are encrypted with the 38-byte header prefix
-          (MAGIC | VERSION | SALT | MASTER_IV) supplied as AES-GCM
-          additional authenticated data, so the key-defining header
-          fields can no longer be tampered with undetected.
-    003 — adds an optional encrypted thumbnail between the header and the
-          body, so clients can render a preview from the first ~50 KiB
-          without decrypting the whole file. Body offset is
-          50 + 20 + THUMB_LEN. 002 remains readable.
-          This module writes 003.
+SHMAC is HMAC-SHA256(key, header[0:39] | options | envelope | body)[:16].
+Because it is keyed, a storage server cannot swap or truncate the body and
+recompute the tag the way it could with a plain SHA-256 of the ciphertext.
 
-The unreleased 001 format (body blocks without AAD) is not supported:
-no build was ever published with it, so every container in the wild is
-002 or 003.
+KEY_CHECK is HMAC-SHA256(key, "ske-keycheck")[:16], compared in constant
+time as soon as the key is derived, so a wrong password is reported without
+reading a single block or the preview.
+
+KDF_ITERATIONS is stored per file (5-byte big-endian) so the work factor can
+be raised later without breaking existing containers. Readers reject values
+above MAX_KDF_ITERATIONS so a hostile file cannot pin the CPU.
+
+Version history:
+    001 — the only version, and the only one this project ever shipped.
+          Body blocks are encrypted with the 39-byte header prefix
+          (MAGIC | VERSION | SALT | MASTER_IV) plus the options block
+          supplied as AES-GCM additional authenticated data, so the
+          key-defining fields and the KDF cost cannot be tampered with
+          undetected. An optional encrypted thumbnail sits between the
+          options and the body, so clients can render a preview from the
+          first ~50 KiB without decrypting the whole file; the body
+          therefore starts at 55 + 22 + 22 + THUMB_LEN.
+
+    Earlier 002 / 003 numbers were pre-release working names: 002 lacked the
+    thumbnail envelope, and the very first commit used an AAD-less header.
+    Both were dropped before any release, so no container in the wild uses
+    them and the version byte is now fixed at 001.
 
 Name encryption is deterministic (fixed IV derived from key) so that
 identical plain names always produce the same cipher-text, enabling
@@ -42,9 +57,9 @@ import hmac
 import io
 import os
 import shutil
-import struct
 import subprocess
 from base64 import urlsafe_b64decode, urlsafe_b64encode
+from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO
 
@@ -55,15 +70,14 @@ from cryptography.hazmat.primitives import hashes
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-MAGIC = b"SakuraE"
-VERSION = b"003"          # format written by this module
-VERSION_002 = b"002"      # AAD-protected body, no thumbnail envelope
-SUPPORTED_VERSIONS = (VERSION, VERSION_002)
+MAGIC = b"SakuraEK"
+VERSION = b"001"          # the only supported (and only ever released) version
+SUPPORTED_VERSIONS = (VERSION,)
 
-THUMB_MAGIC = b"SKTH"
+THUMB_MAGIC = b"SKETH"
 THUMB_NONCE_SIZE = 12
-THUMB_LEN_SIZE = 4
-THUMB_HEADER_SIZE = len(THUMB_MAGIC) + THUMB_NONCE_SIZE + THUMB_LEN_SIZE  # 20
+THUMB_LEN_SIZE = 5
+THUMB_HEADER_SIZE = len(THUMB_MAGIC) + THUMB_NONCE_SIZE + THUMB_LEN_SIZE  # 22
 # File-browser tiles are ~300 CSS px square, i.e. ~600 physical pixels on a 2x
 # display. 512 keeps them crisp without inflating the envelope (JPEG q80 ≈ 40 KB).
 THUMB_MAX_SIDE = 512
@@ -78,30 +92,88 @@ VIDEO_TIMEOUT_S = 30
 # Fixed salt for the deterministic file-name key.  It MUST stay constant:
 # identical plain names have to encrypt to identical tokens so the browser can
 # rebuild the encrypted directory tree without a database (see encrypt_name).
-NAME_SALT = b"ske-name-salt-00"
+NAME_SALT = b"skenamesalt-00-s"
 
 SALT_SIZE = 16
 IV_SIZE = 12
 TAG_SIZE = 16  # AES-GCM tag
-HEADER_TAG_SIZE = 12  # stored in header (first 12 bytes of the SHA-256 of the body)
-HEADER_SIZE = len(MAGIC) + len(VERSION) + SALT_SIZE + IV_SIZE + HEADER_TAG_SIZE  # 7+3+16+12+12 = 50
-AAD_SIZE = HEADER_SIZE - HEADER_TAG_SIZE  # 38: header prefix authenticated as AAD in v002/v003
+SHMAC_SIZE = 16  # truncated HMAC-SHA256 over everything key- or payload-defining
+KEY_CHECK_SIZE = 16  # truncated HMAC of a fixed label, used to test the password
+KDF_ITERATIONS_SIZE = 5  # big-endian uint40, stored per file
+OPTIONS_FLAGS_SIZE = 1
+OPTIONS_SIZE = KEY_CHECK_SIZE + KDF_ITERATIONS_SIZE + OPTIONS_FLAGS_SIZE  # 22
+HEADER_SIZE = len(MAGIC) + len(VERSION) + SALT_SIZE + IV_SIZE + SHMAC_SIZE  # 8+3+16+12+16 = 55
+AAD_PREFIX_SIZE = HEADER_SIZE - SHMAC_SIZE  # 39: MAGIC | VERSION | SALT | MASTER_IV
+AAD_SIZE = AAD_PREFIX_SIZE + OPTIONS_SIZE  # 61: prefix + options, bound into every block
+PROBE_SIZE = HEADER_SIZE + OPTIONS_SIZE + THUMB_HEADER_SIZE  # 99: enough to locate the body
 CHUNK_SIZE = 1 * 1024 * 1024  # 1 MiB per encrypted block
 KDF_ITERATIONS = 100_000
+MAX_KDF_ITERATIONS = 2_000_000  # reject hostile files that would stall the client
+KEY_CHECK_LABEL = b"ske-keycheck"
 
 
 # ---------------------------------------------------------------------------
 # Key Derivation
 # ---------------------------------------------------------------------------
-def derive_key(password: str, salt: bytes) -> bytes:
-    """Derive a 256-bit key from *password* and *salt* using PBKDF2-HMAC-SHA256."""
+def encode_thumb_length(length: int) -> bytes:
+    """THUMB_LEN: 5-byte big-endian ciphertext length, GCM tag included."""
+    return length.to_bytes(THUMB_LEN_SIZE, "big")
+
+
+def encode_kdf_iterations(iterations: int) -> bytes:
+    """KDF_ITERATIONS: 5-byte big-endian work factor."""
+    return iterations.to_bytes(KDF_ITERATIONS_SIZE, "big")
+
+
+def derive_key(password: str, salt: bytes, iterations: int = KDF_ITERATIONS) -> bytes:
+    """
+    Derive a 256-bit key from *password* and *salt* using PBKDF2-HMAC-SHA256.
+
+    File encryption passes the work factor read from the container's options
+    block. Name encryption keeps the default: its salt is a constant, so there
+    is nowhere to store a per-file value.
+    """
+    if not 1 <= iterations <= MAX_KDF_ITERATIONS:
+        raise ValueError(f"Unsupported KDF iteration count: {iterations}")
     kdf = PBKDF2HMAC(
         algorithm=hashes.SHA256(),
         length=32,
         salt=salt,
-        iterations=KDF_ITERATIONS,
+        iterations=iterations,
     )
     return kdf.derive(password.encode("utf-8"))
+
+
+def key_check(key: bytes) -> bytes:
+    """The 16-byte password probe stored in the options block."""
+    return hmac.new(key, KEY_CHECK_LABEL, hashlib.sha256).digest()[:KEY_CHECK_SIZE]
+
+
+def encode_options(key: bytes, iterations: int) -> bytes:
+    """Options block: key check | KDF iterations | reserved flags (zero)."""
+    return key_check(key) + encode_kdf_iterations(iterations) + bytes(OPTIONS_FLAGS_SIZE)
+
+
+def _decode_options(options: bytes) -> int:
+    """Validate an options block and return its KDF iteration count."""
+    if len(options) != OPTIONS_SIZE:
+        raise ValueError("Corrupted options block")
+    if any(options[KEY_CHECK_SIZE + KDF_ITERATIONS_SIZE :]):
+        raise ValueError("Unsupported .ske options flags")
+    iterations = int.from_bytes(
+        options[KEY_CHECK_SIZE : KEY_CHECK_SIZE + KDF_ITERATIONS_SIZE], "big"
+    )
+    if not 1 <= iterations <= MAX_KDF_ITERATIONS:
+        raise ValueError(f"Unsupported KDF iteration count: {iterations}")
+    return iterations
+
+
+def _shmac(key: bytes, *parts: bytes) -> bytes:
+    """Truncated HMAC-SHA256 over the given parts, in order."""
+    mac = hmac.new(key, digestmod=hashlib.sha256)
+    for part in parts:
+        mac.update(part)
+    return mac.digest()[:SHMAC_SIZE]
 
 
 # ---------------------------------------------------------------------------
@@ -169,7 +241,7 @@ def encrypt_file(
     thumbnail: bytes | None = None,
 ) -> None:
     """
-    Encrypt *src* into *dst* using the .ske v003 chunked format.
+    Encrypt *src* into *dst* using the .ske chunked format (version 001).
 
     Each 1 MiB plaintext block is independently encrypted with AES-256-GCM.
     The header stores salt + master IV so the web player can derive the key
@@ -185,52 +257,54 @@ def encrypt_file(
 
     salt = os.urandom(SALT_SIZE)
     master_iv = os.urandom(IV_SIZE)
-    key = derive_key(password, salt)
+    iterations = KDF_ITERATIONS
+    key = derive_key(password, salt, iterations)
     aesgcm = AESGCM(key)
 
-    # The header prefix defines the key; bind it into every block as AAD so
-    # salt / IV / version cannot be swapped without breaking decryption.
-    header_prefix = MAGIC + VERSION + salt + master_iv  # AAD_SIZE bytes
+    # MAGIC | VERSION | SALT | MASTER_IV followed by the options block: both are
+    # bound into every block as AAD, so neither can be swapped underneath.
+    header_prefix = MAGIC + VERSION + salt + master_iv  # AAD_PREFIX_SIZE bytes
+    options = encode_options(key, iterations)
+    aad = header_prefix + options  # AAD_SIZE bytes
 
     if thumbnail is None:
         thumbnail = generate_thumbnail(src)
 
     thumb_nonce = os.urandom(THUMB_NONCE_SIZE)
     if thumbnail:
-        thumb_aad = header_prefix + THUMB_MAGIC + struct.pack(
-            ">I", len(thumbnail) + TAG_SIZE
-        )
+        thumb_aad = aad + THUMB_MAGIC + encode_thumb_length(len(thumbnail) + TAG_SIZE)
         thumb_ct = aesgcm.encrypt(thumb_nonce, thumbnail, thumb_aad)
     else:
         thumb_ct = b""
 
+    envelope = THUMB_MAGIC + thumb_nonce + encode_thumb_length(len(thumb_ct)) + thumb_ct
+
     with open(src, "rb") as fin, open(dst, "wb") as fout:
-        # Reserve the header (rewritten once the body hash is known), then the
-        # thumbnail envelope. The body starts right after it.
-        fout.write(b"\x00" * HEADER_SIZE)
-        fout.write(THUMB_MAGIC)
-        fout.write(thumb_nonce)
-        fout.write(struct.pack(">I", len(thumb_ct)))
-        fout.write(thumb_ct)
+        # Reserve the header (SHMAC is only known at the end), then options and
+        # the envelope. The body starts right after them.
+        fout.write(bytes(HEADER_SIZE))
+        fout.write(options)
+        fout.write(envelope)
 
         block_index = 0
-        body_hash = hashlib.sha256()
+        body_mac = hmac.new(key, digestmod=hashlib.sha256)
+        body_mac.update(header_prefix)
+        body_mac.update(options)
+        body_mac.update(envelope)
 
         while True:
             chunk = fin.read(CHUNK_SIZE)
             if not chunk:
                 break
             nonce = _block_nonce(master_iv, block_index)
-            ct = aesgcm.encrypt(nonce, chunk, header_prefix)  # ciphertext + tag
+            ct = aesgcm.encrypt(nonce, chunk, aad)  # ciphertext + tag
             fout.write(ct)
-            body_hash.update(ct)
+            body_mac.update(ct)
             block_index += 1
-
-        header_tag = body_hash.digest()[:HEADER_TAG_SIZE]
 
         fout.seek(0)
         fout.write(header_prefix)
-        fout.write(header_tag)
+        fout.write(body_mac.digest()[:SHMAC_SIZE])
 
 
 def generate_thumbnail(
@@ -425,56 +499,100 @@ def _video_seek_seconds(src: Path) -> float:
 
 
 def decrypt_thumbnail(src: str | Path, password: str) -> bytes | None:
-    """Return the preview stored in a v003 container, or None when absent."""
+    """Return the preview stored in the envelope, or None when it is empty."""
     with open(src, "rb") as fin:
-        header, version, salt, _, thumb_nonce, thumb_ct, _ = _read_header_and_envelope(fin)
+        prefix = _read_prefix(fin)
 
-    if version != VERSION or not thumb_ct:
+    if not prefix.thumb_ct:
         return None
 
-    aad = header[:AAD_SIZE] + THUMB_MAGIC + struct.pack(">I", len(thumb_ct))
+    key = derive_key(password, prefix.salt, prefix.iterations)
+    _verify_key_check(prefix, key)
+
+    aad = (
+        prefix.header[:AAD_PREFIX_SIZE]
+        + prefix.options
+        + THUMB_MAGIC
+        + encode_thumb_length(len(prefix.thumb_ct))
+    )
     try:
-        return AESGCM(derive_key(password, salt)).decrypt(thumb_nonce, thumb_ct, aad)
+        return AESGCM(key).decrypt(prefix.thumb_nonce, prefix.thumb_ct, aad)
     except Exception as exc:
-        raise ValueError("Thumbnail decryption failed. Wrong password or corrupted file.") from exc
+        raise ValueError(
+            "Thumbnail decryption failed. Wrong password or corrupted file."
+        ) from exc
 
 
-def _read_header_and_envelope(fin):
+@dataclass(frozen=True)
+class _Prefix:
+    """Everything before the body: header, options and thumbnail envelope."""
+
+    header: bytes
+    options: bytes
+    envelope: bytes
+    salt: bytes
+    master_iv: bytes
+    iterations: int
+    thumb_nonce: bytes
+    thumb_ct: bytes
+    body_offset: int
+
+
+def _verify_key_check(prefix: _Prefix, key: bytes) -> None:
+    """Reject a wrong password immediately instead of after the first block."""
+    if not hmac.compare_digest(prefix.options[:KEY_CHECK_SIZE], key_check(key)):
+        raise ValueError("Wrong password.")
+
+
+def _read_prefix(fin) -> _Prefix:
     """
-    Read the 50-byte header and, for v003, the thumbnail envelope.
+    Read the header, the options block and the thumbnail envelope.
 
-    Returns the raw header, version, salt, master IV, thumbnail nonce and
-    ciphertext, plus the byte offset where the body starts. The file position
-    is left at the first body block.
+    The file position is left at the first body block.
     """
     header = fin.read(HEADER_SIZE)
     if len(header) < HEADER_SIZE:
         raise ValueError("File too small to be a valid .ske")
 
-    magic = header[0:7]
-    version = header[7:10]
-    salt = header[10:26]
-    master_iv = header[26:38]
-
+    magic = header[0 : len(MAGIC)]
+    version = header[len(MAGIC) : len(MAGIC) + len(VERSION)]
     if magic != MAGIC:
         raise ValueError(f"Invalid magic number: {magic!r}")
     if version not in SUPPORTED_VERSIONS:
         raise ValueError(f"Unsupported version: {version!r}")
 
-    thumb_nonce = b""
-    thumb_ct = b""
-    if version == VERSION:
-        envelope = fin.read(THUMB_HEADER_SIZE)
-        if len(envelope) < THUMB_HEADER_SIZE or envelope[0:4] != THUMB_MAGIC:
-            raise ValueError("Corrupted thumbnail envelope")
-        thumb_nonce = envelope[4:16]
-        thumb_len = struct.unpack(">I", envelope[16:20])[0]
-        if thumb_len:
-            thumb_ct = fin.read(thumb_len)
-            if len(thumb_ct) != thumb_len:
-                raise ValueError("Truncated thumbnail envelope")
+    salt = header[len(MAGIC) + len(VERSION) : len(MAGIC) + len(VERSION) + SALT_SIZE]
+    master_iv = header[AAD_PREFIX_SIZE - IV_SIZE : AAD_PREFIX_SIZE]
 
-    return header, version, salt, master_iv, thumb_nonce, thumb_ct, fin.tell()
+    options = fin.read(OPTIONS_SIZE)
+    if len(options) < OPTIONS_SIZE:
+        raise ValueError("File too small to be a valid .ske")
+    iterations = _decode_options(options)
+
+    envelope = fin.read(THUMB_HEADER_SIZE)
+    if len(envelope) < THUMB_HEADER_SIZE or envelope[: len(THUMB_MAGIC)] != THUMB_MAGIC:
+        raise ValueError("Corrupted thumbnail envelope")
+    thumb_nonce = envelope[len(THUMB_MAGIC) : len(THUMB_MAGIC) + THUMB_NONCE_SIZE]
+    thumb_len = int.from_bytes(
+        envelope[len(THUMB_MAGIC) + THUMB_NONCE_SIZE :], "big"
+    )
+    thumb_ct = b""
+    if thumb_len:
+        thumb_ct = fin.read(thumb_len)
+        if len(thumb_ct) != thumb_len:
+            raise ValueError("Truncated thumbnail envelope")
+
+    return _Prefix(
+        header=header,
+        options=options,
+        envelope=envelope + thumb_ct,
+        salt=salt,
+        master_iv=master_iv,
+        iterations=iterations,
+        thumb_nonce=thumb_nonce,
+        thumb_ct=thumb_ct,
+        body_offset=fin.tell(),
+    )
 
 
 def decrypt_file(src: str | Path, dst: str | Path, password: str) -> None:
@@ -487,27 +605,32 @@ def decrypt_file(src: str | Path, dst: str | Path, password: str) -> None:
     dst.parent.mkdir(parents=True, exist_ok=True)
 
     with open(src, "rb") as fin:
-        header, _, salt, master_iv, _, _, _ = _read_header_and_envelope(fin)
+        prefix = _read_prefix(fin)
 
-        # Every supported version authenticates the header prefix as AAD.
-        aad = header[:AAD_SIZE]
+        key = derive_key(password, prefix.salt, prefix.iterations)
+        _verify_key_check(prefix, key)
 
-        key = derive_key(password, salt)
+        # Every block authenticates the key-defining fields plus the options.
+        aad = prefix.header[:AAD_PREFIX_SIZE] + prefix.options
         aesgcm = AESGCM(key)
 
         # Each encrypted block = CHUNK_SIZE + TAG_SIZE bytes (except possibly last)
         enc_block_size = CHUNK_SIZE + TAG_SIZE
 
+        mac = hmac.new(key, digestmod=hashlib.sha256)
+        mac.update(prefix.header[:AAD_PREFIX_SIZE])
+        mac.update(prefix.options)
+        mac.update(prefix.envelope)
+
         with open(dst, "wb") as fout:
             block_index = 0
-            body_hash = hashlib.sha256()
 
             while True:
                 ct = fin.read(enc_block_size)
                 if not ct:
                     break
-                body_hash.update(ct)
-                nonce = _block_nonce(master_iv, block_index)
+                mac.update(ct)
+                nonce = _block_nonce(prefix.master_iv, block_index)
                 try:
                     plaintext = aesgcm.decrypt(nonce, ct, aad)
                 except Exception as exc:
@@ -518,9 +641,7 @@ def decrypt_file(src: str | Path, dst: str | Path, password: str) -> None:
                 fout.write(plaintext)
                 block_index += 1
 
-            # Verify header tag
-            computed_tag = body_hash.digest()[:HEADER_TAG_SIZE]
-            if not hmac.compare_digest(computed_tag, header[38:50]):
+            if not hmac.compare_digest(mac.digest()[:SHMAC_SIZE], prefix.header[AAD_PREFIX_SIZE:]):
                 raise ValueError(
-                    "Header integrity check failed. File may be corrupted."
+                    "Integrity check failed (SHMAC mismatch). File may be corrupted."
                 )

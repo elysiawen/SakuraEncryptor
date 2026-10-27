@@ -39,14 +39,23 @@ object SkeCrypto {
     // -----------------------------------------------------------------------
 
     /**
-     * Derive a 256-bit key from [password] and [salt] via PBKDF2-HMAC-SHA256
-     * with 100,000 iterations.
+     * Derive a 256-bit key from [password] and [salt] via PBKDF2-HMAC-SHA256.
+     *
+     * File encryption passes the work factor stored in the container's options
+     * block; name encryption and the app lock keep the default.
      *
      * The password is UTF-8 encoded by the JCE provider, matching Python's
      * `password.encode("utf-8")`.
      */
-    fun deriveKey(password: String, salt: ByteArray): ByteArray {
-        val spec = PBEKeySpec(password.toCharArray(), salt, SkeFormat.KDF_ITERATIONS, KEY_BITS)
+    fun deriveKey(
+        password: String,
+        salt: ByteArray,
+        iterations: Int = SkeFormat.KDF_ITERATIONS,
+    ): ByteArray {
+        require(iterations in 1..SkeFormat.MAX_KDF_ITERATIONS) {
+            "Unsupported KDF iteration count: $iterations"
+        }
+        val spec = PBEKeySpec(password.toCharArray(), salt, iterations, KEY_BITS)
         return SecretKeyFactory.getInstance(PBKDF2).generateSecret(spec).encoded
     }
 
@@ -145,12 +154,17 @@ object SkeCrypto {
     // Misc
     // -----------------------------------------------------------------------
 
-    /** First 12 bytes of the SHA-256 of [data] — used for the header integrity tag. */
-    fun headerTag(data: ByteArray): ByteArray = sha256(data).copyOf(SkeFormat.HEADER_TAG_SIZE)
+    /** Password probe stored in the options block: HMAC-SHA256(key, "ske-keycheck")[:16]. */
+    fun keyCheck(key: ByteArray): ByteArray =
+        hmacSha256(key, SkeFormat.KEY_CHECK_LABEL).copyOf(SkeFormat.KEY_CHECK_SIZE)
+
+    fun hmacSha256(key: ByteArray, data: ByteArray): ByteArray = newHmac(key).doFinal(data)
+
+    /** Streaming HMAC-SHA256, used while a body is being written or verified. */
+    fun newHmac(key: ByteArray): Mac =
+        Mac.getInstance(HMAC_SHA256).apply { init(SecretKeySpec(key, HMAC_SHA256)) }
 
     fun sha256(data: ByteArray): ByteArray = MessageDigest.getInstance(SHA_256).digest(data)
-
-    fun newSha256(): MessageDigest = MessageDigest.getInstance(SHA_256)
 
     /** Constant-time comparison, mirrors Python's `hmac.compare_digest`. */
     fun constantTimeEquals(a: ByteArray, b: ByteArray): Boolean = MessageDigest.isEqual(a, b)

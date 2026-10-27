@@ -12,7 +12,7 @@ import java.nio.file.Files
 import java.security.MessageDigest
 
 /**
- * The preview path of a grid tile reads the v003 envelope through a
+ * The preview path of a grid tile reads the envelope through a
  * [CipherBlockSource], i.e. an HTTP range request for cloud files and an SAF
  * descriptor for local ones. These tests exercise that byte plumbing without a
  * device, using the same vectors the crypto tests use.
@@ -50,8 +50,8 @@ class PreviewEnvelopeTest {
         MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
 
     @Test
-    fun `reads the preview of a cli v003 file through a range source`() {
-        val source = ByteArraySource(resource("vectors/cli_v003.ske"))
+    fun `reads the preview of a cli file through a range source`() {
+        val source = ByteArraySource(resource("vectors/cli_preview.ske"))
 
         val preview = EnvelopeReader.read(head(source), source, password)
 
@@ -67,20 +67,20 @@ class PreviewEnvelopeTest {
 
     @Test
     fun `wrong password yields no preview instead of throwing`() {
-        val source = ByteArraySource(resource("vectors/cli_v003.ske"))
+        val source = ByteArraySource(resource("vectors/cli_preview.ske"))
 
         assertNull(EnvelopeReader.read(head(source), source, "not-the-password"))
     }
 
     @Test
-    fun `v002 container has no preview`() {
+    fun `container with an empty envelope has no preview`() {
         val source = ByteArraySource(resource("vectors/cli_empty.ske"))
 
         assertNull(EnvelopeReader.read(head(source), source, password))
     }
 
     @Test
-    fun `v003 container without a preview yields null`() {
+    fun `container without a preview yields null`() {
         val dir = Files.createTempDirectory("ske-preview").toFile()
         val plain = File(dir, "notes.txt").apply { writeBytes(ByteArray(2_000) { 7 }) }
         val encrypted = File(dir, "notes.txt.ske")
@@ -92,7 +92,7 @@ class PreviewEnvelopeTest {
 
     @Test
     fun `truncated probe is ignored`() {
-        val source = ByteArraySource(resource("vectors/cli_v003.ske"))
+        val source = ByteArraySource(resource("vectors/cli_preview.ske"))
 
         assertNull(EnvelopeReader.read(ByteArray(10), source, password))
     }

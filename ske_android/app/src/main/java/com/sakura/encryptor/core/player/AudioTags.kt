@@ -4,7 +4,6 @@ import android.util.Base64
 import android.util.Log
 import com.sakura.encryptor.BuildConfig
 import com.sakura.encryptor.core.crypto.SkeBlockDecryptor
-import com.sakura.encryptor.core.crypto.SkeCrypto
 import com.sakura.encryptor.core.crypto.SkeFormat
 import com.sakura.encryptor.core.crypto.SkeHeader
 import kotlinx.coroutines.Dispatchers
@@ -672,7 +671,7 @@ internal suspend fun openPlaintext(
     try {
         source.open()
 
-        // Probe past the header so a v003 thumbnail envelope can be skipped.
+        // Probe past the header so the thumbnail envelope can be skipped.
         val prefix = ByteArray(SkeFormat.PROBE_SIZE)
         var filled = 0
         while (filled < prefix.size) {
@@ -697,8 +696,9 @@ internal suspend fun openPlaintext(
             )
         } else {
             val header = SkeHeader.parse(prefix)
-            val key = SkeCrypto.deriveKey(password, header.salt)
-            val decryptor = SkeBlockDecryptor(header, key)
+            // create() honours the container's KDF work factor and rejects a
+            // wrong password up front, so a bad tag read is not silent.
+            val decryptor = SkeBlockDecryptor.create(header, password)
             val blockReader = SkeBlockReader(
                 source, header, decryptor, source.cipherSize,
                 // Random access hops around, so keep more blocks warm.

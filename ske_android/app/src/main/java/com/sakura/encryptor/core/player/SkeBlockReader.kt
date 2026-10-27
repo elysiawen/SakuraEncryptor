@@ -39,8 +39,8 @@ class BlockLruCache(private val maxEntries: Int) {
  *
  * Layout recap: plaintext block `i` lives at ciphertext offset
  * `bodyOffset + i * (CHUNK_SIZE + TAG_SIZE)` and is at most `CHUNK_SIZE`
- * bytes long (`bodyOffset` is the header size, plus the v003 thumbnail
- * envelope when present). Reading plaintext range `[p, p+n)` therefore only
+ * bytes long (`bodyOffset` is the header size plus the thumbnail envelope).
+ * Reading plaintext range `[p, p+n)` therefore only
  * touches the blocks that range spans — that is what makes HTTP Range seeking
  * possible.
  */
@@ -119,7 +119,7 @@ class SkeBlockReader(
 
     companion object {
         /**
-         * Read and parse the header (plus the v003 thumbnail envelope) from a
+         * Read and parse the header (plus the thumbnail envelope) from a
          * source that is already open.
          */
         fun readHeader(source: CipherBlockSource): SkeHeader {

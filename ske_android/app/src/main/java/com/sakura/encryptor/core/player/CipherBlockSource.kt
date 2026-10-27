@@ -250,7 +250,7 @@ class CipherBlockSourceFactory(
 
     companion object {
         /**
-         * Bytes needed before any block can be read: the header plus the v003
+         * Bytes needed before any block can be read: the header plus the
          * thumbnail envelope.
          */
         val HEADER_RANGE: IntRange = 0 until SkeFormat.PROBE_SIZE

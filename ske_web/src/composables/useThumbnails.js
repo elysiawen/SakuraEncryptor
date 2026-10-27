@@ -5,11 +5,11 @@
  * /ske-local route (local folders). Sources are tried cheapest-and-sharpest
  * first:
  *
- *   - v003 containers carry a 512px preview in their encrypted thumbnail
- *     envelope. `/ske-thumb` decrypts just that envelope (≈40 KB), so the tile
- *     never pays for a 1 MiB body block and stays sharp.
- *   - Older containers (v002) have no envelope. A JPEG's embedded EXIF
- *     preview is only used for files above 2 MiB, where skipping the body
+ *   - Containers carry a 512px preview in their encrypted thumbnail envelope.
+ *     `/ske-thumb` decrypts just that envelope (≈40 KB), so the tile never
+ *     pays for a 1 MiB body block and stays sharp.
+ *   - When the envelope holds no preview (`THUMB_LEN = 0`), a JPEG's embedded
+ *     EXIF preview is used for files above 2 MiB, where skipping the body
  *     actually saves traffic; smaller files just use the full image, which is
  *     both sharper and no more expensive.
  *
@@ -140,7 +140,7 @@ async function sourceInfo(mode, item, absPath) {
   }
 }
 
-/** `/ske-thumb` URL for the v003 preview, or null when the entry is not a container. */
+/** `/ske-thumb` URL for the stored preview, or null when the entry is not a container. */
 function thumbnailEndpoint(info, absPath) {
   if (!info.encrypted) return null
   if (info.upstream) return `/ske-thumb?url=${encodeURIComponent(info.upstream)}`
@@ -257,19 +257,20 @@ function parseExifThumbnail(bytes) {
 }
 
 async function imageEntry(info, item, absPath) {
-  // Preferred: the 512px preview stored in a v003 envelope.
+  // Preferred: the 512px preview stored in the thumbnail envelope.
   const endpoint = thumbnailEndpoint(info, absPath)
   if (endpoint) {
     const blob = await fetchEnvelopeThumbnail(endpoint)
     if (blob) return { value: URL.createObjectURL(blob), blob: true }
   }
 
-  // Legacy containers keep the old EXIF trick — but only for remote files large
-  // enough that skipping the first block really saves bandwidth. On small files
-  // that block *is* the file (blurrier for free), and local reads are free.
+  // A container without a stored preview falls back to the JPEG's own EXIF
+  // preview, but only for remote files large enough that skipping the first
+  // block really saves bandwidth. On small files that block *is* the file
+  // (blurrier for free), and local reads are free.
   const ext = (item.decName || item.encName || '').split('.').pop()?.toLowerCase()
-  const legacyExifWorthIt = !info.isLocal && info.encrypted && info.size > EXIF_FALLBACK_MIN_BYTES
-  if (legacyExifWorthIt && (ext === 'jpg' || ext === 'jpeg')) {
+  const exifFallbackWorthIt = !info.isLocal && info.encrypted && info.size > EXIF_FALLBACK_MIN_BYTES
+  if (exifFallbackWorthIt && (ext === 'jpg' || ext === 'jpeg')) {
     try {
       const prefix = await fetchPrefix(info.playback, THUMB_PROBE_BYTES)
       const preview = parseExifThumbnail(prefix)
@@ -385,7 +386,7 @@ export function resolveThumbnail(mode, item, absPath) {
       return imageEntry(info, item, absPath)
     }
 
-    // v003 containers may already carry a sampled frame: reuse it instead of
+    // Containers may already carry a sampled frame: reuse it instead of
     // spinning up a decoder and pulling at least a megabyte of ciphertext.
     const endpoint = thumbnailEndpoint(info, absPath)
     if (endpoint) {

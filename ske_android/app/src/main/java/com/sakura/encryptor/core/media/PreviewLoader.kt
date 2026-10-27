@@ -57,7 +57,7 @@ object PreviewCache {
  * Loads the preview a grid tile shows, reusing the very same code paths that
  * play the file.
  *
- * For a `.ske` container only the v003 envelope is read — header plus the
+ * For a `.ske` container only the thumbnail envelope is read — header plus the
  * encrypted JPEG — so a remote tile costs one ~40 KB range request instead of a
  * download. Plaintext files (only possible for local folders) are decoded
  * directly, and video frames come from the platform decoder.
@@ -178,7 +178,7 @@ class PreviewLoader(
 }
 
 /**
- * Pulls the decrypted preview out of a v003 container.
+ * Pulls the decrypted preview out of a container's thumbnail envelope.
  *
  * Free of Android graphics types on purpose: the byte plumbing is what differs
  * between an HTTP range request and an SAF stream, and this way it can be

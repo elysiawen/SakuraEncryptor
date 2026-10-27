@@ -91,11 +91,11 @@ jobs:
           # sub-directory), so no custom hook is needed.
           pip install ".[video]"
 
-          # v3 files carry an encrypted JPEG preview; video previews come from
-          # PyAV. Prove both paths work here, because PyInstaller only bundles
-          # what is importable at build time and crypto.py imports PyAV lazily —
-          # a build machine without it yields a working exe that silently drops
-          # every video preview.
+          # Every container carries an encrypted JPEG preview; video previews
+          # come from PyAV. Prove both paths work here, because PyInstaller only
+          # bundles what is importable at build time and crypto.py imports PyAV
+          # lazily — a build machine without it yields a working exe that
+          # silently drops every video preview.
           python scripts/verify_thumbnails.py
 
           ICON_ARG=""
@@ -297,9 +297,11 @@ jobs:
       - name: Generate Version Tag and Build Time
         id: meta
         run: |
-          # Version: YYYYMMDD + 3-digit run number (e.g., 20260308001)
+          # Version: YYYYMMDD (e.g. 20261028), no build counter.
+          # A second run on the same day updates that day's release instead of
+          # creating a new one; the commit sha stays visible in the body.
           DATE=$(date +'%Y%m%d')
-          TAG=$(printf "%s%03d" "$DATE" "${{ github.run_number }}")
+          TAG=$DATE
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           
           # Build Time: YYYY-MM-DD HH:MM:SS

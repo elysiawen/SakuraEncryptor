@@ -7,10 +7,12 @@ package com.sakura.encryptor.core.crypto
  * without updating the Python and Web implementations in lock-step.
  *
  * File format (.ske):
- *     Header (50 bytes):
- *         MAGIC(7) | VERSION(3) | SALT(16) | MASTER_IV(12) | HEADER_TAG(12)
- *     Thumbnail envelope (20 + N bytes, v003 only):
- *         THUMB_MAGIC(4) | THUMB_NONCE(12) | THUMB_LEN(4, big-endian) | THUMB_CT(N)
+ *     Header (55 bytes):
+ *         MAGIC(8) | VERSION(3) | SALT(16) | MASTER_IV(12) | SHMAC(16)
+ *     Options (22 bytes):
+ *         KEY_CHECK(16) | KDF_ITERATIONS(5, big-endian) | FLAGS(1)
+ *     Thumbnail envelope (22 + N bytes, always present):
+ *         THUMB_MAGIC(5) | THUMB_NONCE(12) | THUMB_LEN(5, big-endian) | THUMB_CT(N)
  *     Body (N blocks):
  *         each block = AES-256-GCM(chunk) | GCM_TAG(16)
  *         The last block may be shorter than CHUNK_SIZE.
@@ -18,54 +20,53 @@ package com.sakura.encryptor.core.crypto
 object SkeFormat {
 
     // --- Magic / versions ---------------------------------------------------
-    const val MAGIC_STR = "SakuraE"
+    const val MAGIC_STR = "SakuraEK"
 
-    /** AAD-protected body, no thumbnail envelope. Read-only for this client. */
-    const val VERSION_002_STR = "002"
-
-    /** Adds a thumbnail envelope between the header and the body. */
-    const val VERSION_003_STR = "003"
-
-    /**
-     * Version written by this client.
-     *
-     * v003 is what the CLI and the Web player already write: a container
-     * without it carries no preview, so other clients can only show a generic
-     * tile for it. Keep this equal to [VERSION_003_STR].
-     */
-    const val VERSION_STR = VERSION_003_STR
+    /** The only supported version; pre-release 002 / 003 labels are rejected. */
+    const val VERSION_STR = "001"
 
     val MAGIC: ByteArray = MAGIC_STR.toByteArray(Charsets.US_ASCII)
     val VERSION: ByteArray = VERSION_STR.toByteArray(Charsets.US_ASCII)
-    val VERSION_002: ByteArray = VERSION_002_STR.toByteArray(Charsets.US_ASCII)
-    val VERSION_003: ByteArray = VERSION_003_STR.toByteArray(Charsets.US_ASCII)
 
     // --- Sizes --------------------------------------------------------------
-    const val MAGIC_SIZE = 7
+    const val MAGIC_SIZE = 8
     const val VERSION_SIZE = 3
     const val SALT_SIZE = 16
     const val IV_SIZE = 12
     const val TAG_SIZE = 16
-    const val HEADER_TAG_SIZE = 12
 
-    /** 7 + 3 + 16 + 12 + 12 = 50 */
-    const val HEADER_SIZE = MAGIC_SIZE + VERSION_SIZE + SALT_SIZE + IV_SIZE + HEADER_TAG_SIZE
+    /** Truncated HMAC-SHA256 over prefix + options + envelope + body. */
+    const val SHMAC_SIZE = 16
 
-    /** 38 — the header prefix authenticated as AAD in v002 / v003. */
-    const val AAD_SIZE = HEADER_SIZE - HEADER_TAG_SIZE
+    /** Truncated HMAC of a fixed label; tells a wrong password apart at once. */
+    const val KEY_CHECK_SIZE = 16
+    const val KDF_ITERATIONS_SIZE = 5
+    const val OPTIONS_FLAGS_SIZE = 1
 
-    // --- Thumbnail envelope (v003) ------------------------------------------
-    const val THUMB_MAGIC_SIZE = 4
+    /** 16 + 5 + 1 = 22 */
+    const val OPTIONS_SIZE = KEY_CHECK_SIZE + KDF_ITERATIONS_SIZE + OPTIONS_FLAGS_SIZE
+
+    /** 8 + 3 + 16 + 12 + 16 = 55 */
+    const val HEADER_SIZE = MAGIC_SIZE + VERSION_SIZE + SALT_SIZE + IV_SIZE + SHMAC_SIZE
+
+    /** 39 — MAGIC | VERSION | SALT | MASTER_IV, authenticated as AAD. */
+    const val AAD_PREFIX_SIZE = HEADER_SIZE - SHMAC_SIZE
+
+    /** 61 — prefix + options, bound into every block. */
+    const val AAD_SIZE = AAD_PREFIX_SIZE + OPTIONS_SIZE
+
+    // --- Thumbnail envelope --------------------------------------------------
+    const val THUMB_MAGIC_SIZE = 5
     const val THUMB_NONCE_SIZE = 12
-    const val THUMB_LEN_SIZE = 4
+    const val THUMB_LEN_SIZE = 5
 
-    /** 4 + 12 + 4 = 20 */
+    /** 5 + 12 + 5 = 22 */
     const val THUMB_ENVELOPE_SIZE = THUMB_MAGIC_SIZE + THUMB_NONCE_SIZE + THUMB_LEN_SIZE
 
-    val THUMB_MAGIC: ByteArray = "SKTH".toByteArray(Charsets.US_ASCII)
+    val THUMB_MAGIC: ByteArray = "SKETH".toByteArray(Charsets.US_ASCII)
 
-    /** Header + envelope: enough bytes to locate the first body block. */
-    const val PROBE_SIZE = HEADER_SIZE + THUMB_ENVELOPE_SIZE
+    /** Header + options + envelope: enough bytes to locate the first body block. */
+    const val PROBE_SIZE = HEADER_SIZE + OPTIONS_SIZE + THUMB_ENVELOPE_SIZE
 
     // --- Preview payload rules (mirrors generate_thumbnail in crypto.py) -----
     /**
@@ -96,21 +97,24 @@ object SkeFormat {
 
     const val KDF_ITERATIONS = 100_000
 
+    /** Refuse hostile files whose work factor would stall the client. */
+    const val MAX_KDF_ITERATIONS = 2_000_000
+
+    /** HMAC input for the password probe stored in the options block. */
+    val KEY_CHECK_LABEL: ByteArray = "ske-keycheck".toByteArray(Charsets.US_ASCII)
+
     // --- Deterministic file-name encryption ---------------------------------
     /**
      * Fixed salt for the deterministic file-name key. MUST stay constant:
      * identical plain names have to encrypt to identical tokens so the
      * encrypted directory tree can be rebuilt without a database.
      */
-    val NAME_SALT: ByteArray = "ske-name-salt-00".toByteArray(Charsets.US_ASCII)
+    val NAME_SALT: ByteArray = "skenamesalt-00-s".toByteArray(Charsets.US_ASCII)
 
     /** HMAC seed used to derive the fixed name-encryption IV. */
     val NAME_IV_SEED: ByteArray = "ske-name-iv".toByteArray(Charsets.US_ASCII)
 
     const val SKE_EXT = ".ske"
 
-    fun isSupportedVersion(version: ByteArray): Boolean =
-        version.contentEquals(VERSION_002) || version.contentEquals(VERSION_003)
-
-    fun hasThumbnailEnvelope(version: ByteArray): Boolean = version.contentEquals(VERSION_003)
+    fun isSupportedVersion(version: ByteArray): Boolean = version.contentEquals(VERSION)
 }
