@@ -1,6 +1,7 @@
 <template>
   <n-config-provider :theme="darkTheme" :theme-overrides="themeOverrides">
     <n-message-provider>
+      <UpstreamAlert />
       <router-view v-slot="{ Component }">
         <transition name="fade" mode="out-in">
           <component :is="Component" />
@@ -15,4 +16,5 @@
 import { darkTheme } from 'naive-ui'
 import { themeOverrides } from './main.js'
 import DownloadManager from './components/common/DownloadManager.vue'
+import UpstreamAlert from './components/common/UpstreamAlert.vue'
 </script>

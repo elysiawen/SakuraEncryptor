@@ -9,6 +9,7 @@ on:
       - 'ske_cli/**'
       - 'ske_web/**'
       - 'ske_android/**'
+      - 'ske_extension/**'
       - 'scripts/**'
       - 'pyproject.toml'
       - '.github/workflows/release.yml'
@@ -196,6 +197,68 @@ jobs:
           name: SakuraEncryptor-Web
           path: SakuraEncryptor-Web.zip
 
+  # The extension has no build step — it is plain JS + HTML loaded unpacked.
+  # Packaging is therefore "validate then zip", and the zip must keep
+  # manifest.json at its root: Chrome reads it from the extracted folder's top
+  # level, exactly like loading `ske_extension/` itself.
+  #
+  # No .crx on purpose: a packed CRX is signed with the private key matching the
+  # manifest `key`, and that file is not in the repository. Signing with any
+  # other key changes the extension ID, which would break the `externally_
+  # connectable` bridge the web app addresses (EXTENSION_ID in
+  # ske_web/src/composables/useExtensionBridge.js).
+  build-extension:
+    name: Build Extension
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # A renamed icon or a typo in manifest.json still zips fine and only
+      # fails in the user's browser, where nothing points back here.
+      - name: Validate manifest
+        run: |
+          node -e "
+          const fs = require('fs');
+          const path = require('path');
+          const root = 'ske_extension';
+          const m = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8'));
+          const refs = [
+            ...Object.values(m.icons || {}),
+            ...Object.values(m.action?.default_icon || {}),
+            m.action?.default_popup,
+            m.background?.service_worker,
+          ].filter(Boolean);
+          const missing = refs.filter((p) => !fs.existsSync(path.join(root, p)));
+          if (missing.length) {
+            console.error('manifest 引用了不存在的文件: ' + missing.join(', '));
+            process.exit(1);
+          }
+          if (m.manifest_version !== 3) {
+            console.error('expected manifest_version 3, got ' + m.manifest_version);
+            process.exit(1);
+          }
+          console.log('manifest ok: ' + m.name + ' v' + m.version + ', ' + refs.length + ' referenced files present');
+          "
+
+      - name: Package extension
+        working-directory: ske_extension
+        run: |
+          # Zipping the directory contents (`.`) rather than the directory
+          # itself is what keeps manifest.json at the archive root — Chrome
+          # refuses a folder that only contains another folder. `-x` drops OS
+          # junk so a Mac checkout cannot ship .DS_Store into the archive.
+          zip -r ../SakuraEncryptor-Extension.zip . \
+            -x '*.DS_Store' -x '__MACOSX/*' -x '.git*'
+          cd ..
+          unzip -l SakuraEncryptor-Extension.zip
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SakuraEncryptor-Extension
+          path: SakuraEncryptor-Extension.zip
+
   build-android:
     name: Build Android APK
     runs-on: ubuntu-latest
@@ -285,7 +348,7 @@ jobs:
 
   release:
     name: Create GitHub Release
-    needs: [build, build-web, build-android]
+    needs: [build, build-web, build-android, build-extension]
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
@@ -330,5 +393,6 @@ jobs:
             - `SakuraEncryptor-Linux-x64` / `SakuraEncryptor-Linux-ARM64` — Linux 桌面端
             - `SakuraEncryptor-MacOS-ARM64` / `SakuraEncryptor-MacOS-x64` — macOS 桌面端
             - `SakuraEncryptor-Web.zip` — 网页播放器，解压后自行托管
+            - `SakuraEncryptor-Extension.zip` — Chrome 跨域助手，解压后在 `chrome://extensions` 开发者模式下「加载已解压的扩展程序」
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

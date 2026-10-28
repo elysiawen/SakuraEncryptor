@@ -1,7 +1,7 @@
 <template>
   <div class="video-player">
     <div v-if="error" class="error-state">
-      <n-alert type="error" :bordered="false">{{ error }}</n-alert>
+      <n-alert type="error" :bordered="false">{{ errorText }}</n-alert>
       <n-button quaternary @click="init">重试</n-button>
     </div>
     <div v-else class="player-wrapper">
@@ -11,9 +11,11 @@
 </template>
 
 <script setup>
-import { ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { computed, ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import Artplayer from 'artplayer'
 import { renderAssSubtitle, clearAssSubtitle, setAssScale } from '../../composables/useAssRenderer.js'
+import { useUpstreamAlerts } from '../../composables/useUpstreamAlerts.js'
+import { useFailureDiagnosis } from '../../composables/useDecryptDiagnosis.js'
 
 const props = defineProps({
   playUrl: { type: String, required: true },
@@ -27,6 +29,17 @@ const emit = defineEmits(['error', 'ready'])
 
 const playerContainer = ref(null)
 const error = ref('')
+
+const { dismissBanner } = useUpstreamAlerts()
+const { detail, examine, reset: resetDiagnosis } = useFailureDiagnosis(() => props.playUrl)
+
+// Only the first line is generic; the diagnosis replaces it with one cause.
+const errorText = computed(() => detail.value || '播放失败，正在检查原因…')
+
+// The page above has its own alert; it should say the same thing as this panel.
+watch(detail, (text) => {
+  if (text) emit('error', text)
+})
 let art = null
 let playerReady = false
 let vttBlobUrl = null
@@ -95,6 +108,7 @@ async function applySubtitle() {
 
 async function init() {
   error.value = ''
+  resetDiagnosis()
   await nextTick()
 
   playerReady = false
@@ -127,15 +141,20 @@ async function init() {
   })
 
   art.on('video:error', () => {
-    error.value = '视频解密失败或播放出错。请确认密码是否正确，或检查网络连接。'
-    emit('error', error.value)
+    error.value = 'failed'
+    // This panel names the cause, so the global banner would repeat it.
+    dismissBanner()
+    examine()
+    emit('error', errorText.value)
   })
 
   art.on('error', (err) => {
     console.error('ArtPlayer error:', err)
     if (!error.value) {
-      error.value = '播放出错: ' + (err.message || '未知错误')
-      emit('error', error.value)
+      error.value = 'failed'
+      dismissBanner()
+      examine()
+      emit('error', errorText.value)
     }
   })
 

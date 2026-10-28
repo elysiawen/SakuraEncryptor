@@ -11,7 +11,7 @@
     </div>
 
     <div v-if="error" class="error-overlay">
-      <n-alert type="error" :bordered="false">{{ error }}</n-alert>
+      <n-alert type="error" :bordered="false">{{ errorText }}</n-alert>
       <n-button type="primary" @click="$emit('retry')">重试</n-button>
     </div>
 
@@ -40,8 +40,10 @@
 </template>
 
 <script setup>
-import { ref, watch, onMounted, onUnmounted } from 'vue'
+import { computed, ref, watch, onMounted, onUnmounted } from 'vue'
 import ZoomControls from './ZoomControls.vue'
+import { useUpstreamAlerts } from '../../composables/useUpstreamAlerts.js'
+import { useFailureDiagnosis } from '../../composables/useDecryptDiagnosis.js'
 
 const props = defineProps({
   src: { type: String, default: '' },
@@ -53,7 +55,14 @@ const emit = defineEmits(['retry', 'prev', 'next'])
 
 const containerRef = ref(null)
 const loading = ref(true)
+// Marker only: the sentence shown comes from the diagnosis, not from here.
 const error = ref('')
+
+const { dismissBanner } = useUpstreamAlerts()
+const { detail, examine, reset: resetDiagnosis } = useFailureDiagnosis(() => props.src)
+
+const errorText = computed(() => detail.value || '图片加载失败，正在检查原因…')
+
 const zoom = ref(1)
 const rotation = ref(0)
 const posX = ref(0)
@@ -80,8 +89,11 @@ function resetView() {
 }
 
 function onImgError() {
-  error.value = '图片加载失败 (可能是解密失败或网络问题)'
+  error.value = 'failed'
   loading.value = false
+  // The overlay below names the cause, so the global banner would repeat it.
+  dismissBanner()
+  examine()
 }
 
 function startDrag(e) {
@@ -152,6 +164,7 @@ watch(() => props.src, () => {
   resetView()
   error.value = ''
   loading.value = true
+  resetDiagnosis()
 })
 
 // Listeners live on the viewer element, not window, so scrolling the playlist

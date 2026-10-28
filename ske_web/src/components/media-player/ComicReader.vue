@@ -23,7 +23,7 @@
         class="page-hint"
         @click="retry(item)"
       >
-        加载失败，点击重试
+        {{ failureText() }}
       </button>
       <n-spin v-else size="small" />
     </div>
@@ -48,6 +48,8 @@ import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { getFileInfo } from '../../composables/useAList.js'
 import { buildDecryptProxyUrl } from '../../composables/useDecryptProxy.js'
 import { getPasswordFromSession } from '../../composables/useCrypto.js'
+import { useUpstreamAlerts } from '../../composables/useUpstreamAlerts.js'
+import { useFailureDiagnosis } from '../../composables/useDecryptDiagnosis.js'
 
 const props = defineProps({
   /** Playlist entries in reading order: `{ encName, decName }`. */
@@ -67,6 +69,19 @@ const emit = defineEmits(['progress', 'scroll'])
 const scrollerRef = ref(null)
 const urls = ref({})
 const failed = ref({})
+
+const { dismissBanner } = useUpstreamAlerts()
+
+// One diagnosis per reader: every page of a chapter comes from the same host and
+// the same password, so the first failure explains the rest.
+let failedProxyUrl = ''
+let diagnosed = false
+const { detail, examine } = useFailureDiagnosis(() => failedProxyUrl)
+
+/** Why this page failed, when one cause is known. */
+function failureText() {
+  return detail.value || '加载失败，点击重试'
+}
 
 /**
  * Height of the floating topbar plus its margin. `scrollToIndex` and the
@@ -138,10 +153,19 @@ function retry(item) {
 }
 
 function onImageError(item) {
+  // Keep the URL: it is what the diagnosis re-requests to learn the cause.
+  const proxyUrl = urls.value[item.encName] || ''
+
   failed.value = { ...failed.value, [item.encName]: true }
   const next = { ...urls.value }
   delete next[item.encName]
   urls.value = next
+
+  if (diagnosed || !proxyUrl) return
+  diagnosed = true
+  failedProxyUrl = proxyUrl
+  dismissBanner()
+  examine()
 }
 
 function onScroll() {

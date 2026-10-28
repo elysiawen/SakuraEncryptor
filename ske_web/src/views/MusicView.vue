@@ -32,7 +32,7 @@
     <main class="music-container">
       <div v-if="error" class="error-msg glass-card">
         <span class="error-icon">❌</span>
-        <p>{{ error }}</p>
+        <p>{{ errorText }}</p>
         <n-button type="primary" @click="init">重试</n-button>
       </div>
 
@@ -70,9 +70,30 @@ import { usePlaylist } from '../composables/usePlaylist.js'
 import { formatSize } from '../composables/useFileDetection.js'
 import { useDownloadManager } from '../composables/useDownloadManager.js'
 import { toDownloadUrl } from '../composables/useFileDownload.js'
+import { useUpstreamAlerts } from '../composables/useUpstreamAlerts.js'
+import { useFailureDiagnosis } from '../composables/useDecryptDiagnosis.js'
 
 const route = useRoute()
 const { decryptedName, playUrl, isEncrypted, isLocal, rawUrl, rawSize, error, resolve, goBack } = useFileResolver()
+
+const { dismissBanner } = useUpstreamAlerts()
+const { detail, examine, reset: resetDiagnosis } = useFailureDiagnosis(() => playUrl.value)
+
+// The audio element only knows "it did not load"; the worker can say why.
+const errorText = computed(() => {
+  if (!error.value) return ''
+  if (detail.value) return detail.value
+  return playUrl.value ? `${error.value}（正在检查原因…）` : error.value
+})
+
+watch(error, (message) => {
+  if (!message) {
+    resetDiagnosis()
+    return
+  }
+  dismissBanner()
+  examine()
+})
 const playlist = usePlaylist('audio')
 const audioPlayerRef = ref(null)
 const coverUrl = ref('')

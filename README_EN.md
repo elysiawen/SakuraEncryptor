@@ -29,6 +29,7 @@ With this system, you can encrypt private videos, audio, and image files and sto
 - **`ske_cli/`** — Python desktop client for fast local file encryption.
 - **`ske_web/`** — Vue 3 + Service Worker powered web player for real-time streaming decryption and playback of cloud files.
 - **`ske_android/`** — Kotlin + Jetpack Compose Android client with local encryption, AList browsing and streaming decryption playback.
+- **`ske_extension/`** — Chrome extension (Sakura Encryptor CORS Helper) that adds `Access-Control-Allow-Origin` to the drives you whitelist, so the web client can read drives that ship no CORS headers.
 - **`tests/`** — Comprehensive encryption consistency test suite.
 
 ---
@@ -66,6 +67,8 @@ npm run dev
 2. Enter your AList / WebDAV server address and password.
 3. Click an encrypted file and enter the password used during encryption.
 4. Enjoy private playback!
+
+> The web client fetches cloud files directly from the browser (through a Service Worker), so the drive's direct links have to send CORS headers. When a drive refuses — the browser only reports `Failed to fetch` — the UI names the reason and hands that host to the helper extension in `ske_extension/` (Sakura Encryptor CORS Helper); once it is installed and the host added, a refresh is enough. Without the extension, use the desktop or Android client for that drive.
 
 ### 3. Android Client (Android)
 

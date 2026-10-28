@@ -1,0 +1,37 @@
+{
+  "manifest_version": 3,
+  "name": "Sakura Encryptor 跨域小助手",
+  "version": "1.0.0",
+  "description": "为指定网盘的跨域响应补上 Access-Control-Allow-Origin，让网页端可以读取密文并解密。",
+  "minimum_chrome_version": "128",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2ZbijY26t4q5X7yoq4lnpqfhr4aHoVLKuDaOgG1gyPHxzZ/6P6HaInr7TlvY8lgv1hnwMZQFPfkKzeT8JfrNax+AMZzRPLpnWKGmn7L6HzUiOmW3Xe7TYf1GtQYOnLg133DGBNri1BGmcab6UvX8XhKYrK67ff7zOSuHLn1v9bjvr1uyMUcMEsGprGnH2t4HQZFP1lh2wqaqaysm7xhLYSvfj/duuREBeW5UbzuHXrdEgn0RBJq0fmcuHZLxHeegJ3l/XW7QKXqqATlk2Hs6MF9FsZcao4iCjJV52YhaDCl4nug7x5LfW91KSxxyyPd9ON8qQSRdwxJJ3n7O0Dw9owIDAQAB",
+  "permissions": [
+    "declarativeNetRequestWithHostAccess",
+    "declarativeNetRequestFeedback",
+    "activeTab",
+    "storage"
+  ],
+  "optional_host_permissions": ["*://*/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "externally_connectable": {
+    "matches": ["http://localhost/*", "http://127.0.0.1/*", "https://*/*"]
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Sakura Encryptor 跨域小助手",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  }
+}

@@ -29,6 +29,7 @@
 - **`ske_cli/`**：Python 编写的桌面客户端。负责本地文件的极速加密。
 - **`ske_web/`**：Vue 3 + Service Worker 驱动的在线播放站。负责云端文件的实时流解密播放。
 - **`ske_android/`**：Kotlin + Jetpack Compose 安卓客户端。支持本地加解密、AList 云端浏览与流式解密播放。
+- **`ske_extension/`**：Chrome 扩展（Sakura Encryptor 跨域小助手）。为指定网盘的跨域响应补上 `Access-Control-Allow-Origin`，让 Web 端能直接读取不支持 CORS 的网盘。
 - **`tests/`**：完善的加密一致性测试脚本。
 
 ---
@@ -66,6 +67,8 @@ npm run dev
 2.  输入你的 AList / WebDAV 地址及密码。
 3.  点击加密文件，输入加密时设置的密码。
 4.  开始享受私密播放！
+
+> Web 端由 Service Worker 直接向网盘发起跨域请求来解密，因此网盘直链必须允许 CORS。遇到不放开跨域的网盘（浏览器只会报 `Failed to fetch`），界面会提示具体原因，并把该域名推给浏览器扩展 `ske_extension/`（Sakura Encryptor 跨域小助手）；装上扩展并添加该域名后刷新即可正常解密，未安装扩展时可改用桌面 / 安卓客户端浏览该网盘。
 
 ### 3. 安卓客户端 (Android)
 

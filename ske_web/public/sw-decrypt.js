@@ -75,6 +75,164 @@ const THUMB_TTL = 30 * 60_000             // previews are immutable per containe
 
 let masterPassword = null
 
+// ── Upstream access failures ──────────────────────────────────
+/**
+ * Raised when the browser never got to read the bytes at all: CORS refused,
+ * the host answered 401/403 (hotlink protection, expired direct link), or it
+ * is simply unreachable. None of these are fixable by retrying here — the
+ * container cannot be decrypted without the server's data — so the page is
+ * told *why* instead of being handed a bare 500.
+ */
+class UpstreamBlocked extends Error {
+    constructor(reason, status = 0) {
+        super(`Upstream blocked: ${reason}${status ? ` (${status})` : ''}`)
+        this.name = 'UpstreamBlocked'
+        this.reason = reason      // 'cors' | 'forbidden' | 'offline'
+        this.status = status
+    }
+}
+
+/**
+ * fetch() for anything cross-origin, with the failure modes named.
+ *
+ * A response without `Access-Control-Allow-Origin` is invisible to us: the
+ * browser rejects the promise with a bare TypeError and refuses to expose the
+ * status, so CORS and a dead network look identical from here.
+ */
+async function fetchUpstream(url, init) {
+    let resp
+    try {
+        resp = await fetch(url, init)
+    } catch {
+        // Offline is not the host's fault, and telling the user to switch to the
+        // client would not help: the client is just as offline.
+        if (self.navigator && self.navigator.onLine === false) {
+            throw new UpstreamBlocked('offline')
+        }
+        throw new UpstreamBlocked('cors')
+    }
+    if (resp.status === 401 || resp.status === 403) {
+        // Logged next to the error: an expired sign, a one-shot DPoP proof and a
+        // hotlink block all look like this, and the URL is the only way to tell.
+        console.warn('[SW] Upstream refused:', resp.status, url.slice(0, 200))
+        throw new UpstreamBlocked('forbidden', resp.status)
+    }
+    return resp
+}
+
+// A folder of previews would otherwise fire one notice per image.
+const blockedNotices = new Map()   // reason → last sent at
+const BLOCKED_NOTICE_TTL = 15_000
+
+function notifyUpstreamBlocked(reason, status, url) {
+    if (Date.now() - (blockedNotices.get(reason) || 0) < BLOCKED_NOTICE_TTL) return
+    blockedNotices.set(reason, Date.now())
+
+    let origin = ''
+    try {
+        origin = new URL(url).origin
+    } catch {
+        // Local files and malformed links carry no origin worth naming.
+    }
+
+    self.clients
+        .matchAll({ type: 'window', includeUncontrolled: true })
+        .then((clients) => {
+            for (const client of clients) {
+                // `url` lets the page match the refusal to the file it is
+                // showing, instead of blaming whatever is on screen.
+                client.postMessage({ type: 'UPSTREAM_BLOCKED', reason, status, origin, url })
+            }
+        })
+        .catch(() => {})
+}
+
+function blockedResponse(err, url) {
+    notifyUpstreamBlocked(err.reason, err.status, url)
+    return new Response(blockedMessage(err, url), {
+        status: 502,
+        headers: {
+            'Content-Type': 'text/plain; charset=utf-8',
+            // The page cannot read a media error body, so the reason also
+            // travels as a header and as the message above.
+            'X-Ske-Error': 'UPSTREAM_BLOCKED',
+            'X-Ske-Reason': err.reason,
+            'Cache-Control': 'no-store',
+        },
+    })
+}
+
+function blockedMessage(err, url) {
+    if (err.reason === 'offline') {
+        return '网络已断开，无法读取网盘上的加密文件。请检查网络后重试。'
+    }
+    if (err.reason === 'forbidden') {
+        return `网盘拒绝访问（HTTP ${err.status}），可能是直链已过期、需要登录或开启了防盗链。` +
+            '浏览器端无法绕过，请改用桌面客户端或安卓客户端浏览。'
+    }
+    let origin = ''
+    try {
+        origin = new URL(url).origin
+    } catch {
+        // Local files and malformed links carry no origin worth naming.
+    }
+    // 与 src/composables/useProjectLinks.js 保持一致（SW 无法 import 打包模块）
+    return `浏览器直连 ${origin || '该网盘'} 被跨域策略（CORS）拦截，` +
+        '请使用浏览器插件，或直接下载客户端使用。\n' +
+        '下载地址：https://github.com/elysiawen/SakuraEncryptor/releases'
+}
+
+// ── Named decryption failures ─────────────────────────────────
+/**
+ * A failure we can name. The page reads `X-Ske-Error` from the 4xx/5xx response
+ * and shows that one cause — never a list of guesses.
+ */
+class SkeError extends Error {
+    constructor(code, message) {
+        super(message)
+        this.name = 'SkeError'
+        this.code = code   // 'NO_KEY' | 'BAD_PASSWORD' | 'CORRUPT'
+    }
+}
+
+const SKE_STATUS = {
+    NO_KEY: 401,
+    BAD_PASSWORD: 403,
+    CORRUPT: 422,
+}
+
+const SKE_MESSAGE = {
+    NO_KEY: 'Service Worker 没有解密密码，请重新输入密码。',
+    BAD_PASSWORD: '密码不正确，无法解密该文件。',
+    CORRUPT: '数据损坏或被篡改（AES-GCM 校验失败）。',
+}
+
+function namedResponse(err) {
+    const code = SKE_STATUS[err.code] ? err.code : 'CORRUPT'
+    return new Response(SKE_MESSAGE[code], {
+        status: SKE_STATUS[code],
+        headers: {
+            'Content-Type': 'text/plain; charset=utf-8',
+            'X-Ske-Error': code,
+            'Cache-Control': 'no-store',
+        },
+    })
+}
+
+/**
+ * One place that turns a thrown error into a named response, so every endpoint
+ * answers with the same vocabulary. WebCrypto reports a failed tag check as a
+ * bare `OperationError` with no detail, which is why it is mapped by name.
+ */
+function failureResponse(err, url) {
+    if (err instanceof UpstreamBlocked) return blockedResponse(err, url)
+    if (err instanceof SkeError) return namedResponse(err)
+    if (err && (err.name === 'OperationError' || err.name === 'DataError')) {
+        return namedResponse(new SkeError('CORRUPT', err.message))
+    }
+    return null
+}
+
 // ── Session Store ─────────────────────────────────────────────
 // Keyed by the real upstream URL. Each session stores everything
 // needed to serve range requests WITHOUT re-fetching or re-deriving.
@@ -252,7 +410,7 @@ async function handleThumbnail(url) {
 
     try {
         if (!(await ensurePassword())) {
-            return new Response('No decryption key set.', { status: 403 })
+            return namedResponse(new SkeError('NO_KEY', 'No decryption key set.'))
         }
 
         const cacheKey = `${isLocal ? 'local' : 'remote'}|${target}`
@@ -305,8 +463,10 @@ async function handleThumbnail(url) {
                 ciphertext,
             ))
         } catch (err) {
+            // The key check already passed, so a failed tag means the bytes were
+            // altered on the way in, not that the password is wrong.
             console.warn('[SW] Thumbnail decryption failed:', err.message)
-            return new Response('Thumbnail decryption failed', { status: 403 })
+            return namedResponse(new SkeError('CORRUPT', err.message))
         }
 
         perfTotalNetBytes += probe.length + ciphertext.length
@@ -316,8 +476,14 @@ async function handleThumbnail(url) {
         }
         return thumbnailResponse(preview)
     } catch (err) {
+        const named = failureResponse(err, target)
+        if (named) return named
+
         console.error('[SW] Thumbnail error:', err)
-        return new Response(`Thumbnail error: ${err.message}`, { status: 500 })
+        return new Response(`Thumbnail error: ${err.message}`, {
+            status: 500,
+            headers: { 'X-Ske-Error': 'UNKNOWN', 'Cache-Control': 'no-store' },
+        })
     }
 }
 
@@ -342,7 +508,7 @@ async function readUpstreamRange(target, isLocal, start, end) {
         return new Uint8Array(await file.slice(start, end + 1).arrayBuffer())
     }
 
-    const resp = await fetch(target, { headers: { Range: `bytes=${start}-${end}` } })
+    const resp = await fetchUpstream(target, { headers: { Range: `bytes=${start}-${end}` } })
     if (resp.status === 206) return new Uint8Array(await resp.arrayBuffer())
     if (!resp.ok) throw new Error(`Upstream fetch failed: ${resp.status}`)
     // Server ignored Range: slice the full body locally.
@@ -353,7 +519,7 @@ async function readUpstreamRange(target, isLocal, start, end) {
 // ── Main handler ──────────────────────────────────────────────
 async function handleDecrypt(request, url, isLocal = false) {
     if (!(await ensurePassword())) {
-        return new Response('No decryption key set.', { status: 403 })
+        return namedResponse(new SkeError('NO_KEY', 'No decryption key set.'))
     }
 
     let realUrl = isLocal ? decodeURIComponent(url.pathname.replace('/ske-local', '')) : url.searchParams.get('url')
@@ -393,8 +559,17 @@ async function handleDecrypt(request, url, isLocal = false) {
         // Full file fallback (non-media, small files)
         return handleFullRequest(session)
     } catch (err) {
+        // Name the cause: a host that blocks the browser is not a decryption
+        // failure, and saying so is the difference between "try again" and
+        // "use the client".
+        const named = failureResponse(err, realUrl)
+        if (named) return named
+
         console.error('[SW] Decrypt error:', err)
-        return new Response(`Decryption error: ${err.message}`, { status: 500 })
+        return new Response(`Decryption error: ${err.message}`, {
+            status: 500,
+            headers: { 'X-Ske-Error': 'UNKNOWN', 'Cache-Control': 'no-store' },
+        })
     }
 }
 
@@ -433,7 +608,7 @@ async function createSession(url, querySize, isLocal = false) {
         headerBytes = new Uint8Array(await file.slice(0, PROBE_SIZE).arrayBuffer())
         totalSize = file.size
     } else {
-        const headerResp = await fetch(url, {
+        const headerResp = await fetchUpstream(url, {
             headers: { Range: `bytes=0-${PROBE_SIZE - 1}` },
         })
 
@@ -455,16 +630,16 @@ async function createSession(url, querySize, isLocal = false) {
     if (!headerBytes) throw new Error('Failed to get header')
     const decoder = new TextDecoder()
     const magic = decoder.decode(headerBytes.slice(0, MAGIC.length))
-    if (magic !== MAGIC) throw new Error('Invalid .ske file (bad magic)')
+    if (magic !== MAGIC) throw new SkeError('CORRUPT', 'Invalid .ske file (bad magic)')
 
     const version = decoder.decode(headerBytes.slice(MAGIC.length, MAGIC.length + VERSION_SIZE))
     const salt = headerBytes.slice(SALT_AT, SALT_AT + SALT_SIZE)
     const masterIv = headerBytes.slice(IV_AT, IV_AT + IV_SIZE)
     if (!SUPPORTED_VERSIONS.has(version)) {
-        throw new Error(`Unsupported .ske version: ${version}`)
+        throw new SkeError('CORRUPT', `Unsupported .ske version: ${version}`)
     }
     if (headerBytes.length < PROBE_SIZE) {
-        throw new Error('Corrupted .ske container')
+        throw new SkeError('CORRUPT', 'Corrupted .ske container')
     }
 
     // The options block carries the password probe and the work factor, and
@@ -483,7 +658,7 @@ async function createSession(url, querySize, isLocal = false) {
         headerBytes.slice(ENVELOPE_START, ENVELOPE_START + THUMB_MAGIC_LEN),
     )
     if (thumbMagic !== THUMB_MAGIC) {
-        throw new Error('Corrupted .ske thumbnail envelope')
+        throw new SkeError('CORRUPT', 'Corrupted .ske thumbnail envelope')
     }
     const thumbLen = readThumbLength(
         headerBytes,
@@ -622,7 +797,7 @@ async function batchFetchBlocks(session, blockIndices) {
         if (!file) throw new Error('Local file lost during batch fetch')
         encData = new Uint8Array(await file.slice(encStart, encEnd + 1).arrayBuffer())
     } else {
-        const resp = await fetch(url, {
+        const resp = await fetchUpstream(url, {
             headers: { Range: `bytes=${encStart}-${encEnd}` },
         })
         if (!resp.ok) throw new Error(`Upstream fetch failed: ${resp.status}`)
@@ -674,7 +849,7 @@ async function handleFullRequest(session) {
         const file = localFiles.get(url)
         bodyBytes = new Uint8Array(await file.slice(bodyOffset).arrayBuffer())
     } else {
-        const bodyResp = await fetch(url, {
+        const bodyResp = await fetchUpstream(url, {
             headers: { Range: `bytes=${bodyOffset}-${totalSize - 1}` },
         })
         if (bodyResp.status === 206) {
@@ -775,6 +950,10 @@ async function handleDownloadRequest(request, session) {
                 }
                 controller.close()
             } catch (err) {
+                // Too late for a status code, but not for an explanation.
+                if (err instanceof UpstreamBlocked) {
+                    notifyUpstreamBlocked(err.reason, err.status, session.url)
+                }
                 console.error('[SW] Download stream failed:', err)
                 controller.error(err)
             }
@@ -915,7 +1094,7 @@ async function deriveContainerKey(probe) {
     const rawKey = await deriveKeyBytes(masterPassword, probe.slice(SALT_AT, SALT_AT + SALT_SIZE), iterations)
     const expected = options.slice(0, KEY_CHECK_SIZE)
     if (!constantTimeEqual(expected, await keyCheckProbe(rawKey))) {
-        throw new Error('Wrong password.')
+        throw new SkeError('BAD_PASSWORD', 'Wrong password.')
     }
     return importAesKey(rawKey)
 }
