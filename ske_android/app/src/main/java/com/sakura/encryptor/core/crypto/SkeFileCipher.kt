@@ -1,5 +1,6 @@
 package com.sakura.encryptor.core.crypto
 
+import com.sakura.encryptor.core.cache.DerivedKeyCache
 import java.io.File
 import java.io.InputStream
 import java.io.RandomAccessFile
@@ -235,7 +236,9 @@ object SkeFileCipher {
         ciphertext: ByteArray,
         password: String,
     ): ByteArray {
-        val key = SkeCrypto.deriveKey(password, header.salt, header.kdfIterations)
+        // Grids decrypt one preview per file; the memo keeps a revisit from
+        // paying the KDF again (see DerivedKeyCache).
+        val key = DerivedKeyCache.getOrDerive(password, header.salt, header.kdfIterations)
         if (!SkeCrypto.constantTimeEquals(header.keyCheck, SkeCrypto.keyCheck(key))) {
             throw SkeDecryptionException("Wrong password.")
         }
@@ -313,7 +316,7 @@ class SkeBlockDecryptor(private val header: SkeHeader, private val key: ByteArra
 
     companion object {
         fun create(header: SkeHeader, password: String): SkeBlockDecryptor {
-            val key = SkeCrypto.deriveKey(password, header.salt, header.kdfIterations)
+            val key = DerivedKeyCache.getOrDerive(password, header.salt, header.kdfIterations)
             if (!SkeCrypto.constantTimeEquals(header.keyCheck, SkeCrypto.keyCheck(key))) {
                 throw SkeDecryptionException("Wrong password.")
             }

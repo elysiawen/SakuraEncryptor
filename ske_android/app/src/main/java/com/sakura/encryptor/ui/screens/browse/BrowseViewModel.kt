@@ -85,14 +85,20 @@ class BrowseViewModel(
         if (entry.isDir || !entry.isSke) return null
         val remotePath = "${_state.value.path.trimEnd('/')}/${entry.raw.name}"
 
-        val url = previewUrls[remotePath] ?: runCatching {
-            val (resolved, size) = repository.resolveRemote(remotePath)
-            cipherBlockSourceFactory.rememberSize(resolved, size)
-            previewUrls[remotePath] = resolved
-            resolved
-        }.getOrNull() ?: return null
+        // Keyed on the vault path, not on the signed raw url, so the cache
+        // survives a restart; when it hits, resolveRemote is never called.
+        return previews.load(remotePath, entry.displayName, vault.password) {
+            resolvePreviewUri(remotePath)
+        }
+    }
 
-        return previews.load(Uri.parse(url), entry.displayName, vault.password)
+    private suspend fun resolvePreviewUri(remotePath: String): Uri? {
+        previewUrls[remotePath]?.let { return Uri.parse(it) }
+
+        val resolved = runCatching { repository.resolveRemote(remotePath) }.getOrNull() ?: return null
+        cipherBlockSourceFactory.rememberSize(resolved.first, resolved.second)
+        previewUrls[remotePath] = resolved.first
+        return Uri.parse(resolved.first)
     }
 
     // ---- cloud profiles ------------------------------------------------------

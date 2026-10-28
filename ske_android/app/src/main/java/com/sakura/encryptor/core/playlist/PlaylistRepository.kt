@@ -8,10 +8,9 @@ import com.sakura.encryptor.core.local.LocalSkeStore
 import com.sakura.encryptor.core.player.CipherBlockSourceFactory
 import com.sakura.encryptor.core.player.MediaKind
 import com.sakura.encryptor.core.player.MediaTypes
+import com.sakura.encryptor.core.util.DisplayNameOrder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.text.Collator
-import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 
 /** One playable entry of the queue. */
@@ -55,13 +54,11 @@ class PlaylistRepository(
         fromCloud: Boolean,
         kind: MediaKind,
         nameKey: ByteArray?,
-    ): List<PlaylistItem> {
-        // A collator is not thread-safe, so keep it local to this call.
-        val collator = Collator.getInstance(Locale.CHINA)
-        return listAll(directory, fromCloud, nameKey)
+    ): List<PlaylistItem> =
+        listAll(directory, fromCloud, nameKey)
             .filter { MediaTypes.kindOf(it.displayName) == kind }
-            .sortedWith { a, b -> collator.compare(a.displayName, b.displayName) }
-    }
+            // Same ordering as the web client's playlist (localeCompare 'zh-CN').
+            .sortedWith(compareBy(DisplayNameOrder) { it.displayName })
 
     /**
      * Every file in [directory], names already decrypted, in listing order.

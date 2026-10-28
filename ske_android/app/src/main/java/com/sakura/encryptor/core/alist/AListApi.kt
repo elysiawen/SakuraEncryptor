@@ -41,6 +41,11 @@ class AListApi(
     companion object {
         private val JSON_MEDIA = "application/json; charset=utf-8".toMediaType()
         const val OK = 200
+
+        /** AList clamps `per_page` above 500, so this is the biggest usable page. */
+        private const val MAX_PER_PAGE = 500
+        /** Guard against a server that ignores paging and never reports a total. */
+        private const val MAX_LIST_PAGES = 200
     }
 
     // -----------------------------------------------------------------------
@@ -70,8 +75,81 @@ class AListApi(
     // File system
     // -----------------------------------------------------------------------
 
+    /**
+     * List a directory, all of it.
+     *
+     * AList defaults `per_page` to 200 and silently drops the rest, so a single
+     * request truncates any folder with more than 200 entries. This walks the
+     * pages with the largest accepted page size until `total` is reached.
+     *
+     * The page size must stay constant across requests: the server computes the
+     * offset from the `per_page` it actually applied, so changing it mid-listing
+     * would skip or repeat entries.
+     */
     suspend fun list(server: String, token: String, path: String, refresh: Boolean = false): ListData {
-        val body = json.encodeToString(ListRequest.serializer(), ListRequest(path, refresh))
+        val content = mutableListOf<FileEntry>()
+        val seen = HashSet<String>()
+        // Drops duplicates as well: a server that ignores paging repeats the
+        // first page, which would otherwise loop until the page guard.
+        fun append(entries: List<FileEntry>): Int {
+            var added = 0
+            for (entry in entries) {
+                if (seen.add(entry.name)) {
+                    content += entry
+                    added++
+                }
+            }
+            return added
+        }
+
+        var perPage = MAX_PER_PAGE
+        var total: Long? = null
+        var first = ListData()
+        var page = 1
+        while (page <= MAX_LIST_PAGES) {
+            val data = listPage(
+                server = server,
+                token = token,
+                path = path,
+                page = page,
+                perPage = perPage,
+                refresh = page == 1 && refresh,
+            )
+            if (page == 1) first = data
+
+            val chunk = data.content.orEmpty()
+            val added = append(chunk)
+            data.total?.let { total = it }
+
+            if (chunk.isEmpty() || added == 0) break
+            val known = total
+            if (known != null && content.size >= known) break
+            // The server applied a smaller page size than requested; match it so
+            // the next offset lines up with what it will return.
+            if (chunk.size < perPage) perPage = chunk.size
+            page++
+        }
+
+        val resolvedTotal = maxOf(total ?: 0L, content.size.toLong())
+        return first.copy(
+            content = content,
+            total = resolvedTotal,
+            hasMore = content.size.toLong() < resolvedTotal,
+        )
+    }
+
+    private suspend fun listPage(
+        server: String,
+        token: String,
+        path: String,
+        page: Int,
+        perPage: Int,
+        refresh: Boolean,
+    ): ListData {
+        val body = json.encodeToString(
+            ListRequest.serializer(),
+            ListRequest(path = path, page = page, perPage = perPage, refresh = refresh),
+        )
         val data = requestJson("POST", url(server, "/api/fs/list"), token, body)
         return if (data is JsonNull) ListData() else json.decodeFromJsonElement(ListData.serializer(), data)
     }

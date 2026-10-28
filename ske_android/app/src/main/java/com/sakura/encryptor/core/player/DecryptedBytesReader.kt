@@ -43,6 +43,9 @@ class DecryptedBytesReader(private val sourceFactory: CipherBlockSourceFactory) 
             // create() derives with the work factor recorded in the container
             // and rejects a wrong password before any block is read.
             val decryptor = SkeBlockDecryptor.create(header, password)
+            // Whole-file reads (images, subtitles) become a pure cache hit on
+            // the next visit when the file cache is enabled; the reader keys on
+            // the container's salt, which needs no path from here.
             val reader = SkeBlockReader(source, header, decryptor, cipherSize, CACHE_BLOCKS)
 
             val plaintextSize = reader.plaintextSize

@@ -13,6 +13,7 @@ import com.sakura.encryptor.core.media.PreviewLoader
 import com.sakura.encryptor.core.security.KeyStoreManager
 import com.sakura.encryptor.core.session.NameKeyCache
 import com.sakura.encryptor.core.session.VaultSession
+import com.sakura.encryptor.core.util.DisplayNameOrder
 import com.sakura.encryptor.data.prefs.SettingsStore
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -142,8 +143,14 @@ class LocalViewModel(
                 }
                 entries to names
             }.onSuccess { (entries, names) ->
+                // SAF hands documents back in arbitrary order and the on-disk
+                // names are tokens, so sort by the decrypted name we just
+                // resolved (falling back to the raw name while locked).
+                val ordered = entries.sortedWith(
+                    compareBy(DisplayNameOrder) { names[it.uri.toString()] ?: it.name },
+                )
                 _state.update {
-                    it.copy(entries = entries, displayNames = names, isLoading = false, error = null)
+                    it.copy(entries = ordered, displayNames = names, isLoading = false, error = null)
                 }
             }.onFailure { throwable ->
                 _state.update {
@@ -227,7 +234,9 @@ class LocalViewModel(
 
     /** Grid preview of [entry]; `null` while locked or when the file has none. */
     suspend fun previewOf(entry: LocalSkeStore.LocalEntry): Bitmap? =
-        previews.load(entry.uri, displayNameOf(entry), localVault.password)
+        // A SAF document uri is stable across launches, so it doubles as the
+        // cache key (there is nothing else to resolve for local files).
+        previews.load(entry.uri.toString(), displayNameOf(entry), localVault.password) { entry.uri }
 
     private fun emit(text: String) = viewModelScope.launch { _messages.send(text) }
 }

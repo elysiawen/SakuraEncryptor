@@ -1,11 +1,16 @@
 package com.sakura.encryptor.ui.screens.settings
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -17,6 +22,8 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
@@ -37,6 +44,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -47,6 +55,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -55,15 +66,24 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.sakura.encryptor.BuildConfig
 import com.sakura.encryptor.core.alist.AListSession
+import com.sakura.encryptor.core.cache.DerivedKeyCache
+import com.sakura.encryptor.core.cache.PlaintextBlockCache
+import com.sakura.encryptor.core.cache.ThumbnailDiskCache
+import com.sakura.encryptor.core.cache.cacheLimitMbToBytes
+import com.sakura.encryptor.core.media.PreviewCache
 import com.sakura.encryptor.core.profile.ProfileRepository
 import com.sakura.encryptor.core.security.AppLockCredential
+import com.sakura.encryptor.core.security.AppLockFactor
+import com.sakura.encryptor.core.security.AppLockMatch
 import com.sakura.encryptor.core.security.BiometricUnlock
 import com.sakura.encryptor.core.security.AppLockManager
 import com.sakura.encryptor.core.security.KeyStoreManager
+import com.sakura.encryptor.core.security.Totp
 import com.sakura.encryptor.core.session.VaultSession
 import com.sakura.encryptor.data.db.SakuraDatabase
 import com.sakura.encryptor.data.prefs.SettingsStore
 import com.sakura.encryptor.data.prefs.ThemeMode
+import com.sakura.encryptor.ui.components.CheckboxRow
 import com.sakura.encryptor.ui.components.SakuraCard
 import com.sakura.encryptor.ui.components.SakuraTopBar
 import com.sakura.encryptor.ui.components.SectionHeader
@@ -72,12 +92,25 @@ import com.sakura.encryptor.ui.components.SwitchRow
 import com.sakura.encryptor.ui.rememberAppViewModel
 import com.sakura.encryptor.ui.theme.AccentTheme
 import com.sakura.encryptor.ui.theme.lightAccent
+import com.sakura.encryptor.ui.util.formatBytes
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+/** How much room each cache currently takes, plus the memoised key count. */
+data class CacheUsage(
+    val thumbnails: Long = 0,
+    val files: Long = 0,
+    val keys: Int = 0,
+)
 
 class SettingsViewModel(
     private val settings: SettingsStore,
@@ -98,6 +131,32 @@ class SettingsViewModel(
 
     val cacheBlocks: StateFlow<Int> = settings.cacheBlocks
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsStore.DEFAULT_CACHE_BLOCKS)
+
+    val cacheThumbnails: StateFlow<Boolean> = settings.cacheThumbnails
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
+
+    val cacheFiles: StateFlow<Boolean> = settings.cacheFiles
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    val cacheDerivedKeys: StateFlow<Boolean> = settings.cacheDerivedKeys
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
+
+    val cacheThumbnailLimitMb: StateFlow<Int> = settings.cacheThumbnailLimitMb
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            SettingsStore.DEFAULT_THUMBNAIL_CACHE_MB,
+        )
+
+    val cacheFileLimitMb: StateFlow<Int> = settings.cacheFileLimitMb
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            SettingsStore.DEFAULT_FILE_CACHE_MB,
+        )
+
+    private val _cacheUsage = MutableStateFlow(CacheUsage())
+    val cacheUsage: StateFlow<CacheUsage> = _cacheUsage.asStateFlow()
 
     val localRememberPassword: StateFlow<Boolean> = settings.localRememberPassword
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
@@ -122,8 +181,12 @@ class SettingsViewModel(
         .map { AppLockCredential.isWellFormed(it) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
-    val appLockBiometric: StateFlow<Boolean> = settings.appLockBiometric
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+    /** Factors the gate demands; [appLockMatch] decides how they combine. */
+    val appLockFactors: StateFlow<Set<AppLockFactor>> = settings.appLockFactors
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AppLockFactor.DEFAULT)
+
+    val appLockMatch: StateFlow<AppLockMatch> = settings.appLockMatch
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AppLockMatch.ALL)
 
     suspend fun verifyAppLock(password: String): Boolean = appLockManager.verify(password)
 
@@ -131,8 +194,35 @@ class SettingsViewModel(
 
     suspend fun disableAppLock() = appLockManager.disable()
 
-    fun setAppLockBiometric(enabled: Boolean) = viewModelScope.launch {
-        settings.setAppLockBiometric(enabled)
+    /** True once an authenticator token is bound; TOTP cannot be asked for without one. */
+    val totpBound: StateFlow<Boolean> = appLockManager.hasTotp
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    suspend fun bindTotp(secret: ByteArray): Boolean = appLockManager.bindTotp(secret)
+
+    /**
+     * Unbinding also unticks the factor: the gate would otherwise keep demanding
+     * a proof that no longer exists, i.e. no way into the app at all.
+     */
+    fun unbindTotp() = viewModelScope.launch {
+        appLockManager.unbindTotp()
+        val current = settings.appLockFactors.first()
+        if (AppLockFactor.TOTP in current) {
+            settings.setAppLockFactors(
+                (current - AppLockFactor.TOTP).ifEmpty { AppLockFactor.DEFAULT }
+            )
+        }
+    }
+
+    fun setAppLockFactor(factor: AppLockFactor, enabled: Boolean) = viewModelScope.launch {
+        val current = settings.appLockFactors.first()
+        val next = if (enabled) current + factor else current - factor
+        // The gate keeps at least one way in, so the last tick cannot be undone.
+        if (next.isNotEmpty()) settings.setAppLockFactors(next)
+    }
+
+    fun setAppLockMatch(match: AppLockMatch) = viewModelScope.launch {
+        settings.setAppLockMatch(match)
     }
 
     fun setAccent(theme: AccentTheme) = viewModelScope.launch { settings.setAccent(theme) }
@@ -140,6 +230,69 @@ class SettingsViewModel(
     fun setThemeMode(mode: ThemeMode) = viewModelScope.launch { settings.setThemeMode(mode) }
 
     fun setCacheBlocks(blocks: Int) = viewModelScope.launch { settings.setCacheBlocks(blocks) }
+
+    // ---- caches --------------------------------------------------------------
+
+    fun refreshCacheUsage() = viewModelScope.launch { _cacheUsage.value = readUsage() }
+
+    private suspend fun readUsage(): CacheUsage = withContext(Dispatchers.IO) {
+        CacheUsage(
+            thumbnails = ThumbnailDiskCache.usageBytes(),
+            files = PlaintextBlockCache.usageBytes(),
+            keys = DerivedKeyCache.size(),
+        )
+    }
+
+    fun setCacheThumbnails(enabled: Boolean) = viewModelScope.launch {
+        settings.setCacheThumbnails(enabled)
+        // Switching off drops what was already decrypted; nothing refreshes it.
+        if (!enabled) {
+            PreviewCache.clear()
+            ThumbnailDiskCache.clear()
+        }
+        _cacheUsage.value = readUsage()
+    }
+
+    fun clearThumbnailCache() = viewModelScope.launch {
+        PreviewCache.clear()
+        ThumbnailDiskCache.clear()
+        _cacheUsage.value = readUsage()
+    }
+
+    fun setCacheFiles(enabled: Boolean) = viewModelScope.launch {
+        settings.setCacheFiles(enabled)
+        if (!enabled) PlaintextBlockCache.clear()
+        _cacheUsage.value = readUsage()
+    }
+
+    fun clearFileCache() = viewModelScope.launch {
+        PlaintextBlockCache.clear()
+        _cacheUsage.value = readUsage()
+    }
+
+    fun setCacheDerivedKeys(enabled: Boolean) = viewModelScope.launch {
+        settings.setCacheDerivedKeys(enabled)
+        if (!enabled) DerivedKeyCache.clear()
+        _cacheUsage.value = readUsage()
+    }
+
+    fun setCacheThumbnailLimitMb(mb: Int) = viewModelScope.launch {
+        settings.setCacheThumbnailLimitMb(mb)
+        // Apply eagerly so freed space shows up without a relaunch; the
+        // container's collector repeats this, which is harmless.
+        withContext(Dispatchers.IO) {
+            ThumbnailDiskCache.setLimitBytes(cacheLimitMbToBytes(mb))
+        }
+        _cacheUsage.value = readUsage()
+    }
+
+    fun setCacheFileLimitMb(mb: Int) = viewModelScope.launch {
+        settings.setCacheFileLimitMb(mb)
+        withContext(Dispatchers.IO) {
+            PlaintextBlockCache.setLimitBytes(cacheLimitMbToBytes(mb))
+        }
+        _cacheUsage.value = readUsage()
+    }
 
     fun setLocalRememberPassword(enabled: Boolean) = viewModelScope.launch {
         settings.setLocalRememberPassword(enabled)
@@ -185,7 +338,18 @@ fun SettingsScreen(
     val isLoggedIn by viewModel.isLoggedIn.collectAsStateWithLifecycle()
     val activeProfileName by viewModel.activeProfileName.collectAsStateWithLifecycle()
     val appLockEnabled by viewModel.appLockEnabled.collectAsStateWithLifecycle()
-    val appLockBiometric by viewModel.appLockBiometric.collectAsStateWithLifecycle()
+    val appLockFactors by viewModel.appLockFactors.collectAsStateWithLifecycle()
+    val appLockMatch by viewModel.appLockMatch.collectAsStateWithLifecycle()
+    val totpBound by viewModel.totpBound.collectAsStateWithLifecycle()
+    val cacheThumbnails by viewModel.cacheThumbnails.collectAsStateWithLifecycle()
+    val cacheFiles by viewModel.cacheFiles.collectAsStateWithLifecycle()
+    val cacheDerivedKeys by viewModel.cacheDerivedKeys.collectAsStateWithLifecycle()
+    val cacheUsage by viewModel.cacheUsage.collectAsStateWithLifecycle()
+    val cacheThumbnailLimitMb by viewModel.cacheThumbnailLimitMb.collectAsStateWithLifecycle()
+    val cacheFileLimitMb by viewModel.cacheFileLimitMb.collectAsStateWithLifecycle()
+
+    // Sizes require a directory walk, so they are read when the screen opens.
+    LaunchedEffect(Unit) { viewModel.refreshCacheUsage() }
 
     val context = LocalContext.current
     // Whether the device can fingerprint at all is a device property, so it is
@@ -194,6 +358,7 @@ fun SettingsScreen(
 
     var showHistoryCleared by remember { mutableStateOf(false) }
     var appLockDialog by remember { mutableStateOf<AppLockDialogKind?>(null) }
+    var showTotpDialog by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -296,7 +461,7 @@ fun SettingsScreen(
                 SwitchRow(
                     title = "启动密码",
                     subtitle = if (appLockEnabled) {
-                        "打开应用时需要输入密码"
+                        "已开启，可勾选密码、指纹等验证方式"
                     } else {
                         "未设置，打开应用即可直接使用"
                     },
@@ -311,17 +476,80 @@ fun SettingsScreen(
                 )
                 if (appLockEnabled) {
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                    SwitchRow(
-                        title = "指纹解锁",
-                        subtitle = if (biometricSupported) {
-                            "在锁屏页用指纹或面容快速解锁"
-                        } else {
-                            "此设备尚未录入指纹或面容"
-                        },
-                        checked = appLockBiometric && biometricSupported,
-                        enabled = biometricSupported,
-                        onCheckedChange = viewModel::setAppLockBiometric,
+                    Text(
+                        text = "验证方式（可多选，勾选的都通过才能进入）",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 14.dp),
                     )
+                    AppLockFactor.entries.forEach { factor ->
+                        val usable = when (factor) {
+                            AppLockFactor.BIOMETRIC -> biometricSupported
+                            AppLockFactor.TOTP -> totpBound
+                            AppLockFactor.PASSWORD -> true
+                        }
+                        val checked = factor in appLockFactors
+                        CheckboxRow(
+                            title = factor.title,
+                            subtitle = when {
+                                factor == AppLockFactor.BIOMETRIC && !usable ->
+                                    "此设备尚未录入指纹或面容"
+                                factor == AppLockFactor.TOTP && !usable ->
+                                    "先在下方「TOTP 身份验证器」中绑定"
+                                factor == AppLockFactor.PASSWORD -> "打开应用时输入启动密码"
+                                factor == AppLockFactor.TOTP -> "打开应用时输入验证器中的 6 位验证码"
+                                else -> "打开应用时验证指纹或面容"
+                            },
+                            checked = checked,
+                            // Never let the last remaining factor be unticked, and
+                            // never demand a factor this device cannot prove.
+                            enabled = usable && !(checked && appLockFactors.size == 1),
+                            onCheckedChange = { viewModel.setAppLockFactor(factor, it) },
+                        )
+                    }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    SettingRow(
+                        title = "TOTP 身份验证器",
+                        subtitle = if (totpBound) {
+                            "已绑定，可勾选为验证方式"
+                        } else {
+                            "未绑定，点击生成密钥并添加到一个验证器应用"
+                        },
+                        onClick = { showTotpDialog = true },
+                        trailing = {
+                            Icon(
+                                imageVector = Icons.Rounded.KeyboardArrowRight,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        },
+                    )
+                    if (appLockFactors.size > 1) {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        SwitchRow(
+                            title = "任一方式通过即可",
+                            subtitle = if (appLockMatch == AppLockMatch.ANY) {
+                                "勾选的方式中任意一个通过就能进入应用"
+                            } else {
+                                "勾选的方式必须全部通过才能进入应用"
+                            },
+                            checked = appLockMatch == AppLockMatch.ANY,
+                            onCheckedChange = { any ->
+                                viewModel.setAppLockMatch(
+                                    if (any) AppLockMatch.ANY else AppLockMatch.ALL,
+                                )
+                            },
+                        )
+                    }
+                    if (appLockFactors == setOf(AppLockFactor.BIOMETRIC)) {
+                        Text(
+                            text = "已关闭密码验证。若指纹不可用（例如在系统中删除指纹），" +
+                                "将无法进入应用。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp),
+                        )
+                    }
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     SettingRow(
                         title = "修改启动密码",
@@ -341,7 +569,7 @@ fun SettingsScreen(
             Spacer(Modifier.height(22.dp))
 
             // ---- playback ----------------------------------------------------
-            SectionHeader("播放与缓存")
+            SectionHeader("播放")
 
             SakuraCard {
                 SettingRow(
@@ -358,6 +586,81 @@ fun SettingsScreen(
                 )
                 Text(
                     text = "缓存已解密的块可以显著减少拖动进度时的流量，但会占用更多内存。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 4.dp),
+                )
+            }
+
+            Spacer(Modifier.height(22.dp))
+
+            // ---- caches ------------------------------------------------------
+            SectionHeader("缓存")
+
+            SakuraCard {
+                SwitchRow(
+                    title = "缓存缩略图",
+                    subtitle = "已占用 ${formatBytes(cacheUsage.thumbnails)}",
+                    checked = cacheThumbnails,
+                    onCheckedChange = viewModel::setCacheThumbnails,
+                )
+                CacheLimitChips(
+                    selectedMb = cacheThumbnailLimitMb,
+                    options = SettingsStore.THUMBNAIL_CACHE_OPTIONS_MB,
+                    enabled = cacheThumbnails,
+                    onSelect = { viewModel.setCacheThumbnailLimitMb(it) },
+                )
+                SettingRow(
+                    title = "清理缩略图缓存",
+                    subtitle = if (cacheUsage.thumbnails > 0) {
+                        "点击释放 ${formatBytes(cacheUsage.thumbnails)}"
+                    } else {
+                        "暂无缓存"
+                    },
+                    onClick = if (cacheUsage.thumbnails > 0) {
+                        { viewModel.clearThumbnailCache() }
+                    } else {
+                        null
+                    },
+                )
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                SwitchRow(
+                    title = "缓存文件",
+                    subtitle = "已占用 ${formatBytes(cacheUsage.files)}",
+                    checked = cacheFiles,
+                    onCheckedChange = viewModel::setCacheFiles,
+                )
+                CacheLimitChips(
+                    selectedMb = cacheFileLimitMb,
+                    options = SettingsStore.FILE_CACHE_OPTIONS_MB,
+                    enabled = cacheFiles,
+                    onSelect = { viewModel.setCacheFileLimitMb(it) },
+                )
+                SettingRow(
+                    title = "清理文件缓存",
+                    subtitle = if (cacheUsage.files > 0) {
+                        "点击释放 ${formatBytes(cacheUsage.files)}"
+                    } else {
+                        "暂无缓存"
+                    },
+                    onClick = if (cacheUsage.files > 0) {
+                        { viewModel.clearFileCache() }
+                    } else {
+                        null
+                    },
+                )
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                SwitchRow(
+                    title = "缓存派生密钥",
+                    subtitle = "内存中记住 ${cacheUsage.keys} 个文件的密钥，不占用存储",
+                    checked = cacheDerivedKeys,
+                    onCheckedChange = viewModel::setCacheDerivedKeys,
+                )
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    text = "上限由你决定：缩略图缓存保存解密后的预览图，文件缓存保存播放、查看时解密出来的内容，" +
+                        "再次访问无需下载。超出上限时自动淘汰最久未使用的内容。两者都在应用私有目录，" +
+                        "锁定密码或退出配置时会自动清空。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 4.dp),
@@ -448,6 +751,15 @@ fun SettingsScreen(
                 }
             },
             onDismiss = { appLockDialog = null },
+        )
+    }
+
+    if (showTotpDialog) {
+        TotpDialog(
+            bound = totpBound,
+            onBind = viewModel::bindTotp,
+            onUnbind = viewModel::unbindTotp,
+            onDismiss = { showTotpDialog = false },
         )
     }
 }
@@ -595,6 +907,192 @@ private fun AppPasswordDialog(
     )
 }
 
+/**
+ * Binds or unbinds the authenticator token behind the TOTP factor.
+ *
+ * Binding takes two steps on purpose: the secret is shown first, and only a
+ * code generated for it by the user's own app finishes the job. A secret that
+ * was copied down wrong therefore never becomes a factor nobody can prove —
+ * which, on a launch gate, would mean being shut out of the app.
+ */
+@Composable
+private fun TotpDialog(
+    bound: Boolean,
+    onBind: suspend (ByteArray) -> Boolean,
+    onUnbind: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    if (bound) {
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            title = { Text("TOTP 身份验证器") },
+            text = {
+                Text("已绑定。解绑后该验证方式会同时取消勾选，否则门禁会要求一个再也无法通过的验证。")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onUnbind()
+                        onDismiss()
+                    }
+                ) { Text("解绑") }
+            },
+            dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+        )
+    } else {
+        TotpSetupDialog(onBind = onBind, onDismiss = onDismiss)
+    }
+}
+
+@Composable
+private fun TotpSetupDialog(
+    onBind: suspend (ByteArray) -> Boolean,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val generated = remember { Totp.generateSecret() }
+    val generatedText = remember(generated) { Totp.encodeBase32(generated) }
+
+    // Off by default: generating a secret is one tap, pasting one from an app
+    // that already holds it is the exception.
+    var manual by remember { mutableStateOf(false) }
+    var pasted by remember { mutableStateOf("") }
+    var code by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf(false) }
+
+    val pastedSecret = remember(pasted) { Totp.decodeSecret(pasted) }
+
+    fun submit() {
+        if (busy || code.length != Totp.DIGITS) return
+
+        val secret = if (manual) pastedSecret else generated
+        if (secret == null) {
+            error = "密钥格式不正确，应为 Base32 字符串或 otpauth 链接"
+            return
+        }
+
+        busy = true
+        error = null
+        scope.launch {
+            // Checks the secret and the device clock before storing anything.
+            if (!Totp.verify(secret, code, System.currentTimeMillis())) {
+                busy = false
+                code = ""
+                error = "验证码不正确或已过期，请按验证器上当前的数字重新输入"
+                return@launch
+            }
+
+            val saved = runCatching { onBind(secret) }.getOrDefault(false)
+            busy = false
+            if (saved) onDismiss() else error = "无法保存密钥，请重试"
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = { if (!busy) onDismiss() },
+        title = { Text("绑定 TOTP 身份验证器") },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                Text(
+                    text = "在身份验证器应用（Google Authenticator、Aegis、1Password 等）" +
+                        "中添加账号，密钥填下面这一串，再输入它生成的 6 位验证码。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(12.dp))
+
+                if (manual) {
+                    OutlinedTextField(
+                        value = pasted,
+                        onValueChange = {
+                            pasted = it
+                            error = null
+                        },
+                        label = { Text("密钥或 otpauth 链接") },
+                        minLines = 2,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                } else {
+                    Surface(
+                        shape = MaterialTheme.shapes.small,
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            text = generatedText,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontFamily = FontFamily.Monospace,
+                            modifier = Modifier.padding(12.dp),
+                        )
+                    }
+                    Row {
+                        TextButton(onClick = { context.copyText(generatedText) }) {
+                            Text("复制密钥")
+                        }
+                        TextButton(onClick = { context.copyText(Totp.otpauthUri(generatedText)) }) {
+                            Text("复制链接")
+                        }
+                    }
+                }
+
+                TextButton(
+                    onClick = {
+                        manual = !manual
+                        error = null
+                    }
+                ) {
+                    Text(if (manual) "改为自动生成密钥" else "改为使用已有密钥")
+                }
+
+                OutlinedTextField(
+                    value = code,
+                    onValueChange = {
+                        code = it.filter { char -> char.isDigit() }.take(Totp.DIGITS)
+                        error = null
+                    },
+                    label = { Text("验证器中的 6 位验证码") },
+                    placeholder = { Text("000000") },
+                    singleLine = true,
+                    isError = error != null,
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.NumberPassword,
+                        imeAction = ImeAction.Done,
+                    ),
+                    keyboardActions = KeyboardActions(onDone = { submit() }),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+
+                error?.let { message ->
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        text = message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { submit() }, enabled = !busy && code.length == Totp.DIGITS) {
+                Text(if (busy) "处理中…" else "绑定")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !busy) { Text("取消") }
+        },
+    )
+}
+
+/** Plain-text copy; a clipboard the system refuses is not worth interrupting for. */
+private fun Context.copyText(text: String) {
+    runCatching {
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(ClipData.newPlainText("Sakura Encryptor", text))
+    }
+}
+
 /** Accents per row; the palette outgrew a single line. */
 private const val ACCENT_COLUMNS = 4
 
@@ -733,4 +1231,66 @@ private fun ThemeModePicker(
             }
         }
     }
+}
+
+/**
+ * Preset budget picker for one cache.
+ *
+ * A handful of presets beats a 30-step slider: every stop is a size people
+ * actually pick, and "no limit" is an explicit choice rather than an
+ * unreachable end of a range. Selecting one applies — and trims — immediately.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun CacheLimitChips(
+    selectedMb: Int,
+    options: List<Int>,
+    enabled: Boolean,
+    onSelect: (Int) -> Unit,
+) {
+    Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+        Text(
+            text = "缓存上限",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(8.dp))
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            options.forEach { mb ->
+                val isSelected = mb == selectedMb
+                Surface(
+                    shape = MaterialTheme.shapes.medium,
+                    color = if (isSelected) {
+                        MaterialTheme.colorScheme.primaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.surfaceVariant
+                    },
+                    contentColor = if (isSelected) {
+                        MaterialTheme.colorScheme.onPrimaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    modifier = Modifier
+                        .clip(MaterialTheme.shapes.medium)
+                        .clickable(enabled = enabled) { onSelect(mb) },
+                ) {
+                    Text(
+                        text = cacheLimitLabel(mb),
+                        style = MaterialTheme.typography.labelLarge,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** `128 MB` / `5 GB` / `无上限`. */
+private fun cacheLimitLabel(mb: Int): String = when {
+    mb <= SettingsStore.UNLIMITED_CACHE_MB -> "无上限"
+    mb >= 1024 -> "${mb / 1024} GB"
+    else -> "$mb MB"
 }

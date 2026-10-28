@@ -3,12 +3,15 @@ package com.sakura.encryptor.core.security
 import com.sakura.encryptor.data.prefs.SettingsStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.Base64
 
 /** Where the launch gate currently stands. */
 sealed interface AppLockState {
@@ -35,6 +38,7 @@ sealed interface AppLockState {
  */
 class AppLockManager(
     private val settings: SettingsStore,
+    private val keyStore: KeyStoreManager,
     scope: CoroutineScope,
 ) {
 
@@ -81,6 +85,41 @@ class AppLockManager(
     suspend fun disable() {
         settings.setAppLockCredential(null)
         _state.value = AppLockState.Unlocked
+    }
+
+    // ---- TOTP ----------------------------------------------------------------
+
+    /** True once a token has been bound; the factor is unusable without one. */
+    val hasTotp: Flow<Boolean> =
+        settings.appLockTotpSecret.map { !it.isNullOrBlank() }
+
+    /**
+     * Bind [secret] (already decoded from Base32).
+     *
+     * Only the Keystore-sealed form is persisted, so reading the settings file
+     * does not hand out the shared secret.
+     *
+     * @return false when the Keystore refused to seal it, i.e. nothing was saved.
+     */
+    suspend fun bindTotp(secret: ByteArray): Boolean {
+        val encoded = Base64.getEncoder().encodeToString(secret)
+        val sealed = keyStore.seal(encoded) ?: return false
+        settings.setAppLockTotpSecret(sealed)
+        return true
+    }
+
+    suspend fun unbindTotp() = settings.setAppLockTotpSecret(null)
+
+    /** @return true when [code] is valid for the current 30-second step. */
+    suspend fun verifyTotp(code: String): Boolean = withContext(Dispatchers.Default) {
+        val secret = totpSecret() ?: return@withContext false
+        Totp.verify(secret, code, System.currentTimeMillis())
+    }
+
+    private suspend fun totpSecret(): ByteArray? {
+        val sealed = settings.appLockTotpSecret.first() ?: return null
+        val encoded = keyStore.open(sealed) ?: return null
+        return runCatching { Base64.getDecoder().decode(encoded) }.getOrNull()
     }
 
     /** Called once the password has been entered correctly. */

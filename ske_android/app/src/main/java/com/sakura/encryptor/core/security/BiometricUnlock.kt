@@ -29,8 +29,8 @@ object BiometricUnlock {
      *
      * @param onSucceeded the user proved who they are.
      * @param onFailed    dismissed, or the sensor could not identify them. The
-     *                    password field stays on screen, so a failure never
-     *                    leaves the user stuck.
+     *                    lock screen keeps its own retry action, so a failure
+     *                    never strands the user.
      */
     fun prompt(
         activity: FragmentActivity,
@@ -66,8 +66,9 @@ object BiometricUnlock {
             BiometricPrompt.PromptInfo.Builder()
                 .setTitle("解锁 Sakura Encryptor")
                 .setSubtitle("使用指纹或面容验证身份")
-                // Falling back to the password is always allowed.
-                .setNegativeButtonText("使用启动密码")
+                // Only factors the user ticked are accepted, so there is no
+                // "switch to the password" shortcut in this dialog.
+                .setNegativeButtonText("取消")
                 .setAllowedAuthenticators(AUTHENTICATORS)
                 .setConfirmationRequired(false)
                 .build()

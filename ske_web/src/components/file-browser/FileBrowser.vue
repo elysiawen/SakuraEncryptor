@@ -9,25 +9,6 @@
       @change="handleUploadSelect"
     />
 
-    <div class="view-switch">
-      <button
-        class="view-btn"
-        :class="{ active: viewMode === 'grid' }"
-        title="网格视图（缩略图）"
-        @click="viewMode = 'grid'"
-      >
-        ▦
-      </button>
-      <button
-        class="view-btn"
-        :class="{ active: viewMode === 'list' }"
-        title="列表视图"
-        @click="viewMode = 'list'"
-      >
-        ☰
-      </button>
-    </div>
-
     <FileGrid
       :items="items"
       :loading="loading"
@@ -49,6 +30,15 @@
       title="上传文件"
     >
       📤
+    </button>
+
+    <!-- Single toggle: shows the view it switches TO. -->
+    <button
+      class="view-fab"
+      :title="viewMode === 'grid' ? '切换到列表视图' : '切换到网格视图'"
+      @click="viewMode = viewMode === 'grid' ? 'list' : 'grid'"
+    >
+      {{ viewMode === 'grid' ? '☰' : '▦' }}
     </button>
 
     <button
@@ -245,11 +235,13 @@ function onDocClick() {
 onMounted(() => {
   document.addEventListener('click', onDocClick)
   registerFab('refresh', 0)
-  if (props.mode === 'alist') registerFab('upload', 1)
+  registerFab('view', 1)
+  if (props.mode === 'alist') registerFab('upload', 2)
 })
 onUnmounted(() => {
   document.removeEventListener('click', onDocClick)
   unregisterFab('upload')
+  unregisterFab('view')
   unregisterFab('refresh')
 })
 
@@ -606,40 +598,20 @@ watch(
   flex: 1;
   position: relative;
   min-height: 100%;
+  /* The view switch now floats bottom-right, so the list needs its own top gap. */
+  padding-top: 6px;
 }
 
 /* ── View switch ── */
-.view-switch {
-  display: flex;
-  justify-content: flex-end;
-  gap: 4px;
-  margin-bottom: 10px;
-}
-
-.view-btn {
-  width: 34px;
-  height: 30px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 15px;
-  color: var(--text-secondary);
-  background: var(--bg-glass);
-  border: 1px solid var(--border-glass);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.view-btn:hover {
-  color: var(--text-primary);
-  border-color: var(--border-glass-hover);
-}
-
-.view-btn.active {
+/* Sits between the refresh and upload buttons in the bottom-right stack. */
+.view-fab {
+  bottom: 76px;
+  /* ☰/▦ are text glyphs, not emoji — they inherit the text colour and would
+     otherwise be near-invisible on the dark glass background. */
   color: #fff;
-  background: var(--accent-gradient);
-  border-color: transparent;
+  /* Glyphs carry their own line box; without this they sit off-centre. */
+  line-height: 1;
+  padding: 0;
 }
 
 .hidden-file-input {
@@ -648,7 +620,8 @@ watch(
 
 /* ── Floating Actions ── */
 .upload-fab,
-.refresh-fab {
+.refresh-fab,
+.view-fab {
   position: fixed;
   z-index: 50;
   border: 1px solid var(--border-glass);
@@ -673,9 +646,9 @@ watch(
   font-size: 18px;
 }
 
-.refresh-fab {
+.refresh-fab,
+.view-fab {
   right: 28px;
-  bottom: 20px;
   width: 44px;
   height: 44px;
   border-radius: 50%;
@@ -687,15 +660,21 @@ watch(
   font-size: 18px;
 }
 
+.refresh-fab {
+  bottom: 20px;
+}
+
 .upload-fab:hover,
-.refresh-fab:hover {
+.refresh-fab:hover,
+.view-fab:hover {
   border-color: var(--border-glass-hover);
   box-shadow: 0 6px 28px rgba(0, 0, 0, 0.4);
   transform: translateY(-1px);
 }
 
 .upload-fab:active,
-.refresh-fab:active {
+.refresh-fab:active,
+.view-fab:active {
   transform: scale(0.97);
 }
 
@@ -717,12 +696,22 @@ watch(
 
 @media (max-width: 600px) {
   .upload-fab,
-  .refresh-fab {
+  .refresh-fab,
+  .view-fab {
     right: 16px;
   }
 
   .upload-fab {
     bottom: var(--fab-bottom-mobile, 68px);
+    width: 40px;
+    height: 40px;
+    font-size: 16px;
+  }
+
+  .view-fab {
+    /* The upload FAB keeps its 56px step on mobile (16 + 2×56 = 128), so this
+       one sits at 72 to keep the gaps even: 16 / 16. */
+    bottom: 72px;
     width: 40px;
     height: 40px;
     font-size: 16px;

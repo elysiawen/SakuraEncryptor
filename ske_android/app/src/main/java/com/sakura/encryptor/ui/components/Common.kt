@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Menu
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -243,6 +244,30 @@ fun SwitchRow(
         modifier = modifier.clickable(enabled = enabled) { onCheckedChange(!checked) },
         trailing = {
             Switch(
+                checked = checked,
+                onCheckedChange = onCheckedChange,
+                enabled = enabled,
+            )
+        },
+    )
+}
+
+/** Settings row whose trailing element is a checkbox, for multi-select options. */
+@Composable
+fun CheckboxRow(
+    title: String,
+    subtitle: String? = null,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
+    SettingRow(
+        title = title,
+        subtitle = subtitle,
+        modifier = modifier.clickable(enabled = enabled) { onCheckedChange(!checked) },
+        trailing = {
+            Checkbox(
                 checked = checked,
                 onCheckedChange = onCheckedChange,
                 enabled = enabled,

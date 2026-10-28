@@ -5,6 +5,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -176,6 +178,7 @@ fun ProfilesScreen(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ProfileCard(
     profile: ProfileEntity,
@@ -248,7 +251,13 @@ private fun ProfileCard(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Spacer(Modifier.height(6.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                // FlowRow, not Row: the active card also carries "使用中", and on
+                // a narrow screen a plain Row squeezes the last badge until its
+                // text wraps one character per line.
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
                     if (isActive) {
                         MiniBadge(text = "使用中", highlighted = true)
                     }
@@ -314,6 +323,10 @@ private fun MiniBadge(
                 } else {
                     MaterialTheme.colorScheme.onSurfaceVariant
                 },
+                // A badge is a single-line label; wrapping it character by
+                // character is never what a squeezed layout should degrade to.
+                maxLines = 1,
+                softWrap = false,
             )
         }
     }

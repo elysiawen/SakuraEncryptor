@@ -2,6 +2,7 @@ package com.sakura.encryptor.core.alist
 
 import com.sakura.encryptor.core.crypto.SkeCrypto
 import com.sakura.encryptor.core.crypto.SkeFormat
+import com.sakura.encryptor.core.util.DisplayNameOrder
 import java.io.File
 
 
@@ -47,13 +48,19 @@ class AListRepository(
 
     /** List [path] with names decrypted using [nameKey]. */
     suspend fun list(path: String, nameKey: ByteArray, refresh: Boolean = false): List<DecryptedEntry> {
-        if (session.isVirtualRoot(path)) {
-            return session.virtualRootEntries().map { decryptEntry(it, nameKey) }
+        val entries = if (session.isVirtualRoot(path)) {
+            session.virtualRootEntries().map { decryptEntry(it, nameKey) }
+        } else {
+            val data = api.list(session.server, session.token, session.absolutePath(path), refresh)
+            (data.content ?: emptyList()).map { decryptEntry(it, nameKey) }
         }
-        val data = api.list(session.server, session.token, session.absolutePath(path), refresh)
-        return (data.content ?: emptyList())
-            .sortedWith(compareByDescending<FileEntry> { it.isDir }.thenBy { it.name.lowercase() })
-            .map { decryptEntry(it, nameKey) }
+
+        // The raw names are opaque tokens, so ordering them would look random.
+        // Sort after decryption instead: folders first, then natural order.
+        return entries.sortedWith(
+            compareByDescending<DecryptedEntry> { it.isDir }
+                .thenBy(DisplayNameOrder) { it.displayName },
+        )
     }
 
     /** Fetch the direct URL and ciphertext size for a remote `.ske` file. */

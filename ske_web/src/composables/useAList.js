@@ -90,12 +90,36 @@ function getAbsPath(path) {
     return path
 }
 
+/** Largest page size AList accepts (anything above 500 is clamped). */
+const LIST_MAX_PER_PAGE = 500
+
+/** One `/api/fs/list` request. */
+async function listPage(absPath, page, perPage, refresh) {
+    const body = { path: absPath, page, per_page: perPage }
+    if (refresh) body.refresh = true
+    const res = await fetch(`${state.server}/api/fs/list`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Authorization: state.token,
+        },
+        body: JSON.stringify(body),
+    })
+    const json = await res.json()
+    if (json.code !== 200) throw new Error(json.message || 'Failed to list directory')
+    return json.data || {}
+}
+
 /**
  * List a directory.
  * For sub-accounts with base_path: root '/' returns a VIRTUAL listing
  * constructed from the permissions array (matching AList's own web UI behavior).
  * AList's API auto-scopes root for sub-accounts, hiding the storage layer,
  * so we reconstruct it manually.
+ *
+ * AList defaults `per_page` to 200 and silently drops the rest of the folder,
+ * so a plain request truncates any directory with more than 200 entries. This
+ * walks the pages with the largest accepted page size until `total` is reached.
  */
 export async function listDir(path = '/', refresh = false) {
     if (!state.server) restoreSession()
@@ -124,17 +148,49 @@ export async function listDir(path = '/', refresh = false) {
     }
 
     const absPath = getAbsPath(path)
-    const res = await fetch(`${state.server}/api/fs/list`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            Authorization: state.token,
-        },
-        body: JSON.stringify({ path: absPath, refresh }),
-    })
-    const json = await res.json()
-    if (json.code !== 200) throw new Error(json.message || 'Failed to list directory')
-    return json.data
+    const content = []
+    const seen = new Set()
+    // Adds only unseen entries, so a server that repeats a page cannot make the
+    // loop run to its guard.
+    const append = (list) => {
+        let added = 0
+        for (const entry of list) {
+            if (seen.has(entry.name)) continue
+            seen.add(entry.name)
+            content.push(entry)
+            added += 1
+        }
+        return added
+    }
+
+    // The page size has to stay identical across requests: AList computes the
+    // offset as (page - 1) * per_page with the per_page it actually applied, so
+    // switching sizes mid-listing would skip or repeat entries.
+    let perPage = LIST_MAX_PER_PAGE
+    let total = NaN
+    let first = {}
+    for (let page = 1; page <= 200; page += 1) {
+        const data = await listPage(absPath, page, perPage, page === 1 && refresh)
+        if (page === 1) first = data
+        const chunk = Array.isArray(data.content) ? data.content : []
+        const added = append(chunk)
+        const reported = Number(data.total)
+        if (Number.isFinite(reported)) total = reported
+
+        if (chunk.length === 0 || added === 0) break
+        if (Number.isFinite(total) && content.length >= total) break
+        // The server applied a smaller page size than requested; match it so the
+        // next offset lines up with what it will return.
+        if (chunk.length < perPage) perPage = chunk.length
+    }
+
+    if (!Number.isFinite(total) || total < content.length) total = content.length
+    return {
+        ...first,
+        content,
+        total,
+        has_more: content.length < total,
+    }
 }
 
 /** Rename a file or folder. */

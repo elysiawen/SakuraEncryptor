@@ -30,13 +30,20 @@ data class Permission(
 )
 
 @Serializable
-data class ListRequest(val path: String, val refresh: Boolean = false)
+data class ListRequest(
+    val path: String,
+    val page: Int = 1,
+    /** AList defaults this to 200 and clamps it at 500; -1 means "everything". */
+    @SerialName("per_page") val perPage: Int = 0,
+    val refresh: Boolean = false,
+)
 
 @Serializable
 data class ListData(
     val content: List<FileEntry>? = null,
     val total: Long? = null,
     val provider: String? = null,
+    @SerialName("has_more") val hasMore: Boolean? = null,
 )
 
 /** One entry returned by `/api/fs/list`. */

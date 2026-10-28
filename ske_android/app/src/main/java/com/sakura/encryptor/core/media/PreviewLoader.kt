@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
 import android.net.Uri
+import com.sakura.encryptor.core.cache.ThumbnailDiskCache
 import com.sakura.encryptor.core.crypto.SkeFileCipher
 import com.sakura.encryptor.core.crypto.SkeFormat
 import com.sakura.encryptor.core.crypto.SkeHeader
@@ -67,33 +68,60 @@ class PreviewLoader(
     private val sources: CipherBlockSourceFactory,
 ) {
 
-    suspend fun load(uri: Uri, displayName: String, password: String?): Bitmap? {
+    /**
+     * @param identity stable identity of the entry — the vault path (or the SAF
+     *   uri for local files). It is what the cache is keyed on: a signed
+     *   download url must never be used, because it is re-issued on every login
+     *   and would leave every entry unreachable after a restart.
+     * @param resolveUri resolves the downloadable url, and is only invoked on a
+     *   cache miss — a warm grid then costs no network call at all.
+     */
+    suspend fun load(
+        identity: String,
+        displayName: String,
+        password: String?,
+        resolveUri: suspend () -> Uri?,
+    ): Bitmap? {
         // The key carries the lock state: unlocking must not keep a null hit.
-        val key = "$uri|${if (password.isNullOrEmpty()) "locked" else "unlocked"}"
-        return PreviewCache.load(key) { build(uri, displayName, password) }
+        val key = "$identity|${if (password.isNullOrEmpty()) "locked" else "unlocked"}"
+        return PreviewCache.load(key) { build(key, displayName, password, resolveUri) }
     }
 
-    private suspend fun build(uri: Uri, displayName: String, password: String?): Bitmap? =
-        withContext(Dispatchers.IO) {
-            val source = runCatching { sources.create(uri).also { it.open() } }.getOrNull()
-                ?: return@withContext null
-            try {
-                if (source.cipherSize <= 0) return@withContext null
-                val headLength = minOf(source.cipherSize, SkeFormat.PROBE_SIZE.toLong()).toInt()
-                val head = source.readRange(0, headLength)
-                if (isContainer(head)) {
-                    if (password.isNullOrEmpty()) return@withContext null
-                    decode(EnvelopeReader.read(head, source, password) ?: return@withContext null)
-                } else {
-                    plainPreview(uri, displayName, source)
-                }
-            } catch (t: Throwable) {
-                if (t is CancellationException) throw t
-                null
-            } finally {
-                runCatching { source.close() }
-            }
+    private suspend fun build(
+        key: String,
+        displayName: String,
+        password: String?,
+        resolveUri: suspend () -> Uri?,
+    ): Bitmap? = withContext(Dispatchers.IO) {
+        // A disk hit skips the request *and* the KDF for this container.
+        ThumbnailDiskCache.get(key)?.let { bytes ->
+            decode(bytes)?.let { return@withContext it }
         }
+
+        val uri = resolveUri() ?: return@withContext null
+        val source = runCatching { sources.create(uri).also { it.open() } }.getOrNull()
+            ?: return@withContext null
+        try {
+            if (source.cipherSize <= 0) return@withContext null
+            val headLength = minOf(source.cipherSize, SkeFormat.PROBE_SIZE.toLong()).toInt()
+            val head = source.readRange(0, headLength)
+            if (isContainer(head)) {
+                if (password.isNullOrEmpty()) return@withContext null
+                val preview = EnvelopeReader.read(head, source, password) ?: return@withContext null
+                // Cache the JPEG, not the bitmap: it costs ~40 KB instead of
+                // ~400 KB and decoding it is cheap.
+                ThumbnailDiskCache.put(key, preview)
+                decode(preview)
+            } else {
+                plainPreview(uri, displayName, source)
+            }
+        } catch (t: Throwable) {
+            if (t is CancellationException) throw t
+            null
+        } finally {
+            runCatching { source.close() }
+        }
+    }
 
     private fun plainPreview(
         uri: Uri,

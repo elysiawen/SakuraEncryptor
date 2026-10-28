@@ -1,5 +1,6 @@
 package com.sakura.encryptor.core.player
 
+import com.sakura.encryptor.core.cache.PlaintextBlockCache
 import com.sakura.encryptor.core.crypto.SkeBlockDecryptor
 import com.sakura.encryptor.core.crypto.SkeFormat
 import com.sakura.encryptor.core.crypto.SkeHeader
@@ -56,6 +57,7 @@ class SkeBlockReader(
     private val blockCount: Long = SkeHeader.blockCount(cipherSize, header.bodyOffset)
     private val cache = BlockLruCache(cacheBlocks)
     private var cachedFinalBytes: Long = -1L
+    private val saltHex: String = header.salt.joinToString("") { "%02x".format(it) }
 
     val blockCountValue: Long get() = blockCount
 
@@ -94,6 +96,23 @@ class SkeBlockReader(
         cache.get(blockIndex)?.let { return it }
         if (blockIndex >= blockCount) throw IOException("Block $blockIndex out of range")
 
+        val expected = minOf(
+            SkeFormat.CHUNK_SIZE.toLong(),
+            plaintextSize - blockIndex * SkeFormat.CHUNK_SIZE,
+        ).toInt()
+        // The salt names the container: unique per file and stable across
+        // launches, unlike the signed download url it was fetched from.
+        val diskKey = PlaintextBlockCache.key(saltHex, blockIndex)
+
+        // A cached block is plaintext, not authenticated: a torn write would
+        // surface as a short read, so only accept the exact expected length.
+        val cached = PlaintextBlockCache.get(diskKey)
+        if (cached != null && cached.size == expected) {
+            cachedFinalBytes = cached.size.toLong()
+            cache.put(blockIndex, cached)
+            return cached
+        }
+
         val start = header.bodyOffset + blockIndex * SkeFormat.ENC_BLOCK_SIZE
         val end = minOf(start + SkeFormat.ENC_BLOCK_SIZE, source.cipherSize)
         val size = (end - start).toInt()
@@ -110,6 +129,7 @@ class SkeBlockReader(
         val plaintext = decryptor.decryptBlock(blockIndex, ciphertext)
         cachedFinalBytes = plaintext.size.toLong()
         cache.put(blockIndex, plaintext)
+        PlaintextBlockCache.put(diskKey, plaintext)
         return plaintext
     }
 

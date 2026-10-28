@@ -4,6 +4,10 @@ import android.content.Context
 import com.sakura.encryptor.core.alist.AListApi
 import com.sakura.encryptor.core.alist.AListRepository
 import com.sakura.encryptor.core.alist.AListSession
+import com.sakura.encryptor.core.cache.DerivedKeyCache
+import com.sakura.encryptor.core.cache.PlaintextBlockCache
+import com.sakura.encryptor.core.cache.ThumbnailDiskCache
+import com.sakura.encryptor.core.cache.cacheLimitMbToBytes
 import com.sakura.encryptor.core.download.DownloadManager
 import com.sakura.encryptor.core.local.CryptoNotifications
 import com.sakura.encryptor.core.local.CryptoTaskRunner
@@ -76,7 +80,7 @@ class AppContainer(private val appContext: Context) {
      * Kept apart from [vault] and [localVault] on purpose: those unlock data,
      * this one unlocks the app itself.
      */
-    val appLockManager: AppLockManager by lazy { AppLockManager(settings, scope) }
+    val appLockManager: AppLockManager by lazy { AppLockManager(settings, keyStore, scope) }
     val database: SakuraDatabase by lazy { SakuraDatabase.get(appContext) }
 
     // ---- cloud --------------------------------------------------------------
@@ -206,6 +210,25 @@ class AppContainer(private val appContext: Context) {
             settings.cacheBlocks.collect { cacheBlocks = it }
         }
 
+        // Disk caches live in cacheDir and must exist before the first screen
+        // asks for a preview. The toggles mirror the user's settings.
+        ThumbnailDiskCache.init(appContext)
+        PlaintextBlockCache.init(appContext)
+        scope.launch { settings.cacheThumbnails.collect { ThumbnailDiskCache.enabled = it } }
+        scope.launch { settings.cacheFiles.collect { PlaintextBlockCache.enabled = it } }
+        scope.launch { settings.cacheDerivedKeys.collect { DerivedKeyCache.enabled = it } }
+        // Budgets come from the user; lowering one trims the directory at once.
+        scope.launch {
+            settings.cacheThumbnailLimitMb.collect {
+                ThumbnailDiskCache.setLimitBytes(cacheLimitMbToBytes(it))
+            }
+        }
+        scope.launch {
+            settings.cacheFileLimitMb.collect {
+                PlaintextBlockCache.setLimitBytes(cacheLimitMbToBytes(it))
+            }
+        }
+
         // Restore the local password when the user asked us to remember it.
         scope.launch {
             runCatching {
@@ -241,6 +264,11 @@ class AppContainer(private val appContext: Context) {
             NameKeyCache.clear()
             // Previews are decrypted bitmaps of the vault's contents.
             PreviewCache.clear()
+            // …and the disk caches hold decrypted media: a locked vault must not
+            // leave readable plaintext behind.
+            ThumbnailDiskCache.clear()
+            PlaintextBlockCache.clear()
+            DerivedKeyCache.clear()
         }
         vault.addOnLockListener(invalidate)
         localVault.addOnLockListener(invalidate)

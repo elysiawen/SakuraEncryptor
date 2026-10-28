@@ -22,6 +22,8 @@ export function usePlaylist(type) {
   const error = ref('')
   const currentIndex = ref(-1)
   const currentEncName = ref('')
+  /** Directory holding the playlist, used by the continuous comic reader. */
+  const dirPath = ref('')
 
   function parseRoute() {
     const p = route.params.path
@@ -35,7 +37,9 @@ export function usePlaylist(type) {
   }
 
   async function load() {
-    const { isLocal, encFileName, dirPath } = parseRoute()
+    const routeInfo = parseRoute()
+    const { isLocal, encFileName } = routeInfo
+    dirPath.value = routeInfo.dirPath
     currentEncName.value = encFileName
 
     if (isLocal) {
@@ -49,7 +53,7 @@ export function usePlaylist(type) {
     try {
       const nameKey = await getNameKeyFromSession()
       const check = TYPE_CHECK[type]
-      const data = await listDir(dirPath)
+      const data = await listDir(routeInfo.dirPath)
 
       // Get all non-directory entries
       const files = (data.content || []).filter(entry => !entry.is_dir)
@@ -108,6 +112,7 @@ export function usePlaylist(type) {
     loading,
     error,
     currentIndex,
+    dirPath,
     load,
     goNext,
     goPrev,

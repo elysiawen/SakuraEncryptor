@@ -10,7 +10,7 @@
           <span class="playlist-count">{{ items.length }} {{ label }}</span>
           <button class="close-btn" @click="$emit('close')">✕</button>
         </div>
-        <div class="playlist-list">
+        <div ref="listRef" class="playlist-list">
           <div
             v-for="(item, i) in items"
             :key="item.encName"
@@ -28,7 +28,9 @@
 </template>
 
 <script setup>
-defineProps({
+import { nextTick, ref, watch } from 'vue'
+
+const props = defineProps({
   items: { type: Array, default: () => [] },
   currentIndex: { type: Number, default: -1 },
   visible: { type: Boolean, default: false },
@@ -36,6 +38,26 @@ defineProps({
 })
 
 defineEmits(['close', 'select'])
+
+const listRef = ref(null)
+
+/**
+ * Scroll the active row into view when the panel opens.
+ *
+ * Long chapters put it far below the fold, which reads as "nothing is
+ * highlighted". Only on open — following `currentIndex` continuously would make
+ * the list jump around under the reader while the comic strip scrolls.
+ */
+watch(
+  () => props.visible,
+  async (visible) => {
+    if (!visible) return
+    await nextTick()
+    listRef.value
+      ?.querySelector('.playlist-item.active')
+      ?.scrollIntoView({ block: 'center' })
+  }
+)
 </script>
 
 <style scoped>

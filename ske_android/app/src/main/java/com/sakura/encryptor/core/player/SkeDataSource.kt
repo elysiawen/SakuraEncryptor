@@ -5,13 +5,13 @@ import androidx.media3.common.C
 import androidx.media3.datasource.BaseDataSource
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
+import com.sakura.encryptor.core.cache.DerivedKeyCache
 import com.sakura.encryptor.core.crypto.SkeBlockDecryptor
 import com.sakura.encryptor.core.crypto.SkeCrypto
 import com.sakura.encryptor.core.crypto.SkeDecryptionException
 import com.sakura.encryptor.core.crypto.SkeFormat
 import com.sakura.encryptor.core.crypto.SkeHeader
 import java.io.IOException
-import java.util.concurrent.ConcurrentHashMap
 
 /**
  * A Media3 [DataSource] that presents a media file to ExoPlayer, decrypting it
@@ -19,7 +19,9 @@ import java.util.concurrent.ConcurrentHashMap
  *
  * The mode is decided per file from its first bytes:
  *  - `.ske` container → reads are translated into the minimum set of encrypted
- *    blocks, fetched on demand and decrypted in memory; no plaintext touches disk.
+ *    blocks, fetched on demand and decrypted in memory. When the user enabled
+ *    the file cache, decrypted blocks are also kept in the app-private cache
+ *    directory (see [com.sakura.encryptor.core.cache.PlaintextBlockCache]).
  *  - anything else → the bytes are streamed through untouched, so ordinary
  *    (unencrypted) videos and music play as well.
  */
@@ -54,7 +56,7 @@ class SkeDataSource(
             val totalSize = if (isContainer) {
                 val header = SkeHeader.parse(prefix)
                 val password = factory.passwordFor(uri)
-                val decryptor = factory.decryptorFor(uri, password, header)
+                val decryptor = factory.decryptorFor(password, header)
 
                 val blockReader = SkeBlockReader(
                     source = source,
@@ -157,15 +159,13 @@ class SkeDataSource(
  * profile's password.
  *
  * PBKDF2 with 100,000 iterations costs ~100 ms; the player calls `open()` on
- * every seek, so keys are memoised per (uri, password, salt, iterations).
+ * every seek, so keys are memoised per (password, salt, iterations).
  */
 class SkeDataSourceFactory(
     private val sourceFactory: CipherBlockSourceFactory,
     private val passwordProvider: (Uri) -> String?,
     private val cacheBlocksProvider: () -> Int,
 ) : DataSource.Factory {
-
-    private val derivedKeys = ConcurrentHashMap<String, ByteArray>()
 
     override fun createDataSource(): DataSource =
         SkeDataSource(this, sourceFactory, cacheBlocksProvider)
@@ -181,31 +181,17 @@ class SkeDataSourceFactory(
      * A wrong password is rejected here through the container's key check
      * instead of surfacing later as a GCM failure mid-playback.
      */
-    internal fun decryptorFor(uri: Uri, password: String, header: SkeHeader): SkeBlockDecryptor {
-        val key = deriveKeyFor(uri, password, header)
+    internal fun decryptorFor(password: String, header: SkeHeader): SkeBlockDecryptor {
+        // The work factor is part of the identity of the key: containers written
+        // with a different cost must not share a cache entry (DerivedKeyCache
+        // keys on salt + iterations, not on the file).
+        val key = DerivedKeyCache.getOrDerive(password, header.salt, header.kdfIterations)
         if (!SkeCrypto.constantTimeEquals(header.keyCheck, SkeCrypto.keyCheck(key))) {
             throw SkeDecryptionException("Wrong password.")
         }
         return SkeBlockDecryptor(header, key)
     }
 
-    private fun deriveKeyFor(uri: Uri, password: String, header: SkeHeader): ByteArray {
-        // The work factor is part of the identity of the key: containers written
-        // with a different cost must not share a cache entry.
-        val cacheKey = buildString {
-            append(uri)
-            append('|')
-            append(password.hashCode())
-            append('|')
-            append(header.salt.joinToString("") { "%02x".format(it) })
-            append('|')
-            append(header.kdfIterations)
-        }
-        return derivedKeys.getOrPut(cacheKey) {
-            SkeCrypto.deriveKey(password, header.salt, header.kdfIterations)
-        }
-    }
-
     /** Drop memoised keys, e.g. when a password changes or the vault locks. */
-    fun invalidateKeys() = derivedKeys.clear()
+    fun invalidateKeys() = DerivedKeyCache.clear()
 }

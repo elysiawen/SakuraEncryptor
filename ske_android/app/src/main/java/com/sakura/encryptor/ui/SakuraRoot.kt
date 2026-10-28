@@ -36,6 +36,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -48,6 +49,9 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavHostController
@@ -59,6 +63,8 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.sakura.encryptor.AppContainer
 import com.sakura.encryptor.core.player.PlaybackExtras
+import com.sakura.encryptor.core.security.AppLockFactor
+import com.sakura.encryptor.core.security.AppLockMatch
 import com.sakura.encryptor.core.security.AppLockState
 import com.sakura.encryptor.core.security.BiometricUnlock
 import com.sakura.encryptor.data.prefs.ThemeMode
@@ -87,13 +93,29 @@ fun SakuraRoot(container: AppContainer) {
     val themeMode by container.settings.themeMode
         .collectAsStateWithLifecycle(initialValue = ThemeMode.System)
     val lockState by container.appLockManager.state.collectAsStateWithLifecycle()
-    val biometricEnabled by container.settings.appLockBiometric
+    val appLockFactors by container.settings.appLockFactors
+        .collectAsStateWithLifecycle(initialValue = AppLockFactor.DEFAULT)
+    val appLockMatch by container.settings.appLockMatch
+        .collectAsStateWithLifecycle(initialValue = AppLockMatch.ALL)
+    // A ticked TOTP factor with nothing bound can never pass; the gate says so
+    // instead of falling back to another factor.
+    val totpBound by container.appLockManager.hasTotp
         .collectAsStateWithLifecycle(initialValue = false)
 
     val context = LocalContext.current
-    // Asked once: the answer only changes when the user edits their device lock
-    // screen, which tears the process down anyway.
-    val biometricAvailable = remember { BiometricUnlock.isAvailable(context) }
+    // Re-checked on every resume: the user can enrol a finger from the lock
+    // screen's own "open settings" action and come straight back.
+    var biometricAvailable by remember { mutableStateOf(BiometricUnlock.isAvailable(context)) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                biometricAvailable = BiometricUnlock.isAvailable(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     val darkTheme = when (themeMode) {
         ThemeMode.System -> isSystemInDarkTheme()
@@ -145,9 +167,12 @@ fun SakuraRoot(container: AppContainer) {
 
                 AppLockState.Locked -> AppLockScreen(
                     verify = container.appLockManager::verify,
+                    verifyTotp = container.appLockManager::verifyTotp,
                     onUnlocked = container.appLockManager::unlock,
-                    biometricEnabled = biometricEnabled,
+                    requiredFactors = appLockFactors,
                     biometricAvailable = biometricAvailable,
+                    totpBound = totpBound,
+                    match = appLockMatch,
                 )
 
                 // The bar floats over the content, so screens stay full-bleed and
