@@ -131,6 +131,9 @@ fun BrowseScreen(
     var newFolderName by remember { mutableStateOf("") }
     var encryptNewFolderName by remember { mutableStateOf(true) }
     var renameTarget by remember { mutableStateOf<DecryptedEntry?>(null) }
+    // Deleting cloud files is permanent and there is no undo, so the toolbar icon
+    // only stages the selection; the actual delete waits for this dialog.
+    var deleteTargets by remember { mutableStateOf<List<DecryptedEntry>>(emptyList()) }
 
     // Re-list whenever the vault, the profile or the AList session changes.
     LaunchedEffect(activeProfileId, unlocked, loggedIn) { viewModel.syncSession() }
@@ -190,7 +193,7 @@ fun BrowseScreen(
                     IconButton(onClick = { viewModel.download(selectedEntries) }) {
                         Icon(Icons.Rounded.Download, contentDescription = "下载")
                     }
-                    IconButton(onClick = { viewModel.delete(selectedEntries) }) {
+                    IconButton(onClick = { deleteTargets = selectedEntries }) {
                         Icon(Icons.Rounded.Delete, contentDescription = "删除")
                     }
                 } else if (ready) {
@@ -379,6 +382,49 @@ fun BrowseScreen(
             onConfirm = { newName, encryptName ->
                 viewModel.rename(entry, newName, encryptName)
                 renameTarget = null
+            },
+        )
+    }
+
+    if (deleteTargets.isNotEmpty()) {
+        val single = deleteTargets.singleOrNull()
+        val hasFolder = deleteTargets.any { it.isDir }
+
+        AlertDialog(
+            onDismissRequest = { deleteTargets = emptyList() },
+            title = {
+                Text(
+                    if (single != null) {
+                        if (single.isDir) "删除文件夹？" else "删除文件？"
+                    } else {
+                        "删除 ${deleteTargets.size} 项？"
+                    }
+                )
+            },
+            text = {
+                Text(
+                    buildString {
+                        // Name what goes away: with decrypted names shown in the
+                        // list, "所选项目" would be harder to check than the name.
+                        if (single != null) {
+                            append("将永久删除「${single.displayName}」")
+                            if (single.isDir) append("及其中全部内容")
+                        } else {
+                            append("将永久删除所选的 ${deleteTargets.size} 项")
+                            if (hasFolder) append("（文件夹内的全部内容一并删除）")
+                        }
+                        append("。云端数据删除后无法恢复。")
+                    }
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.delete(deleteTargets)
+                    deleteTargets = emptyList()
+                }) { Text("删除") }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteTargets = emptyList() }) { Text("取消") }
             },
         )
     }

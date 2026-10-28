@@ -46,6 +46,12 @@ yarn-error.log*
 # Project specific
 !icon.ico
 !logo.png
+# The desktop app's packaging icon lives under build/, which is ignored above.
+# Both the directory and the file must be re-included: git never descends into
+# an ignored directory, so a file-only exception would be silently dropped and
+# CI would package the default Electron icon.
+!ske_desktop/build/
+!ske_desktop/build/icon.png
 
 .claude
 .claude/

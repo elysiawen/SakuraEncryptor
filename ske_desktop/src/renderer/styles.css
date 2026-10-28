@@ -1,0 +1,440 @@
+/* Design tokens for the desktop shell.
+   Palette follows SubLinks (`src/app/globals.css`): neutral zinc surfaces with a
+   single blue accent. No warm/purple tint anywhere: on a UI that is mostly dark
+   chrome plus a picture, any hue in the neutrals competes with the media.
+
+   Dark is the default (`:root`); `data-theme="light"` on <html> swaps the tokens
+   and every component follows, because nothing below hard-codes a surface. */
+:root {
+  color-scheme: dark;
+
+  --bg: #0a0a0a;
+  --bg-elevated: #141416;
+  --panel: #18181b;
+  --panel-hover: #1f1f23;
+  --line: #27272a;
+  --line-soft: #1f1f23;
+  --line-strong: #3f3f46;
+
+  --text: #f4f4f5;
+  --text-dim: #d4d4d8;
+  --muted: #a1a1aa;
+  --muted-strong: #71717a;
+
+  --accent: #2563eb;
+  --accent-strong: #60a5fa;
+  --accent-soft: rgba(37, 99, 235, 0.16);
+
+  --danger: #f87171;
+  --ok: #4ade80;
+  --warn: #fcd34d;
+
+  --radius-sm: 7px;
+  --radius: 10px;
+  --radius-lg: 14px;
+
+  --shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Microsoft YaHei', 'Noto Sans SC', sans-serif;
+  --mono: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+}
+
+/* Light theme: SubLinks' light palette (white cards, zinc borders, same blue). */
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  --bg: #ffffff;
+  --bg-elevated: #fafafa;
+  --panel: #ffffff;
+  --panel-hover: #f4f4f5;
+  --line: #e4e4e7;
+  --line-soft: #f1f1f3;
+  --line-strong: #d4d4d8;
+
+  --text: #18181b;
+  --text-dim: #3f3f46;
+  --muted: #71717a;
+  --muted-strong: #a1a1aa;
+
+  --accent: #2563eb;
+  --accent-strong: #1d4ed8;
+  --accent-soft: rgba(37, 99, 235, 0.1);
+
+  --danger: #dc2626;
+  --ok: #16a34a;
+  --warn: #b45309;
+
+  --shadow: 0 12px 32px rgba(15, 23, 42, 0.12);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 13px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  margin: 0;
+  font-weight: 600;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button {
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  padding: 7px 13px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+button.primary {
+  background: var(--accent);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+button.primary:hover:not(:disabled) {
+  background: var(--accent-strong);
+}
+
+button.ghost {
+  border-color: var(--line);
+  color: var(--text-dim);
+}
+
+button.ghost:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+button.danger {
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+  color: var(--danger);
+}
+
+button.danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+}
+
+/* Range inputs are sliders, not text fields: the field chrome (border, fill,
+   padding, 100% width) turned every progress/volume bar into a boxed widget. */
+input:not([type='range']),
+select {
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 8px 11px;
+  outline: none;
+  width: 100%;
+}
+
+input:not([type='range']):focus,
+select:focus {
+  border-color: var(--accent);
+}
+
+input::placeholder {
+  color: var(--muted);
+}
+
+/* Thin scrollbars: the default ones look foreign inside a dense desktop app. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #52525b;
+  background-clip: content-box;
+}
+
+.page {
+  padding: 24px 28px 32px;
+  overflow-y: auto;
+  height: 100%;
+}
+
+.page-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.page-head h2 {
+  font-size: 17px;
+  letter-spacing: 0.01em;
+}
+
+.page-head p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+}
+
+.card + .card {
+  margin-top: 14px;
+}
+
+.card h3 {
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.card .hint {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 0 0 14px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-bottom: 14px;
+}
+
+.field > label {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.field .meta {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.row > .grow {
+  flex: 1;
+  min-width: 0;
+}
+
+.switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 11px 0;
+  border-top: 1px solid var(--line-soft);
+}
+
+.switch-row:first-of-type {
+  border-top: 0;
+}
+
+.switch-row .label {
+  font-size: 13px;
+}
+
+.switch-row .desc {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  /* Row layouts put the name in a flexible cell: the label must not shrink or
+     wrap into a second line when the name is long. */
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.badge.ok {
+  color: var(--ok);
+  border-color: color-mix(in srgb, var(--ok) 40%, transparent);
+}
+
+.badge.warn {
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 40%, transparent);
+}
+
+/* ── File marks (加密 / 未加密 / 无法解密) ──
+   Same expression as the web client's tags: a soft tinted pill with no border,
+   "加密" being the only loud one. The tint is mixed with the panel colour rather
+   than laid on as alpha, so the label keeps its contrast in either theme and
+   when it sits on top of a thumbnail. */
+.badge-file {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--muted-strong) 18%, var(--panel));
+  color: var(--muted);
+}
+
+.badge-file.enc {
+  background: color-mix(in srgb, var(--accent) 22%, var(--panel));
+  color: var(--accent-strong);
+}
+
+.badge-file.warn {
+  background: color-mix(in srgb, var(--warn) 22%, var(--panel));
+  color: var(--warn);
+}
+
+.mono {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Modal dialogs ──
+   Owned by AppDialog: every dialog in the app renders this markup, so a change
+   here lands everywhere at once. Callers only pick a width. */
+.dlg-overlay {
+  position: fixed;
+  inset: 0;
+  /* Above the page, below the lock screen (90) and toasts (200). */
+  z-index: 65;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(2px);
+}
+
+.dlg {
+  width: 400px;
+  max-width: 100%;
+  max-height: 88vh;
+  /* The panel itself never scrolls: the body does, so the title and footer
+     stay put on a short window. */
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px 22px 16px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+}
+
+.dlg-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* A confirmation has no fields; an empty scroll box would still add a gap. */
+.dlg-body:empty {
+  display: none;
+}
+
+/* Fields are already spaced by the body's gap; keeping their own bottom margin
+   would double it inside a dialog. */
+.dlg-body .field {
+  margin-bottom: 0;
+}
+
+.dlg h2 {
+  font-size: 15px;
+}
+
+.dlg-desc {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--muted);
+}
+
+.dlg-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.dlg-check input {
+  width: auto;
+  accent-color: var(--accent);
+}
+
+.dlg-error {
+  margin: 0;
+  font-size: 12px;
+  color: var(--danger);
+}
+
+.dlg-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+/* The destructive action is a filled tint rather than an outlined button: the
+   red ring read as a second, competing border next to 取消. */
+.dlg-actions .danger {
+  border-color: transparent;
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 16%, var(--panel));
+}
+
+.dlg-actions .danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 26%, var(--panel));
+}

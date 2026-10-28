@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- The loopback origin is the only thing allowed to talk to the media
+         endpoint, so the CSP stays tight: no remote script, no eval. `connect-src`
+         covers the ranged fetch that reads an audio file's ID3 cover. -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; media-src 'self' http://127.0.0.1:*; img-src 'self' data: blob: http://127.0.0.1:*; connect-src 'self' http://127.0.0.1:*; style-src 'self' 'unsafe-inline'"
+    />
+    <title>Sakura Encryptor</title>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

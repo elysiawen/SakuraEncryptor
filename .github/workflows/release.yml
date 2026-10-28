@@ -10,6 +10,7 @@ on:
       - 'ske_web/**'
       - 'ske_android/**'
       - 'ske_extension/**'
+      - 'ske_desktop/**'
       - 'scripts/**'
       - 'pyproject.toml'
       - '.github/workflows/release.yml'
@@ -346,9 +347,82 @@ jobs:
         working-directory: ske_android
         run: rm -rf keystore keystore.properties
 
+  # A different application from the PyInstaller GUI above: that one is a
+  # single Tk file, this one is Electron with its own Chromium. Hence the
+  # `-Desktop-` asset names — the two must not collide in the release.
+  #
+  # The build is unsigned. Windows SmartScreen will warn on first launch and
+  # macOS requires right-click → Open, which is the honest state until a
+  # certificate exists; a fake signature would be worse than none.
+  build-desktop:
+    name: Build Desktop (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Windows ships twice: the NSIS installer, and a zip that runs from
+          # wherever it is unpacked. Both targets use the same artifactName
+          # template, so `${ext}` already yields `.exe` and `.zip`.
+          - runner: windows-latest
+            target: windows
+            flag: --win
+            assets: |
+              ske_desktop/release/SakuraEncryptor-Desktop-Windows-x64.exe
+              ske_desktop/release/SakuraEncryptor-Desktop-Windows-x64.zip
+          - runner: ubuntu-latest
+            target: linux
+            flag: --linux
+            assets: |
+              ske_desktop/release/SakuraEncryptor-Desktop-Linux-x64.AppImage
+          - runner: macos-latest
+            target: macos-arm64
+            flag: --mac
+            assets: |
+              ske_desktop/release/SakuraEncryptor-Desktop-MacOS-ARM64.dmg
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: ske_desktop/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ske_desktop
+        run: npm ci
+
+      # The renderer is a Vite bundle; electron-builder only packages `out/`,
+      # so skipping this produces an installer with an empty window.
+      - name: Build renderer
+        working-directory: ske_desktop
+        run: npm run build
+
+      - name: Package
+        working-directory: ske_desktop
+        env:
+          # Without this, electron-builder tries to find a signing identity on
+          # the macOS runner, fails, and stops with a message that looks like a
+          # packaging bug rather than a missing certificate.
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npx electron-builder ${{ matrix.flag }} --publish never
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          # The archive name stays per-platform; the files inside keep their
+          # own names, which is what the release job publishes.
+          name: SakuraEncryptor-Desktop-${{ matrix.target }}
+          path: ${{ matrix.assets }}
+          if-no-files-found: error
+
   release:
     name: Create GitHub Release
-    needs: [build, build-web, build-android, build-extension]
+    needs: [build, build-web, build-android, build-extension, build-desktop]
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
@@ -389,9 +463,13 @@ jobs:
 
             ### 下载什么
             - `SakuraEncryptor-Android.apk` — 安卓客户端，已签名，可直接安装
-            - `SakuraEncryptor-Windows-x64.exe` — Windows 桌面端
-            - `SakuraEncryptor-Linux-x64` / `SakuraEncryptor-Linux-ARM64` — Linux 桌面端
-            - `SakuraEncryptor-MacOS-ARM64` / `SakuraEncryptor-MacOS-x64` — macOS 桌面端
+            - `SakuraEncryptor-Desktop-Windows-x64.exe` — Electron 客户端，安装版
+            - `SakuraEncryptor-Desktop-Windows-x64.zip` — Electron 客户端，绿色版（解压即用，不写注册表）
+            - `SakuraEncryptor-Desktop-Linux-x64.AppImage` — Electron 客户端，免安装（`chmod +x` 后运行）
+            - `SakuraEncryptor-Desktop-MacOS-ARM64.dmg` — Electron 客户端，未签名，首次需右键「打开」
+            - `SakuraEncryptor-Windows-x64.exe` — Windows 单文件 GUI（Tk），免安装
+            - `SakuraEncryptor-Linux-x64` / `SakuraEncryptor-Linux-ARM64` — Linux 单文件 GUI
+            - `SakuraEncryptor-MacOS-ARM64` / `SakuraEncryptor-MacOS-x64` — macOS 单文件 GUI
             - `SakuraEncryptor-Web.zip` — 网页播放器，解压后自行托管
             - `SakuraEncryptor-Extension.zip` — Chrome 跨域助手，解压后在 `chrome://extensions` 开发者模式下「加载已解压的扩展程序」
         env:
