@@ -1,7 +1,14 @@
 package com.sakura.encryptor.ui.screens.browse
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -41,8 +48,10 @@ import androidx.compose.material.icons.rounded.Movie
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.SwapHoriz
+import androidx.compose.material.icons.rounded.UploadFile
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -75,6 +84,7 @@ import com.sakura.encryptor.ui.components.LoadingState
 import com.sakura.encryptor.ui.components.MediaTile
 import com.sakura.encryptor.ui.components.SakuraTopBar
 import com.sakura.encryptor.ui.components.StateMessage
+import com.sakura.encryptor.ui.components.TaskProgressDialog
 import com.sakura.encryptor.ui.components.TileBadges
 import com.sakura.encryptor.ui.components.UnlockPanel
 import com.sakura.encryptor.ui.components.ViewModeToggle
@@ -96,6 +106,7 @@ fun BrowseScreen(
             session = c.aListSession,
             vault = c.vault,
             downloadManager = c.downloadManager,
+            runner = c.cryptoTaskRunner,
             profileRepository = c.profileRepository,
             cipherBlockSourceFactory = c.cipherBlockSourceFactory,
             previews = c.previewLoader,
@@ -134,6 +145,52 @@ fun BrowseScreen(
     // Deleting cloud files is permanent and there is no undo, so the toolbar icon
     // only stages the selection; the actual delete waits for this dialog.
     var deleteTargets by remember { mutableStateOf<List<DecryptedEntry>>(emptyList()) }
+
+    // Downloads land in the shared Downloads folder (Download/SakuraEncryptor/).
+    // Android 10+ writes through MediaStore and needs no permission; Android 9
+    // and older need WRITE_EXTERNAL_STORAGE first, so the tap is parked here
+    // until the prompt is answered.
+    var pendingDownload by remember { mutableStateOf<List<DecryptedEntry>>(emptyList()) }
+
+    val legacyWritePermission = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        val queued = pendingDownload
+        pendingDownload = emptyList()
+        if (queued.isNotEmpty()) {
+            if (!granted) {
+                Toast.makeText(context, "未授予存储权限，文件将保存到应用私有目录", Toast.LENGTH_LONG).show()
+            }
+            // Runs either way: the manager falls back when the grant is missing.
+            viewModel.download(queued)
+        }
+    }
+
+    val startDownload: (List<DecryptedEntry>) -> Unit = { entries ->
+        val needsGrant = Build.VERSION.SDK_INT <= Build.VERSION_CODES.P &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_EXTERNAL_STORAGE) !=
+            PackageManager.PERMISSION_GRANTED
+        if (needsGrant) {
+            pendingDownload = entries
+            legacyWritePermission.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        } else {
+            viewModel.download(entries)
+        }
+    }
+
+    // Uploads: pick local documents first, then confirm (and choose whether to
+    // encrypt) in a dialog, mirroring the web client's flow.
+    var pendingUpload by remember { mutableStateOf<List<Uri>>(emptyList()) }
+    var encryptUpload by remember { mutableStateOf(true) }
+
+    val uploadPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenMultipleDocuments(),
+    ) { uris ->
+        if (uris.isNotEmpty()) {
+            encryptUpload = true
+            pendingUpload = uris
+        }
+    }
 
     // Re-list whenever the vault, the profile or the AList session changes.
     LaunchedEffect(activeProfileId, unlocked, loggedIn) { viewModel.syncSession() }
@@ -190,7 +247,7 @@ fun BrowseScreen(
                             Icon(Icons.Rounded.Edit, contentDescription = "重命名")
                         }
                     }
-                    IconButton(onClick = { viewModel.download(selectedEntries) }) {
+                    IconButton(onClick = { startDownload(selectedEntries) }) {
                         Icon(Icons.Rounded.Download, contentDescription = "下载")
                     }
                     IconButton(onClick = { deleteTargets = selectedEntries }) {
@@ -282,7 +339,13 @@ fun BrowseScreen(
                             columns = GridCells.Adaptive(104.dp),
                             state = gridState,
                             modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                            contentPadding = PaddingValues(
+                                start = 12.dp,
+                                end = 12.dp,
+                                top = 8.dp,
+                                // Clears the upload FAB so the last row stays reachable.
+                                bottom = 88.dp,
+                            ),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
@@ -320,7 +383,12 @@ fun BrowseScreen(
                                 )
                             }
                         }
-                    } else LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+                    } else LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize(),
+                        // Clears the upload FAB so the last row stays reachable.
+                        contentPadding = PaddingValues(bottom = 88.dp),
+                    ) {
                         items(
                             items = state.entries,
                             key = { it.raw.name },
@@ -359,6 +427,20 @@ fun BrowseScreen(
                         ) {
                             LoadingState("正在获取解密地址…")
                         }
+                    }
+                }
+
+                // Upload is the one action the listing itself can host, so it
+                // floats over the grid instead of crowding the top bar.
+                if (!state.inSelectionMode && !state.isLoading && state.error == null) {
+                    FloatingActionButton(
+                        onClick = { uploadPicker.launch(arrayOf("*/*")) },
+                        shape = MaterialTheme.shapes.large,
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(20.dp),
+                    ) {
+                        Icon(Icons.Rounded.UploadFile, contentDescription = "上传")
                     }
                 }
             }
@@ -462,6 +544,45 @@ fun BrowseScreen(
             },
         )
     }
+
+    if (pendingUpload.isNotEmpty()) {
+        val folderLabel = breadcrumbs.lastOrNull()?.second ?: "/"
+        AlertDialog(
+            onDismissRequest = { pendingUpload = emptyList() },
+            title = { Text("上传文件") },
+            text = {
+                Column {
+                    Text("将 ${pendingUpload.size} 个文件上传到「$folderLabel」")
+                    Spacer(Modifier.height(8.dp))
+                    EncryptNameToggle(
+                        checked = encryptUpload,
+                        onCheckedChange = { encryptUpload = it },
+                        title = "加密后上传",
+                        onText = "内容与文件名一并加密为 .ske，仅本应用可读",
+                        offText = "以明文上传，其他客户端可直接打开",
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.upload(pendingUpload, encryptUpload)
+                    pendingUpload = emptyList()
+                }) { Text("上传") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingUpload = emptyList() }) { Text("取消") }
+            },
+        )
+    }
+
+    state.uploadProgress?.let { progress ->
+        TaskProgressDialog(
+            title = "正在上传",
+            detail = "${progress.fileName}  (${progress.index}/${progress.count})",
+            fraction = progress.fraction,
+            onSendToBackground = viewModel::dismissUploadUi,
+        )
+    }
 }
 
 @Composable
@@ -507,11 +628,19 @@ private fun RenameDialog(
     )
 }
 
-/** Optional "encrypt this name" checkbox used by the create/rename dialogs. */
+/**
+ * Optional "encrypt this" checkbox used by the create / rename / upload dialogs.
+ *
+ * The wording differs per flow — a folder name, a file name, or the whole
+ * payload — so the labels are parameters with the name-only text as the default.
+ */
 @Composable
 private fun EncryptNameToggle(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
+    title: String = "加密名称",
+    onText: String = "云端保存为密文，仅本应用可读",
+    offText: String = "取消勾选后以明文保存，其他客户端可直接看到",
 ) {
     Row(
         modifier = Modifier
@@ -521,13 +650,9 @@ private fun EncryptNameToggle(
     ) {
         Checkbox(checked = checked, onCheckedChange = onCheckedChange)
         Column(modifier = Modifier.weight(1f)) {
-            Text("加密名称", style = MaterialTheme.typography.bodyMedium)
+            Text(title, style = MaterialTheme.typography.bodyMedium)
             Text(
-                text = if (checked) {
-                    "云端保存为密文，仅本应用可读"
-                } else {
-                    "取消勾选后以明文保存，其他客户端可直接看到"
-                },
+                text = if (checked) onText else offText,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

@@ -123,6 +123,16 @@ class CryptoTaskRunner(private val context: Context) {
             tempEncrypted
         }
 
+    /** Copy a picked document into the app cache; used by uploads that stay in the clear. */
+    suspend fun copyToCache(uri: Uri): File = withContext(Dispatchers.IO) {
+        val temp = createTemp("upload")
+        copyUriToFile(uri, temp)
+        temp
+    }
+
+    /** Display name of a picked document, or `null` when the provider hides it. */
+    fun displayNameOf(uri: Uri): String? = queryDisplayName(uri)
+
     // -----------------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------------

@@ -11,6 +11,7 @@ import com.sakura.encryptor.core.alist.DecryptedEntry
 import com.sakura.encryptor.core.crypto.SkeCrypto
 import com.sakura.encryptor.core.crypto.SkeFormat
 import com.sakura.encryptor.core.download.DownloadManager
+import com.sakura.encryptor.core.local.CryptoTaskRunner
 import com.sakura.encryptor.core.media.PreviewLoader
 import com.sakura.encryptor.core.player.CipherBlockSourceFactory
 import com.sakura.encryptor.core.player.MediaKind
@@ -36,6 +37,7 @@ class BrowseViewModel(
     private val session: AListSession,
     private val vault: VaultSession,
     private val downloadManager: DownloadManager,
+    private val runner: CryptoTaskRunner,
     private val profileRepository: ProfileRepository,
     private val cipherBlockSourceFactory: CipherBlockSourceFactory,
     private val previews: PreviewLoader,
@@ -50,9 +52,20 @@ class BrowseViewModel(
         val selected: Set<String> = emptySet(),
         /** True while a `.ske` entry is being resolved to a playable url. */
         val isPreparing: Boolean = false,
+        /** True while an upload job runs, so the picker cannot be re-entered. */
+        val isUploading: Boolean = false,
+        /** Non-null while the upload progress dialog should be on screen. */
+        val uploadProgress: UploadProgress? = null,
     ) {
         val inSelectionMode: Boolean get() = selected.isNotEmpty()
     }
+
+    data class UploadProgress(
+        val fileName: String,
+        val index: Int,
+        val count: Int,
+        val fraction: Float,
+    )
 
     sealed interface Event {
         data class OpenPlayer(val uri: String, val name: String, val source: PlaybackSource) : Event
@@ -342,6 +355,91 @@ class BrowseViewModel(
         }
         clearSelection()
     }
+
+    /**
+     * Upload picked local [uris] into the current directory.
+     *
+     * Mirrors the web client: with [encrypt] both the bytes and the file name are
+     * converted into vault format (`.ske`), so the result is only readable inside
+     * the app; otherwise the file goes up as-is under its own name.
+     */
+    fun upload(uris: List<Uri>, encrypt: Boolean) {
+        if (uris.isEmpty()) return
+        if (_state.value.isUploading) {
+            send(Event.Message("已有上传任务正在进行"))
+            return
+        }
+
+        // The AList form API cannot address a drive root, and a sub-account's
+        // virtual root is not a real directory either.
+        val target = session.absolutePath(_state.value.path)
+        if (target.isBlank() || target == "/") {
+            send(Event.Message("请先进入一个具体目录再上传"))
+            return
+        }
+        if (encrypt && !vault.isUnlocked) {
+            send(Event.Message("缺少加密主密码，无法加密上传"))
+            return
+        }
+
+        _state.update { it.copy(isUploading = true, uploadProgress = null) }
+
+        viewModelScope.launch {
+            val total = uris.size
+            var uploaded = 0
+            try {
+                uris.forEachIndexed { index, uri ->
+                    val name = runner.displayNameOf(uri) ?: "file_${System.currentTimeMillis()}"
+                    val position = index + 1
+                    _state.update {
+                        it.copy(uploadProgress = UploadProgress(name, position, total, 0f))
+                    }
+
+                    val remoteName = if (encrypt) {
+                        SkeCrypto.encryptName(name, nameKey()) + SkeFormat.SKE_EXT
+                    } else {
+                        name
+                    }
+
+                    val payload = if (encrypt) {
+                        runner.encryptToCache(uri, vault.requirePassword()) { bytesDone, bytesTotal ->
+                            val fraction = if (bytesTotal <= 0) {
+                                0f
+                            } else {
+                                (bytesDone.toFloat() / bytesTotal).coerceIn(0f, 1f)
+                            }
+                            _state.update {
+                                it.copy(
+                                    uploadProgress = UploadProgress(name, position, total, fraction),
+                                )
+                            }
+                        }
+                    } else {
+                        runner.copyToCache(uri)
+                    }
+
+                    // The payload is always a cache temp file we own, so it goes
+                    // away whether or not the request succeeded.
+                    try {
+                        repository.upload(_state.value.path, remoteName, payload).getOrThrow()
+                    } finally {
+                        payload.delete()
+                    }
+                    uploaded++
+                }
+
+                send(Event.Message("已上传 $uploaded 个文件"))
+                refresh()
+            } catch (throwable: Throwable) {
+                send(Event.Message(throwable.message ?: "上传失败"))
+            } finally {
+                _state.update { it.copy(isUploading = false, uploadProgress = null) }
+            }
+        }
+    }
+
+    /** Hide the progress dialog; the job keeps running in the background. */
+    fun dismissUploadUi() = _state.update { it.copy(uploadProgress = null) }
 
     fun delete(entries: List<DecryptedEntry>) {
         val names = entries.map { it.raw.name }

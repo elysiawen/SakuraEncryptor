@@ -103,17 +103,22 @@ class AListRepository(
         api.remove(session.server, session.token, session.absolutePath(parentPath), encryptedNames)
     }
 
-    /** Upload a local (already encrypted) file into a cloud directory. */
-    suspend fun uploadEncrypted(
+    /**
+     * Upload [file] into a cloud directory, naming it [fileName] remotely.
+     *
+     * The caller owns the payload: an encrypted `.ske` container and a plain
+     * file both go through here.
+     */
+    suspend fun upload(
         parentPath: String,
-        encryptedFileName: String,
+        fileName: String,
         file: File,
     ): Result<Unit> = runCatching {
         api.upload(
             server = session.server,
             token = session.token,
             dirPath = session.absolutePath(parentPath),
-            fileName = encryptedFileName,
+            fileName = fileName,
             file = file,
         )
     }

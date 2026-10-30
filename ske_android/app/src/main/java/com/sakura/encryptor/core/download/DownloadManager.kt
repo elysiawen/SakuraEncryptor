@@ -1,6 +1,14 @@
 package com.sakura.encryptor.core.download
 
+import android.Manifest
+import android.content.ContentResolver
+import android.content.ContentValues
 import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
+import androidx.core.content.ContextCompat
 import com.sakura.encryptor.core.alist.AListApi
 import com.sakura.encryptor.core.alist.AListSession
 import com.sakura.encryptor.core.alist.DecryptedEntry
@@ -177,15 +185,122 @@ class DownloadManager(
 
     suspend fun clearFinished() = database.downloadDao().clearFinished()
 
-    /** Directory holding decrypted downloads, exposed for sharing / external players. */
-    fun outputDirectory(): File {
+    /** Directory holding decrypted downloads when the public folder is unusable. */
+    private fun privateOutputDirectory(): File {
         val base = context.getExternalFilesDir(null) ?: context.filesDir
-        return File(base, "SakuraEncryptor").apply { mkdirs() }
+        return File(base, PUBLIC_DIR).apply { mkdirs() }
     }
 
-    fun outputFileFor(displayName: String): File {
+    // -----------------------------------------------------------------------
+    // Output
+    // -----------------------------------------------------------------------
+
+    /**
+     * Copy the decrypted bytes into the user-visible Downloads folder and return
+     * where they landed.
+     *
+     * Android 10+ goes through MediaStore, which needs no permission and puts the
+     * file somewhere a file manager actually shows (`Download/SakuraEncryptor/`).
+     * Scoped storage forbids the raw `File` write the older branch still uses, and
+     * that branch also needs WRITE_EXTERNAL_STORAGE — when it is missing the
+     * download falls back to the app-private folder instead of failing outright,
+     * which is also where every pre-Q device without the grant ends up.
+     */
+    private fun storeDecrypted(displayName: String, source: File): String {
         val safeName = displayName.replace(Regex("[/\\\\:*?\"<>|]"), "_").ifBlank { "download" }
-        return File(outputDirectory(), safeName)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            return storeViaMediaStore(safeName, source)
+        }
+        return if (hasLegacyWritePermission()) {
+            storeInPublicFolderLegacy(safeName, source)
+        } else {
+            storePrivately(safeName, source)
+        }
+    }
+
+    /** MediaStore path: the provider owns the file, so no permission is needed. */
+    private fun storeViaMediaStore(name: String, source: File): String {
+        val resolver = context.contentResolver
+        val relativePath = "${Environment.DIRECTORY_DOWNLOADS}/$PUBLIC_DIR/"
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, uniqueDisplayName(resolver, relativePath, name))
+            put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
+            // IS_PENDING hides the entry until the bytes are all there — without
+            // it another app can open the file mid-copy and see a truncated one.
+            put(MediaStore.MediaColumns.IS_PENDING, 1)
+        }
+
+        val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+            ?: throw IOException("无法在下载目录创建文件")
+        try {
+            resolver.openOutputStream(uri)?.use { out ->
+                source.inputStream().use { it.copyTo(out) }
+            } ?: throw IOException("无法写入下载目录")
+        } catch (e: Exception) {
+            // An empty stub would otherwise sit in the user's Downloads forever.
+            runCatching { resolver.delete(uri, null, null) }
+            throw e
+        }
+
+        values.clear()
+        values.put(MediaStore.MediaColumns.IS_PENDING, 0)
+        resolver.update(uri, values, null, null)
+        return uri.toString()
+    }
+
+    /** Pre-Q path: a plain file write into the shared Downloads folder. */
+    private fun storeInPublicFolderLegacy(name: String, source: File): String {
+        val dir = File(
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
+            PUBLIC_DIR,
+        )
+        if (!dir.isDirectory && !dir.mkdirs()) {
+            throw IOException("无法创建目录：${dir.absolutePath}")
+        }
+        val target = File(dir, uniqueFileName(dir, name))
+        source.copyTo(target, overwrite = true)
+        return target.absolutePath
+    }
+
+    private fun storePrivately(name: String, source: File): String {
+        val target = File(privateOutputDirectory(), name)
+        source.copyTo(target, overwrite = true)
+        return target.absolutePath
+    }
+
+    private fun hasLegacyWritePermission(): Boolean =
+        ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_EXTERNAL_STORAGE) ==
+            PackageManager.PERMISSION_GRANTED
+
+    private fun uniqueDisplayName(resolver: ContentResolver, relativePath: String, name: String): String {
+        if (!entryExists(resolver, relativePath, name)) return name
+        val (stem, ext) = splitExtension(name)
+        var index = 1
+        while (entryExists(resolver, relativePath, "$stem ($index)$ext")) index++
+        return "$stem ($index)$ext"
+    }
+
+    private fun entryExists(resolver: ContentResolver, relativePath: String, name: String): Boolean =
+        resolver.query(
+            MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+            arrayOf(MediaStore.MediaColumns._ID),
+            "${MediaStore.MediaColumns.RELATIVE_PATH} = ? AND ${MediaStore.MediaColumns.DISPLAY_NAME} = ?",
+            arrayOf(relativePath, name),
+            null,
+        )?.use { it.count > 0 } == true
+
+    private fun uniqueFileName(dir: File, name: String): String {
+        if (!File(dir, name).exists()) return name
+        val (stem, ext) = splitExtension(name)
+        var index = 1
+        while (File(dir, "$stem ($index)$ext").exists()) index++
+        return "$stem ($index)$ext"
+    }
+
+    /** Leading-dot names count as having no extension, so `.ske` is never split. */
+    private fun splitExtension(name: String): Pair<String, String> {
+        val dot = name.lastIndexOf('.')
+        return if (dot > 0) name.substring(0, dot) to name.substring(dot) else name to ""
     }
 
     // -----------------------------------------------------------------------
@@ -252,16 +367,14 @@ class DownloadManager(
             }
             currentCoroutineContext().ensureActive()
 
-            val output = outputFileFor(task.displayName)
-            plainTemp.copyTo(output, overwrite = true)
-
-            val finalSize = output.length()
+            val localUri = storeDecrypted(task.displayName, plainTemp)
+            val finalSize = plainTemp.length()
             dao.updateProgress(
                 id = id,
                 status = DownloadStatus.DONE.name,
                 downloadedBytes = finalSize,
                 totalBytes = finalSize,
-                localUri = output.absolutePath,
+                localUri = localUri,
                 error = null,
             )
             part.delete()
@@ -320,5 +433,8 @@ class DownloadManager(
     companion object {
         private const val BUFFER_SIZE = 128 * 1024
         private const val PROGRESS_STEP = 512 * 1024L
+
+        /** Folder inside the shared Downloads directory that the app writes to. */
+        private const val PUBLIC_DIR = "SakuraEncryptor"
     }
 }

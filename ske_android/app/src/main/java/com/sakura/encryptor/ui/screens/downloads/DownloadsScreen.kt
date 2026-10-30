@@ -110,7 +110,7 @@ fun DownloadsScreen(onOpenDrawer: () -> Unit) {
             StateMessage(
                 icon = Icons.Rounded.DownloadDone,
                 title = "还没有下载任务",
-                message = "在云端目录中长按选择加密文件，即可下载并解密到本地。",
+                message = "在云端目录中长按选择加密文件，即可下载并解密到「下载/SakuraEncryptor/」。",
             )
         } else {
             LazyColumn(modifier = Modifier.fillMaxSize()) {
