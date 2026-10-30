@@ -78,7 +78,7 @@
       ],
       "category": "AudioVideo",
       "icon": "build/icon.png",
-      "artifactName": "SakuraEncryptor-Desktop-Linux-x64.${ext}"
+      "artifactName": "SakuraEncryptor-Desktop-Linux-${arch}.${ext}"
     },
     "mac": {
       "target": [

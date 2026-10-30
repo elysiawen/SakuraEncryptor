@@ -375,6 +375,23 @@ jobs:
             flag: --linux
             assets: |
               ske_desktop/release/SakuraEncryptor-Desktop-Linux-x64.AppImage
+          # Built on a native arm64 runner rather than cross-compiled from the
+          # x64 job: ffmpeg-static and @ffprobe-installer/ffprobe install
+          # host-arch binaries during `npm ci`, so an x64 cross-build would
+          # package an x64 ffmpeg into an arm64 app and silently lose every
+          # preview. The old `ubuntu-latest` + QEMU trick used for the Tk build
+          # would work here too, but emulating npm ci plus Electron packaging
+          # is far slower than the arm runners GitHub now hosts.
+          #
+          # 22.04 rather than 24.04 on purpose: an AppImage links the host
+          # glibc, so building on the older base keeps the floor at 2.35 and
+          # the artifact still starts on Debian 12 / Ubuntu 22.04 machines.
+          # Ubuntu 22.04 is also the base the ARM64 Tk build already uses.
+          - runner: ubuntu-22.04-arm
+            target: linux-arm64
+            flag: --linux --arm64
+            assets: |
+              ske_desktop/release/SakuraEncryptor-Desktop-Linux-arm64.AppImage
           - runner: macos-latest
             target: macos-arm64
             flag: --mac
@@ -433,6 +450,12 @@ jobs:
 
       - name: Generate Version Tag and Build Time
         id: meta
+        env:
+          # The runner clock is UTC. Without this the release body advertises a
+          # build time eight hours behind the wall clock of everyone in China,
+          # and a 00:00-08:00 CST build lands under the previous day's tag.
+          # TZ also drives `date`, so both values below are Beijing time.
+          TZ: Asia/Shanghai
         run: |
           # Version: YYYYMMDD (e.g. 20261028), no build counter.
           # A second run on the same day updates that day's release instead of
@@ -458,7 +481,7 @@ jobs:
           body: |
             ## Sakura Encryptor 自动构建
             - **版本号**: ${{ steps.meta.outputs.tag }}
-            - **构建时间**: ${{ steps.meta.outputs.time }}
+            - **构建时间**: ${{ steps.meta.outputs.time }}（UTC+8）
             - **Commit**: ${{ github.sha }}
 
             ### 下载什么
@@ -466,11 +489,12 @@ jobs:
             - `SakuraEncryptor-Desktop-Windows-x64.exe` — Electron 客户端，安装版
             - `SakuraEncryptor-Desktop-Windows-x64.zip` — Electron 客户端，绿色版（解压即用，不写注册表）
             - `SakuraEncryptor-Desktop-Linux-x64.AppImage` — Electron 客户端，免安装（`chmod +x` 后运行）
+            - `SakuraEncryptor-Desktop-Linux-arm64.AppImage` — Electron 客户端，arm64 版（ARM 云主机 / 树莓派等），免安装
             - `SakuraEncryptor-Desktop-MacOS-ARM64.dmg` — Electron 客户端，未签名，首次需右键「打开」
             - `SakuraEncryptor-Windows-x64.exe` — Windows 单文件 GUI（Tk），免安装
             - `SakuraEncryptor-Linux-x64` / `SakuraEncryptor-Linux-ARM64` — Linux 单文件 GUI
             - `SakuraEncryptor-MacOS-ARM64` / `SakuraEncryptor-MacOS-x64` — macOS 单文件 GUI
             - `SakuraEncryptor-Web.zip` — 网页播放器，解压后自行托管
-            - `SakuraEncryptor-Extension.zip` — Chrome 跨域助手，解压后在 `chrome://extensions` 开发者模式下「加载已解压的扩展程序」
+            - `SakuraEncryptor-Extension.zip` — Chrome 跨域小助手，解压后在 `chrome://extensions` 开发者模式下「加载已解压的扩展程序」
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
