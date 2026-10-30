@@ -373,8 +373,11 @@ jobs:
           - runner: ubuntu-latest
             target: linux
             flag: --linux
+            # electron-builder rewrites ${arch} to the AppImage arch name, and
+            # for x64 that is "x86_64" (see getArtifactArchName in
+            # builder-util). The artifact lands under that name, not "x64".
             assets: |
-              ske_desktop/release/SakuraEncryptor-Desktop-Linux-x64.AppImage
+              ske_desktop/release/SakuraEncryptor-Desktop-Linux-x86_64.AppImage
           # Built on a native arm64 runner rather than cross-compiled from the
           # x64 job: ffmpeg-static and @ffprobe-installer/ffprobe install
           # host-arch binaries during `npm ci`, so an x64 cross-build would
@@ -488,7 +491,7 @@ jobs:
             - `SakuraEncryptor-Android.apk` — 安卓客户端，已签名，可直接安装
             - `SakuraEncryptor-Desktop-Windows-x64.exe` — Electron 客户端，安装版
             - `SakuraEncryptor-Desktop-Windows-x64.zip` — Electron 客户端，绿色版（解压即用，不写注册表）
-            - `SakuraEncryptor-Desktop-Linux-x64.AppImage` — Electron 客户端，免安装（`chmod +x` 后运行）
+            - `SakuraEncryptor-Desktop-Linux-x86_64.AppImage` — Electron 客户端，免安装（`chmod +x` 后运行）
             - `SakuraEncryptor-Desktop-Linux-arm64.AppImage` — Electron 客户端，arm64 版（ARM 云主机 / 树莓派等），免安装
             - `SakuraEncryptor-Desktop-MacOS-ARM64.dmg` — Electron 客户端，未签名，首次需右键「打开」
             - `SakuraEncryptor-Windows-x64.exe` — Windows 单文件 GUI（Tk），免安装
