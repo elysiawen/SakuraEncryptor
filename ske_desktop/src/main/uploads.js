@@ -103,7 +103,7 @@ export class UploadQueue {
         name: file.name || path.basename(file.path),
         srcPath: file.path,
         encrypt: !!encrypt,
-        target,
+        target: { ...target },
         status: 'queued',
         phase: 'encrypting',
         totalBytes: 0,

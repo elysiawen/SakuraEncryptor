@@ -33,6 +33,14 @@ const IMAGE = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'avif', 'heic
 
 const RAW_URL_TTL_MS = 5 * 60_000
 const THUMB_CACHE_LIMIT = 300
+/**
+ * How long a storage-generated preview link is reused before asking again.
+ *
+ * These are signed CDN URLs (typically valid for a day), so re-resolving every
+ * few minutes would spend a request per tile for nothing; a stale one is
+ * re-resolved on demand when the fetch comes back 4xx.
+ */
+const REMOTE_THUMB_TTL_MS = 30 * 60_000
 
 // Natural order, folder-first — the same rule the Android client applies to
 // decrypted names, so the two frontends show an identical listing.
@@ -109,6 +117,9 @@ export class CloudService {
       skePassword,
       rawUrls: new Map(),
       thumbs: new Map(),
+      // storedPath -> storage-generated preview link for plain entries. Signed,
+      // so it is kept with a timestamp and re-resolved when it goes stale.
+      remoteThumbs: new Map(),
       // storedPath -> size+modified from the last listing, so a cached preview
       // is invalidated when the file behind it is replaced.
       stamps: new Map(),
@@ -226,6 +237,7 @@ export class CloudService {
   #forgetCaches(session, storedPath) {
     session.rawUrls.delete(storedPath)
     session.thumbs.delete(storedPath)
+    session.remoteThumbs.delete(storedPath)
     session.stamps.delete(storedPath)
   }
 
@@ -293,10 +305,13 @@ export class CloudService {
    * Plain (unencrypted) entries are listed too, with `encrypted: false`: they
    * play without a password, and the UI marks the difference.
    */
-  async list(sessionId, plainPath = '/') {
+  async list(sessionId, plainPath = '/', { refresh = false } = {}) {
     const session = this.get(sessionId)
     const storedPath = this.toStoredPath(session, plainPath)
-    const raw = await session.client.list(storedPath)
+    // `refresh` is the web client's manual-refresh flag: it tells AList to drop
+    // its own directory cache, so files changed elsewhere show up immediately
+    // instead of after the storage driver's cache expires.
+    const raw = await session.client.list(storedPath, { refresh })
 
     const entries = raw.map((entry) => {
       const storedName = String(entry.name || '')
@@ -324,6 +339,14 @@ export class CloudService {
         session.stamps.set(stored, `${Number(entry.size) || 0}:${entry.modified || ''}`)
       }
 
+      // A plain entry can be previewed by the storage itself. A container never
+      // can: the server only sees ciphertext, so its preview comes from the
+      // encrypted envelope instead.
+      const remoteThumb = !entry.is_dir && !encrypted ? String(entry.thumb || '') : ''
+      if (remoteThumb) {
+        session.remoteThumbs.set(stored, { url: remoteThumb, at: Date.now() })
+      }
+
       return {
         name,
         storedName,
@@ -334,6 +357,7 @@ export class CloudService {
         locked: !decrypted && isEncryptedName(storedName),
         kind: entry.is_dir ? 'dir' : kindOf(name),
         path: plain,
+        hasThumb: !!remoteThumb,
       }
     })
 
@@ -364,6 +388,32 @@ export class CloudService {
 
     session.rawUrls.set(storedPath, { ...info, at: Date.now() })
     return { rawUrl: info.rawUrl, size: info.size, storedPath }
+  }
+
+  /**
+   * Preview URL for an unencrypted entry, as the storage produced it.
+   *
+   * `/api/fs/list` already hands one out per entry, so browsing a folder of
+   * photos costs no extra request at all. The map is refreshed from
+   * `/api/fs/get` only when the cached link is stale, which is why `refresh`
+   * exists: a signed link can expire while the app stays open.
+   *
+   * @returns {Promise<string|null>} null when the storage has no preview
+   */
+  async remoteThumbUrl(sessionId, plainPath, { refresh = false } = {}) {
+    const session = this.get(sessionId)
+    const storedPath = this.storedPathForFile(session, plainPath)
+
+    const cached = session.remoteThumbs.get(storedPath)
+    if (!refresh && cached && Date.now() - cached.at < REMOTE_THUMB_TTL_MS) {
+      return cached.url || null
+    }
+
+    const info = await session.client.getFile(storedPath)
+    const url = info.thumb || (refresh ? '' : cached?.url || '')
+    if (url) session.remoteThumbs.set(storedPath, { url, at: Date.now() })
+    else session.remoteThumbs.delete(storedPath)
+    return url || null
   }
 
   /**
@@ -502,6 +552,9 @@ export class CloudService {
 
   /** Drop cached signed URLs; the next resolve asks the server again. */
   clearLinks() {
-    for (const session of this.sessions.values()) session.rawUrls.clear()
+    for (const session of this.sessions.values()) {
+      session.rawUrls.clear()
+      session.remoteThumbs.clear()
+    }
   }
 }

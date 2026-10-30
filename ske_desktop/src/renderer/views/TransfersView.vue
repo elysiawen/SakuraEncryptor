@@ -81,7 +81,12 @@
       <p v-if="!current.items.length" class="none">{{ current.empty }}</p>
 
       <div v-else class="list">
-        <article v-for="job in current.items" :key="`${job.kind}-${job.id}`" class="item">
+        <article
+          v-for="(job, i) in current.items"
+          :key="`${job.kind}-${job.id}`"
+          class="item stagger-in"
+          :style="{ '--i': i }"
+        >
           <div class="head">
             <span class="name" :title="job.name">{{ job.name }}</span>
             <span class="badge" :class="badgeTone(job)">{{ statusText(job) }}</span>
@@ -398,6 +403,7 @@ async function clearFinished() {
   padding: 12px 14px;
   display: flex;
   flex-direction: column;
+  transition: border-color 0.16s ease;
   gap: 8px;
 }
 

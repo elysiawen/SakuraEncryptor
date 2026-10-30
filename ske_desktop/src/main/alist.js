@@ -26,6 +26,21 @@ const MAX_PER_PAGE = 500
 const MAX_PAGES = 200
 const REQUEST_TIMEOUT_MS = 30_000
 
+/**
+ * Absolute form of a value AList returned.
+ *
+ * `thumb` is driver-dependent: a CDN link for cloud storages, a site-relative
+ * `/p/...` path for the local driver, an empty string when nothing can be
+ * generated. Absolutising here means callers never have to know which.
+ */
+function absoluteUrl(server, value) {
+  const raw = String(value || '').trim()
+  if (!raw) return ''
+  if (/^https?:\/\//i.test(raw)) return raw
+  if (raw.startsWith('//')) return `https:${raw}`
+  return `${server}${raw.startsWith('/') ? '' : '/'}${raw}`
+}
+
 export class AListClient {
   constructor({ server, username, password, token = '' }) {
     this.server = String(server || '').replace(/\/+$/, '')
@@ -101,6 +116,9 @@ export class AListClient {
         const key = `${entry.name}|${entry.is_dir}`
         if (seen.has(key)) continue
         seen.add(key)
+        // The listing already carries the preview URL, so a grid of plain
+        // images needs no `/api/fs/get` per tile.
+        if (entry.thumb) entry.thumb = absoluteUrl(this.server, entry.thumb)
         entries.push(entry)
       }
 
@@ -120,6 +138,8 @@ export class AListClient {
       rawUrl: data.raw_url || '',
       size: Number(data.size) || 0,
       sign: data.sign || '',
+      // Storage-generated preview; empty when the driver cannot make one.
+      thumb: absoluteUrl(this.server, data.thumb),
     }
   }
 

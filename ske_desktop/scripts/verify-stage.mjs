@@ -136,7 +136,8 @@ app.whenReady().then(async () => {
     await wait(1200)
 
     const dom = await stageWin.webContents.executeJavaScript(`(() => {
-      const img = document.querySelector('.stage img')
+      // The image stage lives inside the stage-shell wrapper (no bare .stage).
+      const img = document.querySelector('.stage-shell img')
       return {
         shell: !!document.querySelector('.stage-shell'),
         noShellChrome: !document.querySelector('.sidebar') && !document.querySelector('.topbar'),

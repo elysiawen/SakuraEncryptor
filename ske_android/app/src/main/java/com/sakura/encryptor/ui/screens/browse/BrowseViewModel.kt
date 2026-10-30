@@ -75,15 +75,32 @@ class BrowseViewModel(
     private val previewUrls = HashMap<String, String>()
 
     /**
-     * Grid preview of [entry], or `null` for folders and plaintext files.
+     * Grid preview of [entry], or `null` for folders and anything the storage
+     * cannot preview.
      *
-     * Every vault upload is a `.ske` container, whose thumbnail envelope holds the
-     * preview: resolving the raw url and reading two small ranges is all it
-     * takes, so a screenful of tiles never downloads the files themselves.
+     * A `.ske` container carries the preview in its encrypted envelope: resolving
+     * the raw url and reading two small ranges is all it takes. A plain file has
+     * no envelope, so it uses the thumbnail AList already put in the listing —
+     * one small download instead of the original. Neither path downloads the
+     * media itself for a tile.
      */
     suspend fun previewOf(entry: DecryptedEntry): Bitmap? {
-        if (entry.isDir || !entry.isSke) return null
+        if (entry.isDir) return null
         val remotePath = "${_state.value.path.trimEnd('/')}/${entry.raw.name}"
+
+        if (!entry.isSke) {
+            // No storage preview means no tile: pulling a full-size photo (or
+            // grabbing a remote frame) for a 320 px square is not worth it.
+            val thumb = entry.remoteThumb ?: return null
+            return previews.load(
+                identity = remotePath,
+                displayName = entry.displayName,
+                password = null,
+                remoteThumbUrl = thumb,
+            ) {
+                resolvePreviewUri(remotePath)
+            }
+        }
 
         // Keyed on the vault path, not on the signed raw url, so the cache
         // survives a restart; when it hits, resolveRemote is never called.

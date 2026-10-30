@@ -37,8 +37,8 @@ export function unsubscribeJobs() {
   unsubscribe = null
 }
 
-export async function addJob({ srcPath, destDir, password, thumbnails }) {
-  const res = await window.ske.jobs.add({ srcPath, destDir, password, thumbnails })
+export async function addJob({ srcPath, destDir, password }) {
+  const res = await window.ske.jobs.add({ srcPath, destDir, password })
   if (!res?.ok) throw new Error(res?.error || '无法加入队列')
   return res.job
 }

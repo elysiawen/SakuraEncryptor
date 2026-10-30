@@ -69,13 +69,16 @@ contextBridge.exposeInMainWorld('ske', {
     /** Files to upload to the current cloud folder, sizes included. */
     pickUploadFiles: () => invoke('dialog:pickUploadFiles'),
     pickDirectory: () => invoke('dialog:pickDirectory'),
+    /** Executable of the external player used by "外部播放器". */
+    pickPlayer: () => invoke('dialog:pickPlayer'),
   },
 
   cloud: {
     connect: (profileId) => invoke('cloud:connect', profileId),
     status: (sessionId) => invoke('cloud:status', sessionId),
     disconnect: (sessionId) => invoke('cloud:disconnect', sessionId),
-    list: (sessionId, path) => invoke('cloud:list', { sessionId, path }),
+    /** `refresh` forces AList to bypass its directory cache (manual refresh). */
+    list: (sessionId, path, refresh = false) => invoke('cloud:list', { sessionId, path, refresh }),
     /** File-manager writes take plaintext names; encryption happens in main. */
     mkdir: (payload) => invoke('cloud:mkdir', payload),
     rename: (payload) => invoke('cloud:rename', payload),
@@ -128,6 +131,8 @@ contextBridge.exposeInMainWorld('ske', {
    */
   uploads: {
     list: () => invoke('uploads:list'),
+    /** Dropped paths → `{ path, name, size }`, folders filtered out in main. */
+    prepare: (paths) => invoke('uploads:prepare', paths),
     add: (payload) => invoke('uploads:add', payload),
     cancel: (id) => invoke('uploads:cancel', id),
     clear: () => invoke('uploads:clear'),
@@ -176,6 +181,10 @@ contextBridge.exposeInMainWorld('ske', {
       ipcRenderer.on('player:state', handler)
       return () => ipcRenderer.removeListener('player:state', handler)
     },
+    /** Launch a player on a decrypted stream URL; `exe` picks which one. */
+    openExternal: (url, exe) => invoke('player:external', { url, exe }),
+    /** Every player the machine can launch, for the "外部播放器" submenu. */
+    listExternal: () => invoke('player:externalList'),
   },
 
   window: {
@@ -188,6 +197,14 @@ contextBridge.exposeInMainWorld('ske', {
     toggleFullScreen: () => invoke('window:toggleFullScreen'),
   },
 
+  /**
+   * The decrypted stream URL, so it can be pasted into an external player
+   * (mpv, VLC, PotPlayer). Nothing else is ever put on the clipboard by the app.
+   */
+  clipboard: {
+    write: (text) => invoke('clipboard:write', text),
+  },
+
   media: {
     open: (payload) => invoke('media:open', payload),
     openCloud: (payload) => invoke('media:openCloud', payload),
@@ -197,6 +214,11 @@ contextBridge.exposeInMainWorld('ske', {
   /** Subtitle containers are read as text on the main side and returned decoded. */
   subtitles: {
     read: (payload) => invoke('subtitles:read', payload),
+  },
+
+  /** The `.lrc` next to the playing track, found and decoded in the main process. */
+  lyrics: {
+    read: (payload) => invoke('lyrics:read', payload),
   },
 
   /**

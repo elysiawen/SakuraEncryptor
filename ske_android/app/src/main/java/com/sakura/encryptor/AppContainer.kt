@@ -123,7 +123,7 @@ class AppContainer(private val appContext: Context) {
 
     /** Grid-tile previews; reads only the thumbnail envelope, never the whole file. */
     val previewLoader: PreviewLoader by lazy {
-        PreviewLoader(appContext, cipherBlockSourceFactory)
+        PreviewLoader(appContext, cipherBlockSourceFactory, okHttpClient)
     }
 
     val subtitleRepository: SubtitleRepository by lazy {

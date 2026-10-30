@@ -1,5 +1,12 @@
 <template>
-  <div class="browse">
+  <!-- A drop anywhere in the list uploads into the folder currently shown. -->
+  <div
+    class="browse"
+    @dragenter.prevent="onDragEnter"
+    @dragover.prevent
+    @dragleave="onDragLeave"
+    @drop.prevent="onDrop"
+  >
     <EmptyState
       v-if="!activeProfile"
       icon="☁"
@@ -126,10 +133,11 @@
 
         <div v-else-if="view === 'grid'" class="grid" @click.self="clearSelection">
           <button
-            v-for="entry in cloud.entries"
+            v-for="(entry, i) in cloud.entries"
             :key="entry.storedName"
-            class="tile"
+            class="tile stagger-in"
             :class="{ selected: selected.has(entry.path) }"
+            :style="{ '--i': i }"
             type="button"
             :title="entry.name"
             :aria-pressed="selectMode ? selected.has(entry.path) : undefined"
@@ -176,10 +184,11 @@
 
         <div v-else class="rows" @click.self="clearSelection">
           <button
-            v-for="entry in cloud.entries"
+            v-for="(entry, i) in cloud.entries"
             :key="entry.storedName"
-            class="row-item"
+            class="row-item stagger-in"
             :class="{ selected: selected.has(entry.path) }"
+            :style="{ '--i': i }"
             type="button"
             :aria-pressed="selectMode ? selected.has(entry.path) : undefined"
             @click="onRowClick($event, entry)"
@@ -253,6 +262,19 @@
         @cancel="upload.show = false"
         @submit="submitUpload"
       />
+
+      <!-- Drop target overlay: visual only, so it must not intercept the drag. -->
+      <div v-if="dragging" class="drop-veil">
+        <div class="drop-card">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+            <path d="M12 4v11" />
+            <path d="M8 11l4 4 4-4" />
+            <path d="M4 17v2.5A1.5 1.5 0 0 0 5.5 21h13a1.5 1.5 0 0 0 1.5-1.5V17" />
+          </svg>
+          <p>松开以上传到「{{ crumbs().at(-1)?.label || '/' }}」</p>
+          <span>确认后按你的设置加密上传</span>
+        </div>
+      </div>
     </template>
   </div>
 </template>
@@ -267,7 +289,7 @@ import PromptDialog from '../components/PromptDialog.vue'
 import UploadDialog from '../components/UploadDialog.vue'
 import { activeProfile, toast } from '../state/session.js'
 import { enqueueDownload } from '../state/downloads.js'
-import { enqueueUploads, uploads } from '../state/uploads.js'
+import { enqueueUploads, prepareUploads, uploads } from '../state/uploads.js'
 import {
   ensureFallback,
   isThumbLoaded,
@@ -288,6 +310,13 @@ import {
   renameEntry,
   requirePlayable,
 } from '../state/cloud.js'
+import {
+  copyable,
+  copyEntryLink,
+  listExternalPlayers,
+  openEntryExternally,
+  playerMenuItems,
+} from '../state/media-link.js'
 import { playEntry } from '../state/player.js'
 
 const view = ref('grid')
@@ -345,8 +374,10 @@ async function go(path) {
   await load(path)
 }
 
+// Manual refresh, same semantics as the web client: force AList to re-scan the
+// folder instead of answering from its cache. Navigating keeps using the cache.
 async function reload() {
-  await load(cloud.path)
+  await load(cloud.path, { refresh: true })
 }
 
 // ── Selection ──
@@ -543,15 +574,35 @@ function downloadSelected() {
 const menu = reactive({ show: false, x: 0, y: 0, items: [] })
 const MENU_WIDTH = 184
 const MENU_ITEM_HEIGHT = 32
+/** A hairline plus its margins; only the menu's own bounds calculation needs it. */
+const MENU_SEPARATOR_HEIGHT = 9
 const MENU_PADDING = 12
 
-function buildMenu(entry) {
+/**
+ * Flatten action groups into menu items, with a divider between them.
+ *
+ * Categories are what make a six-item menu scannable: playing, transferring and
+ * managing a file are different kinds of act and should not read as one list.
+ */
+function grouped(groups) {
+  const items = []
+  for (const group of groups) {
+    if (!group.length) continue
+    if (items.length) items.push({ separator: true })
+    items.push(...group)
+  }
+  return items
+}
+
+function buildMenu(entry, players = []) {
   if (!entry) {
-    return [
-      { label: '上传', icon: '⤒', action: pickUploads },
-      { label: '新建文件夹', icon: '📁', action: openMkdir },
-      { label: '刷新', icon: '🔄', action: reload },
-    ]
+    return grouped([
+      [{ label: '上传', icon: '⤒', action: pickUploads }],
+      [
+        { label: '新建文件夹', icon: '📁', action: openMkdir },
+        { label: '刷新', icon: '🔄', action: reload },
+      ],
+    ])
   }
 
   // Right-clicking a marked entry acts on the whole selection; anything else is
@@ -561,29 +612,33 @@ function buildMenu(entry) {
 
   if (targets.length > 1) {
     const files = targets.filter(isDownloadable)
-    return [
-      {
-        label: `下载 ${files.length} 个文件`,
-        icon: '⤓',
-        disabled: !files.length,
-        action: () => downloadMany(files),
-      },
-      {
-        label: `删除 ${targets.length} 项`,
-        icon: '🗑️',
-        danger: true,
-        action: () => openDeleteMany(targets),
-      },
-      { label: '取消选择', icon: '✕', action: clearSelection },
-    ]
+    return grouped([
+      [
+        {
+          label: `下载 ${files.length} 个文件`,
+          icon: '⤓',
+          disabled: !files.length,
+          action: () => downloadMany(files),
+        },
+      ],
+      [{ label: '取消选择', icon: '✕', action: clearSelection }],
+      [
+        {
+          label: `删除 ${targets.length} 项`,
+          icon: '🗑️',
+          danger: true,
+          action: () => openDeleteMany(targets),
+        },
+      ],
+    ])
   }
 
-  // Opening is a plain left click in both views, so the menu only carries the
-  // actions that are not reachable otherwise.
-  const items = []
-
+  // File actions first, playback in the middle, and destruction on its own at
+  // the bottom where a mis-aimed click cannot reach it on the way to something
+  // else. Opening is a left click, so the menu carries only the extras.
+  const file = []
   if (!entry.isDir) {
-    items.push({
+    file.push({
       label: '下载',
       icon: '⤓',
       // A container that failed the key check has nothing to write out.
@@ -591,16 +646,72 @@ function buildMenu(entry) {
       action: () => download(entry),
     })
   }
+  file.push({ label: '重命名', icon: '✏️', action: () => openRename(entry) })
 
-  items.push(
-    { label: '重命名', icon: '✏️', action: () => openRename(entry) },
-    { label: '删除', icon: '🗑️', danger: true, action: () => openDelete(entry) },
-  )
+  const playback = []
+  if (copyable(entry)) {
+    playback.push(
+      { label: '复制播放链接', icon: '🔗', disabled: entry.locked, action: () => copyLink(entry) },
+      {
+        label: '外部播放器',
+        icon: '🎬',
+        disabled: entry.locked,
+        // Second level: which player. Detection happens in the main process.
+        children: playerMenuItems(players, (player) => playExternal(entry, player.path)),
+      },
+    )
+  }
 
-  return items
+  const destroy = [{ label: '删除', icon: '🗑️', danger: true, action: () => openDelete(entry) }]
+
+  return grouped([file, playback, destroy])
 }
 
-function openMenu(event, entry) {
+/**
+ * Copy the URL of a decrypted stream.
+ *
+ * The link is only useful while the session behind it stays open, so the main
+ * side keeps it alive and closes the previous one; quitting the app or copying
+ * another entry ends it.
+ */
+async function copyLink(entry) {
+  try {
+    await copyEntryLink({
+      mode: 'cloud',
+      sessionId: cloud.sessionId,
+      path: entry.path,
+      name: entry.name,
+    })
+    toast('播放链接已复制，可粘贴到 mpv / VLC 等播放器；复制其他文件或退出应用后失效', 'ok')
+  } catch (err) {
+    toast(err.message, 'error')
+  }
+}
+
+/**
+ * Hand the stream to mpv/VLC/PotPlayer — what the copied link exists for.
+ *
+ * The session stays open while the player reads it; launching another one
+ * closes this, and quitting the app ends both.
+ */
+async function playExternal(entry, exe = '') {
+  try {
+    const res = await openEntryExternally(
+      {
+        mode: 'cloud',
+        sessionId: cloud.sessionId,
+        path: entry.path,
+        name: entry.name,
+      },
+      exe,
+    )
+    toast(`已用 ${res.player || '外部播放器'} 打开；播放期间请保持应用运行`, 'ok')
+  } catch (err) {
+    toast(err.message, 'error')
+  }
+}
+
+async function openMenu(event, entry) {
   if (entry && selectMode.value) {
     // Right-click outside the marks targets that entry alone; inside them the
     // batch is kept so the menu can act on the whole selection.
@@ -614,8 +725,17 @@ function openMenu(event, entry) {
     clearSelection()
   }
 
-  const items = buildMenu(entry)
-  const height = items.length * MENU_ITEM_HEIGHT + MENU_PADDING
+  // Which players exist is a main-process question (it caches the detection),
+  // so the menu is built after that round trip — a few milliseconds.
+  const players = entry ? await listExternalPlayers() : []
+  const items = buildMenu(entry, players)
+  // Dividers are shorter than rows, and a menu clamped as if they were rows
+  // would stop short of the window edge.
+  const height =
+    items.reduce(
+      (total, item) => total + (item.separator ? MENU_SEPARATOR_HEIGHT : MENU_ITEM_HEIGHT),
+      0,
+    ) + MENU_PADDING
 
   menu.x = Math.max(8, Math.min(event.clientX, window.innerWidth - MENU_WIDTH - 8))
   menu.y = Math.max(8, Math.min(event.clientY, window.innerHeight - height - 8))
@@ -637,6 +757,60 @@ const uploadPercent = computed(() => {
   const done = activeBatch.value.reduce((sum, item) => sum + item.doneBytes, 0)
   return total ? Math.min(100, Math.round((done / total) * 100)) : 0
 })
+
+// ── Dropping files ──
+// A drop is the quickest route to an upload and the only one that skips the
+// picker. The overlay tracks a depth counter rather than a flag: dragenter and
+// dragleave fire for every element the pointer crosses on the way in.
+const dragDepth = ref(0)
+const dragging = computed(() => dragDepth.value > 0 && !!cloud.connected && !upload.show)
+
+function onDragEnter(event) {
+  if (!cloud.connected) return
+  // Only a drag that carries files from the OS; dragging a row within the list
+  // does not, and must not raise the overlay.
+  if (!event.dataTransfer?.types?.includes('Files')) return
+  dragDepth.value += 1
+}
+
+function onDragLeave() {
+  if (dragDepth.value > 0) dragDepth.value -= 1
+}
+
+/**
+ * Dropped files go through the same confirmation as the picker: the drop
+ * decides *what*, the dialog still decides *how* (encrypt or not).
+ */
+async function onDrop(event) {
+  dragDepth.value = 0
+  if (!cloud.connected) return
+
+  // Electron 32 removed File.path; the bridged webUtils call is the only way
+  // to turn a dropped File into a real path.
+  const paths = [...(event.dataTransfer?.files || [])]
+    .map((file) => window.ske.files?.pathForFile?.(file) || '')
+    .filter(Boolean)
+
+  if (!paths.length) return
+
+  try {
+    const files = await prepareUploads(paths)
+    if (!files.length) {
+      toast('拖入的内容里没有可上传的文件（文件夹不会被展开）', 'error')
+      return
+    }
+
+    upload.files = files
+    upload.error = ''
+    upload.show = true
+
+    if (files.length < paths.length) {
+      toast(`已忽略 ${paths.length - files.length} 个文件夹`, 'error')
+    }
+  } catch (err) {
+    toast(err.message, 'error')
+  }
+}
 
 async function pickUploads() {
   const res = await window.ske.dialog.pickUploadFiles()
@@ -828,10 +1002,53 @@ function glyph(entry) {
 
 <style scoped>
 .browse {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
   min-height: 0;
+}
+
+/* Drop target: a drop is addressed to the folder, so the whole list answers.
+   `pointer-events: none` keeps it from eating the drag events being counted. */
+.drop-veil {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--bg) 74%, transparent);
+  backdrop-filter: blur(2px);
+}
+
+.drop-card {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  padding: 22px 30px;
+  border: 1px dashed var(--accent);
+  border-radius: var(--radius);
+  background: var(--panel);
+  text-align: center;
+  box-shadow: var(--shadow);
+}
+
+.drop-card svg {
+  width: 26px;
+  height: 26px;
+  color: var(--accent);
+}
+
+.drop-card p {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.drop-card span {
+  font-size: 11.5px;
+  color: var(--muted);
 }
 
 .centre {
@@ -1029,11 +1246,15 @@ function glyph(entry) {
   border: 1px solid transparent;
   border-radius: var(--radius);
   text-align: left;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.18s ease,
+    box-shadow 0.18s ease;
 }
 
 .tile:hover {
   background: var(--panel);
   border-color: var(--line);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
 }
 
 /* A marked tile reads through its frame: the artwork already fills the box, so
@@ -1177,6 +1398,7 @@ function glyph(entry) {
   border-radius: var(--radius-sm);
   text-align: left;
   width: 100%;
+  transition: background 0.14s ease, box-shadow 0.16s ease;
 }
 
 .row-item:hover {

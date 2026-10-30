@@ -12,10 +12,17 @@
  *     EXIF preview is used for files above 2 MiB, where skipping the body
  *     actually saves traffic; smaller files just use the full image, which is
  *     both sharper and no more expensive.
+ *   - Plain files have no envelope at all, so the server's own thumbnail is
+ *     used when present. `/api/fs/list` already returns it per entry (AList or
+ *     the storage driver generates the URL), so a grid of photos needs no
+ *     request per tile; `fs/get` is only consulted for entries the listing did
+ *     not decorate. Either way it is an ordinary image URL, which keeps a
+ *     folder of multi-megabyte originals from downloading every photo.
  *
  * Videos are loaded into an offscreen <video>, seeked to the middle and
  * captured to a data URL. The poster request is flagged so the service worker
- * caps each range response at 1 MiB instead of 5 MiB.
+ * caps each range response at 1 MiB instead of 5 MiB, and a server-provided
+ * poster is preferred when the storage can make one.
  *
  * Callers load lazily (IntersectionObserver), requests run through small
  * concurrency queues, and results are cached for the session.
@@ -78,6 +85,11 @@ function remember(key, entry) {
   return entry
 }
 
+/** A `.ske` entry (or one whose name decrypted): the server stores ciphertext. */
+function isEncryptedEntry(item) {
+  return item.encrypted ?? (item.encName || '').endsWith('.ske')
+}
+
 /** 'image' | 'video' | null — what sort of thumbnail [item] can have. */
 export function thumbnailKind(item) {
   if (!item || item.is_dir) return null
@@ -96,10 +108,10 @@ export function isVideoEntry(item) {
 /**
  * Resolve the URLs needed to display [item], or null when it cannot be reached.
  *
- * @returns {Promise<{playback: string, upstream: string|null, encrypted: boolean, size: number}|null>}
+ * @returns {Promise<{playback: string, upstream: string|null, encrypted: boolean, size: number, thumb: string|null}|null>}
  */
 async function sourceInfo(mode, item, absPath) {
-  const encrypted = item.encrypted ?? (item.encName || '').endsWith('.ske')
+  const encrypted = isEncryptedEntry(item)
 
   if (mode === 'local') {
     // The service worker already serves local files (decrypting as needed).
@@ -109,6 +121,7 @@ async function sourceInfo(mode, item, absPath) {
       encrypted,
       isLocal: true,
       size: item.size || 0,
+      thumb: null,
     }
   }
 
@@ -122,6 +135,8 @@ async function sourceInfo(mode, item, absPath) {
       encrypted: false,
       isLocal: false,
       size: info.size || 0,
+      // Server-side preview, when the storage can produce one.
+      thumb: info.thumb || null,
     }
   }
 
@@ -137,6 +152,8 @@ async function sourceInfo(mode, item, absPath) {
     encrypted: true,
     isLocal: false,
     size: info.size || 0,
+    // A container previews from its own envelope; the server sees ciphertext.
+    thumb: null,
   }
 }
 
@@ -264,6 +281,13 @@ async function imageEntry(info, item, absPath) {
     if (blob) return { value: URL.createObjectURL(blob), blob: true }
   }
 
+  // Plain file: the server's thumbnail is already resized, so a folder of
+  // full-size photos costs kilobytes instead of megabytes. The original stays
+  // as a fallback in case the URL turns out to be dead (expired or unsigned).
+  if (info.thumb) {
+    return { value: info.thumb, blob: false, imageFallback: info.playback }
+  }
+
   // A container without a stored preview falls back to the JPEG's own EXIF
   // preview, but only for remote files large enough that skipping the first
   // block really saves bandwidth. On small files that block *is* the file
@@ -284,7 +308,7 @@ async function imageEntry(info, item, absPath) {
     }
   }
 
-  // Full image: always sharp, and the only option for plain (unencrypted) files.
+  // Full image: always sharp, and the last resort when no preview exists.
   return { value: info.playback, blob: false }
 }
 
@@ -361,6 +385,65 @@ function captureVideoPoster(url) {
   })
 }
 
+/** Cache key: one entry per kind, mode and stored path. */
+function cacheKey(kind, mode, absPath, suffix = '') {
+  return `${kind}:${mode}:${absPath}${suffix}`
+}
+
+/**
+ * Build the thumbnail entry for [item].
+ *
+ * @param {boolean} allowUpstream use the server's own thumbnail when offered
+ * @returns {Promise<{value: string, blob: boolean, imageFallback?: string, lazyImageFallback?: boolean, retryWithoutUpstream?: boolean}|null>}
+ */
+async function loadEntry(kind, mode, item, absPath, allowUpstream) {
+  // The listing already carries a preview URL for plain entries, so a grid of
+  // photos costs no request per tile. The playback URL stays lazy: it is only
+  // fetched when a thumbnail is missing, or when the one we got fails to load.
+  if (allowUpstream && mode !== 'local' && item.thumb && !isEncryptedEntry(item)) {
+    return kind === 'image'
+      ? { value: item.thumb, blob: false, lazyImageFallback: true }
+      : { value: item.thumb, blob: false, retryWithoutUpstream: true }
+  }
+
+  const info = await sourceInfo(mode, item, absPath)
+  if (!info) return null
+  const source = allowUpstream ? info : { ...info, thumb: null }
+
+  if (kind === 'image') {
+    return imageEntry(source, item, absPath)
+  }
+
+  // Containers may already carry a sampled frame: reuse it instead of
+  // spinning up a decoder and pulling at least a megabyte of ciphertext.
+  const endpoint = thumbnailEndpoint(source, absPath)
+  if (endpoint) {
+    const blob = await fetchEnvelopeThumbnail(endpoint)
+    if (blob) return { value: URL.createObjectURL(blob), blob: true }
+  }
+
+  // A server-made poster costs one request; capturing ours costs a decoder
+  // plus a range read, so prefer theirs and retry without it if it is dead.
+  if (source.thumb) {
+    return { value: source.thumb, blob: false, retryWithoutUpstream: true }
+  }
+
+  // The flag lets the service worker cap each range response, so the media
+  // element cannot pre-read megabytes for a single frame.
+  const posterUrl = source.playback + (source.playback.includes('?') ? '&' : '?') + 'poster=1'
+  const dataUrl = await captureVideoPoster(posterUrl)
+  return dataUrl ? { value: dataUrl, blob: false } : null
+}
+
+/** Queue one resolution and cache its result under [key]. */
+function resolveInto(key, kind, mode, item, absPath, allowUpstream) {
+  const queue = kind === 'video' ? videoQueue : imageQueue
+  return queue(() => loadEntry(kind, mode, item, absPath, allowUpstream))
+    .then((entry) => (entry ? remember(key, entry) : null))
+    .catch(() => null)
+    .then((entry) => entry?.value ?? null)
+}
+
 /**
  * Resolve the thumbnail for [item] — an image URL or a captured video frame.
  *
@@ -373,37 +456,68 @@ export function resolveThumbnail(mode, item, absPath) {
   const kind = thumbnailKind(item)
   if (!kind) return Promise.resolve(null)
 
-  const key = `${kind}:${mode}:${absPath}`
+  const key = cacheKey(kind, mode, absPath)
   if (cache.has(key)) return Promise.resolve(cache.get(key).value)
   if (inflight.has(key)) return inflight.get(key)
 
-  const queue = kind === 'video' ? videoQueue : imageQueue
-  const task = queue(async () => {
-    const info = await sourceInfo(mode, item, absPath)
-    if (!info) return null
+  const task = resolveInto(key, kind, mode, item, absPath, true)
+  inflight.set(key, task)
+  task.finally(() => inflight.delete(key))
+  return task
+}
 
-    if (kind === 'image') {
-      return imageEntry(info, item, absPath)
+/**
+ * Second URL for a tile whose preview failed to load in the browser.
+ *
+ * A server thumbnail can be unavailable to the page even when the API handed
+ * one out (expired signature, hotlink protection, a driver that only signs for
+ * some clients). Images fall back to the original; videos re-run the capture
+ * path without asking the server again. Returns null when there is nothing
+ * better, which leaves the tile on its file icon.
+ */
+export async function resolveThumbnailFallback(mode, item, absPath) {
+  const kind = thumbnailKind(item)
+  if (!kind) return null
+
+  const entry = cache.get(cacheKey(kind, mode, absPath))
+  if (!entry) return null
+
+  // Promote whatever worked, so revisiting the folder does not repeat the
+  // failing request that led here.
+  if (entry.imageFallback) {
+    entry.value = entry.imageFallback
+    entry.imageFallback = null
+    return entry.value
+  }
+
+  // Its thumbnail came from the listing, so the original still needs a lookup.
+  if (entry.lazyImageFallback) {
+    entry.lazyImageFallback = false
+    try {
+      const info = await getFileInfo(absPath)
+      if (info.url) {
+        entry.value = info.url
+        return info.url
+      }
+    } catch {
+      // Unreachable: the tile keeps its icon.
     }
+    return null
+  }
 
-    // Containers may already carry a sampled frame: reuse it instead of
-    // spinning up a decoder and pulling at least a megabyte of ciphertext.
-    const endpoint = thumbnailEndpoint(info, absPath)
-    if (endpoint) {
-      const blob = await fetchEnvelopeThumbnail(endpoint)
-      if (blob) return { value: URL.createObjectURL(blob), blob: true }
+  if (!entry.retryWithoutUpstream) return null
+
+  const key = cacheKey(kind, mode, absPath, ':plain')
+  if (cache.has(key)) return cache.get(key).value
+  if (inflight.has(key)) return inflight.get(key)
+
+  const task = resolveInto(key, kind, mode, item, absPath, false).then((value) => {
+    if (value) {
+      entry.value = value
+      entry.retryWithoutUpstream = false
     }
-
-    // The flag lets the service worker cap each range response, so the media
-    // element cannot pre-read megabytes for a single frame.
-    const posterUrl = info.playback + (info.playback.includes('?') ? '&' : '?') + 'poster=1'
-    const dataUrl = await captureVideoPoster(posterUrl)
-    return dataUrl ? { value: dataUrl, blob: false } : null
+    return value
   })
-    .then((entry) => (entry ? remember(key, entry) : null))
-    .catch(() => null)
-    .then((entry) => entry?.value ?? null)
-
   inflight.set(key, task)
   task.finally(() => inflight.delete(key))
   return task

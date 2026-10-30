@@ -37,15 +37,30 @@
 
     <template v-else-if="mode === 'totp'">
       <p class="dlg-desc">
-        把密钥添加到验证器应用（或导入下面的 otpauth 链接），再输入它显示的 6 位验证码。
+        用验证器应用扫描或导入下面的 otpauth 链接，再输入它显示的 6 位验证码。
       </p>
-      <div class="mono secret">{{ secret || '正在生成密钥…' }}</div>
-      <div v-if="uri" class="mono uri" :title="uri">{{ uri }}</div>
-      <input
-        v-model="pasted"
-        class="mono"
-        placeholder="已有密钥？粘贴 Base32 或 otpauth 链接（可选）"
-      />
+
+      <!-- The default path is "take this new key". Reusing a token the user
+           already registered is the exception, so it lives behind a link
+           instead of sitting in the middle of the form looking mandatory. -->
+      <template v-if="!useExisting">
+        <div class="mono secret">{{ secret || '正在生成密钥…' }}</div>
+        <div v-if="uri" class="mono uri" :title="uri">{{ uri }}</div>
+      </template>
+
+      <template v-else>
+        <input
+          ref="pastedField"
+          v-model="pasted"
+          class="mono"
+          autocomplete="off"
+          placeholder="粘贴 Base32 密钥或 otpauth 链接"
+        />
+        <p class="hint">
+          使用验证器里已有的那个密钥，绑定后两边的验证码会一致。
+        </p>
+      </template>
+
       <input
         ref="first"
         v-model="code"
@@ -55,7 +70,21 @@
         placeholder="6 位验证码"
         @input="onCodeInput"
       />
-      <button class="ghost sm" type="button" @click="emit('regenerate')">换一个密钥</button>
+
+      <div class="totp-foot">
+        <button
+          v-if="!useExisting"
+          class="ghost sm"
+          type="button"
+          @click="emit('regenerate')"
+        >
+          换一个密钥
+        </button>
+        <span />
+        <button class="link" type="button" @click="toggleExisting">
+          {{ useExisting ? '改用新生成的密钥' : '已经在验证器里？' }}
+        </button>
+      </div>
     </template>
 
     <template v-else>
@@ -115,8 +144,11 @@ const currentPassword = ref('')
 const password = ref('')
 const code = ref('')
 const pasted = ref('')
+/** Whether the TOTP form is bound to a key the user already has. */
+const useExisting = ref(false)
 const first = ref(null)
 const passwordField = ref(null)
+const pastedField = ref(null)
 
 const title = computed(() => {
   if (props.mode === 'totp') return '绑定 TOTP 身份验证器'
@@ -144,7 +176,9 @@ const confirmText = computed(() => {
 })
 
 const canSubmit = computed(() => {
-  if (props.mode === 'totp') return code.value.length === 6
+  if (props.mode === 'totp') {
+    return code.value.length === 6 && (!useExisting.value || !!pasted.value.trim())
+  }
   if (props.mode === 'disable') {
     return (!props.hasPassword || !!currentPassword.value) && (!props.hasTotp || code.value.length === 6)
   }
@@ -159,6 +193,7 @@ watch(
     password.value = ''
     code.value = ''
     pasted.value = ''
+    useExisting.value = false
     await nextTick()
     // On a first-time password there is no current-password field to land on.
     if (props.mode === 'password' && !props.hasPassword) passwordField.value?.focus()
@@ -171,6 +206,16 @@ function onCodeInput(event) {
   const digits = String(event.target.value || '').replace(/\D/g, '').slice(0, 6)
   code.value = digits
   event.target.value = digits
+}
+
+async function toggleExisting() {
+  useExisting.value = !useExisting.value
+  if (!useExisting.value) pasted.value = ''
+  await nextTick()
+  // Keep the caret on the field that just became relevant instead of leaving it
+  // on a link the user has already used.
+  if (useExisting.value) pastedField.value?.focus()
+  else first.value?.focus()
 }
 
 function cancel() {
@@ -226,5 +271,36 @@ function submit() {
   letter-spacing: 0.35em;
   text-align: center;
   font-size: 15px;
+}
+
+.hint {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+/* The escape hatch to an existing token reads as a link, not as another
+   button: it must stay a footnote to the main "bind this key" flow. */
+.link {
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 11.5px;
+  color: var(--muted);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.link:hover:not(:disabled) {
+  background: none;
+  color: var(--accent-strong);
+}
+
+.totp-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
 }
 </style>

@@ -478,6 +478,8 @@ async function loadCurrentPath(_, refresh = false) {
         is_dir: entry.is_dir,
         size: entry.size,
         modified: entry.modified,
+        // Preview URL straight from the listing, so a tile costs no fs/get.
+        thumb: entry.thumb || '',
       }))
     } else {
       content = scanLocalFiles(path)

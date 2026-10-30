@@ -89,4 +89,12 @@ data class DecryptedEntry(
     val isDir: Boolean get() = raw.isDir
     val size: Long get() = raw.size
     val isSke: Boolean get() = !raw.isDir && raw.name.endsWith(".ske", ignoreCase = true)
+
+    /**
+     * Storage-generated preview url (AList `thumb`), or null when there is none.
+     *
+     * A container is excluded on purpose: the server only sees ciphertext, so its
+     * preview has to come from the encrypted envelope instead.
+     */
+    val remoteThumb: String? get() = if (isDir || isSke) null else raw.thumb
 }

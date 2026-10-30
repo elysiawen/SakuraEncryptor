@@ -31,4 +31,3 @@ ske-gui = "ske_cli.gui:main"
 
 [tool.setuptools.packages]
 find = { include = ["ske_cli*"] }
-

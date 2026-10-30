@@ -438,3 +438,77 @@ input::placeholder {
 .dlg-actions .danger:hover:not(:disabled) {
   background: color-mix(in srgb, var(--danger) 26%, var(--panel));
 }
+
+/* ── Motion ──
+   One vocabulary for the whole shell: short fades with a few pixels of travel,
+   no bounce. Pages, dialogs and list items all borrow from here so the app does
+   not feel like three different UIs stitched together. */
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* List and grid children fade in with a capped stagger: past a dozen rows the
+   delay reads as slowness rather than rhythm.
+   `backwards` (not `both`): the final keyframe must not be retained, or its
+   `transform: none` would outrank the hover lift on tiles. */
+.stagger-in {
+  animation: rise-in 0.22s ease backwards;
+  animation-delay: calc(min(var(--i, 0), 12) * 14ms);
+}
+
+/* Route change: the old view leaves slightly upward, the new one rises. */
+.page-enter-active,
+.page-leave-active {
+  transition: opacity 0.16s ease, transform 0.16s ease;
+}
+
+.page-enter-from {
+  opacity: 0;
+  transform: translateY(6px);
+}
+
+.page-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
+/* Dialogs: the overlay fades, the panel lifts so it reads as arriving. */
+.dlg-enter-active,
+.dlg-leave-active {
+  transition: opacity 0.16s ease;
+}
+
+.dlg-enter-active .dlg,
+.dlg-leave-active .dlg {
+  transition: opacity 0.16s ease, transform 0.18s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.dlg-enter-from,
+.dlg-leave-to {
+  opacity: 0;
+}
+
+.dlg-enter-from .dlg,
+.dlg-leave-to .dlg {
+  opacity: 0;
+  transform: translateY(10px) scale(0.97);
+}
+
+/* Respect the OS setting: motion is decoration, never information. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

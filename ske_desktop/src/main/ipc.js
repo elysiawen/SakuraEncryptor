@@ -5,9 +5,10 @@
  * instead of throwing: Electron wraps thrown errors in a message that hides the
  * real cause, and the UI needs to show the cause verbatim.
  */
-import { BrowserWindow, app, dialog, ipcMain, shell } from 'electron'
+import { BrowserWindow, app, clipboard, dialog, ipcMain, shell } from 'electron'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
+import { listPlayers, playExternal } from './external-player.js'
 import { deriveNameKey } from './ske-names.js'
 
 function handle(channel, fn) {
@@ -23,6 +24,22 @@ function handle(channel, fn) {
 
 /** Subtitle containers are plain text; anything bigger is not a subtitle. */
 const MAX_SUBTITLE_BYTES = 2 * 1024 * 1024
+
+/** Language tags that make `song.zh.lrc` a better pick than `song.foo.lrc`. */
+const LYRICS_LANG_TAGS = [
+  'zh',
+  'zh-cn',
+  'zh-hans',
+  'zh-sg',
+  'chs',
+  'zh-tw',
+  'zh-hant',
+  'cht',
+  'en',
+  'ja',
+  'jp',
+  'ko',
+]
 
 /**
  * Subtitles in the wild are UTF-8, UTF-16 with a BOM, or legacy GBK.
@@ -65,9 +82,9 @@ function decodeSubtitleBuffer(buf) {
  * @param {(route?: string) => import('electron').BrowserWindow | null} [deps.openWindow]
  * @param {(payload: object) => boolean} [deps.openStage]
  * @param {(webContentsId: number) => object | null} [deps.takeStagePayload]
- * @param {() => import('electron').BrowserWindow | null} [deps.stageWindow]
- * @param {() => import('electron').WebContents | null} [deps.stageOwner]
- * @param {() => void} [deps.closeStage]
+ * @param {() => import('electron').BrowserWindow[]} [deps.stageWindows]
+ * @param {(webContentsId: number) => import('electron').WebContents | null} [deps.stageOwnerOf]
+ * @param {() => void} [deps.closeMusicStage]
  * @param {() => void} [deps.onLock]
  */
 export function registerIpc({
@@ -84,9 +101,9 @@ export function registerIpc({
   openWindow,
   openStage,
   takeStagePayload,
-  stageWindow,
-  stageOwner,
-  closeStage,
+  stageWindows,
+  stageOwnerOf,
+  closeMusicStage,
   onLock,
 }) {
   /** Secrets of the active profile, used as the default encryption password. */
@@ -268,6 +285,21 @@ export function registerIpc({
     return { files }
   })
 
+  /** Pick the player that the "外部播放器" command should launch. */
+  handle('dialog:pickPlayer', async () => {
+    const win = mainWindow()
+    if (!win) return { path: null }
+    const result = await dialog.showOpenDialog(win, {
+      title: '选择外部播放器',
+      properties: ['openFile'],
+      filters:
+        process.platform === 'win32'
+          ? [{ name: '可执行文件', extensions: ['exe'] }, { name: '所有文件', extensions: ['*'] }]
+          : [{ name: '所有文件', extensions: ['*'] }],
+    })
+    return { path: result.canceled ? null : result.filePaths[0] }
+  })
+
   handle('dialog:pickDirectory', async () => {
     const win = mainWindow()
     if (!win) return { path: null }
@@ -305,18 +337,24 @@ export function registerIpc({
     return { disconnected: true }
   })
 
-  handle('cloud:list', async (_e, { sessionId, path }) => {
-    const result = await cloud.list(sessionId, path)
+  handle('cloud:list', async (_e, { sessionId, path, refresh } = {}) => {
+    const result = await cloud.list(sessionId, path, { refresh: !!refresh })
     const server = serverInfo()
     const base = server?.origin || ''
 
     // Preview URLs are built here so the renderer only needs a plain <img src>.
-    // Only containers have a preview envelope; a plain file is shown from its
-    // original, which is what the web client does as well.
+    // A container previews from its encrypted envelope; a plain file previews
+    // from the picture the storage already made, proxied so the tight CSP keeps
+    // holding and the signed link never reaches the renderer.
+    const token = server?.token || ''
     for (const entry of result.entries) {
-      if (entry.isDir || !entry.encrypted) continue
+      if (entry.isDir) continue
       const encoded = Buffer.from(entry.path, 'utf8').toString('base64url')
-      entry.thumbUrl = `${base}/thumb/${sessionId}/${encoded}?t=${server?.token || ''}`
+      if (entry.encrypted) {
+        entry.thumbUrl = `${base}/thumb/${sessionId}/${encoded}?t=${token}`
+      } else if (entry.hasThumb) {
+        entry.thumbUrl = `${base}/remote-thumb/${sessionId}/${encoded}?t=${token}`
+      }
     }
     return result
   })
@@ -400,16 +438,13 @@ export function registerIpc({
   })
 
   /**
-   * Read a subtitle container as text.
+   * Read a subtitle/lyric file as text.
    *
    * Opened as a throwaway session: the renderer never receives a URL (no CORS
    * to open up, no decrypt cache left behind) and the media password stays on
    * this side, exactly like playback.
    */
-  handle('subtitles:read', async (_e, { mode, path, name, sessionId } = {}) => {
-    if (security.isEnabled() && !security.unlocked) throw new Error('应用已锁定')
-    if (!path) throw new Error('缺少字幕文件')
-
+  async function readTextFile({ mode, path, name, sessionId }) {
     let target = ''
     let password = ''
 
@@ -426,17 +461,67 @@ export function registerIpc({
 
     const info = await registry.open({ target, password, name: name || path })
     try {
-      if (info.size > MAX_SUBTITLE_BYTES) throw new Error('字幕文件超过 2 MB，已跳过')
-      if (info.size === 0) throw new Error('字幕内容为空')
+      if (info.size > MAX_SUBTITLE_BYTES) throw new Error('文本文件超过 2 MB，已跳过')
+      if (info.size === 0) throw new Error('文件内容为空')
 
-      const session = registry.get(info.id)
+      const opened = registry.get(info.id)
       const chunks = []
-      for await (const chunk of session.readRange(0, info.size - 1)) chunks.push(Buffer.from(chunk))
+      for await (const chunk of opened.readRange(0, info.size - 1)) chunks.push(Buffer.from(chunk))
 
       return { text: decodeSubtitleBuffer(Buffer.concat(chunks)), size: info.size }
     } finally {
       await registry.close(info.id).catch(() => {})
     }
+  }
+
+  handle('subtitles:read', async (_e, { mode, path, name, sessionId } = {}) => {
+    if (security.isEnabled() && !security.unlocked) throw new Error('应用已锁定')
+    if (!path) throw new Error('缺少字幕文件')
+    return readTextFile({ mode, path, name, sessionId })
+  })
+
+  /**
+   * Find and read the `.lrc` sitting next to the playing track.
+   *
+   * Discovery happens here because the music window has no folder listing: the
+   * file name is the only link between the two. An exact `<track>.lrc` wins,
+   * then language variants (`<track>.zh.lrc`) — the same shape subtitles use.
+   */
+  handle('lyrics:read', async (_e, { mode, path, name, sessionId } = {}) => {
+    if (security.isEnabled() && !security.unlocked) throw new Error('应用已锁定')
+    if (!path) return { text: '', size: 0 }
+
+    const dir = path.slice(0, path.lastIndexOf('/')) || '/'
+    const file = String(name || path).split('/').pop()
+    const base = file.replace(/\.[^.]+$/, '').toLowerCase()
+
+    let listing = null
+    try {
+      listing =
+        mode === 'local'
+          ? await localLibrary.list(dir)
+          : await cloud.list(sessionId, dir)
+    } catch {
+      // A folder that cannot be listed is not an error worth a dialog: the
+      // lyrics pane simply stays on its empty state.
+      return { text: '', size: 0 }
+    }
+
+    const ranked = []
+    for (const entry of listing?.entries || []) {
+      if (entry.isDir || !/\.lrc$/i.test(entry.name)) continue
+      const stem = entry.name.slice(0, -4).toLowerCase()
+      if (stem === base) ranked.push({ entry, rank: 0 })
+      else if (stem.startsWith(`${base}.`)) {
+        const tag = stem.slice(base.length + 1)
+        ranked.push({ entry, rank: LYRICS_LANG_TAGS.includes(tag) ? 1 : 2 })
+      }
+    }
+    if (!ranked.length) return { text: '', size: 0 }
+
+    ranked.sort((a, b) => a.rank - b.rank || a.entry.name.localeCompare(b.entry.name))
+    const chosen = ranked[0].entry
+    return readTextFile({ mode, path: chosen.path, name: chosen.name, sessionId })
   })
 
   // --- local library -------------------------------------------------------
@@ -515,7 +600,10 @@ export function registerIpc({
         destDir,
         password: secret,
         nameKey: deriveNameKey(secret),
-        thumbnails: payload.thumbnails !== false,
+        // Not a caller switch: every media container gets its preview, because
+        // a missing one is permanent. `JobQueue` keeps the option only so tests
+        // can skip ffmpeg.
+        thumbnails: true,
       }),
     }
   })
@@ -559,6 +647,28 @@ export function registerIpc({
   // --- uploads -------------------------------------------------------------
 
   handle('uploads:list', () => ({ uploads: uploads.snapshot() }))
+
+  /**
+   * Turn paths dropped onto the window into upload candidates.
+   *
+   * A drop hands the renderer `File` objects and nothing else — no size, no
+   * check that the thing still exists. Both are done here, and anything that
+   * vanished or turned out to be a folder is simply left out of the batch.
+   */
+  handle('uploads:prepare', async (_e, paths = []) => {
+    const files = []
+    for (const value of Array.isArray(paths) ? paths : []) {
+      if (typeof value !== 'string' || !value) continue
+      try {
+        const stat = await fsp.stat(value)
+        if (!stat.isFile()) continue
+        files.push({ path: value, name: path.basename(value), size: stat.size })
+      } catch {
+        // Gone, or not readable: the rest of the drop is still worth uploading.
+      }
+    }
+    return { files }
+  })
 
   handle('uploads:add', (_e, payload = {}) => {
     // The gate covers writes too: an unlocked folder is not an invitation to
@@ -651,29 +761,73 @@ export function registerIpc({
     payload: takeStagePayload?.(event.sender.id) ?? null,
   }))
 
-  // Audio plays in the shell, so starting a track has to take the screen back
-  // from a video window; otherwise two streams would play at once.
+  // Stops the track, so the music window has nothing left to drive. The video
+  // window is a different one and is left alone.
   handle('player:closeWindow', () => {
-    closeStage?.()
+    closeMusicStage?.()
     return { closed: true }
   })
 
-  /** Fire-and-forget mirror of the shell transport for the music window. */
+  /** Fire-and-forget mirror of the shell transport for every music window. */
   ipcMain.on('player:state', (event, state) => {
-    const win = stageWindow?.()
-    if (!win || win.isDestroyed()) return
-    if (win.webContents.id === event.sender.id) return
-    win.webContents.send('player:state', state)
+    for (const win of stageWindows?.() || []) {
+      if (win.isDestroyed()) continue
+      if (win.webContents.id === event.sender.id) continue
+      win.webContents.send('player:state', state)
+    }
   })
 
   /** Music window → shell: one transport action (toggle, seek, next, sync…). */
-  handle('player:command', (_event, command = {}) => {
-    const owner = stageOwner?.()
+  handle('player:command', (event, command = {}) => {
+    const owner = stageOwnerOf?.(event.sender.id) || mainWindow()
     if (!owner || owner.isDestroyed()) {
       console.warn('[player] 找不到打开播放窗口的界面，指令无法转发')
       throw new Error('主窗口不可用，请重启应用')
     }
     owner.send('player:command', command)
+    return {}
+  })
+
+  /**
+   * Play a decrypted stream in an external player.
+   *
+   * The URL is checked against this launch's own origin: this channel starts a
+   * process, so it must never double as "open whatever the renderer likes".
+   */
+  handle('player:external', (_e, { url, exe } = {}) => {
+    const server = serverInfo()
+    if (!server) throw new Error('本地服务尚未就绪')
+    if (typeof url !== 'string' || !url.startsWith(`${server.origin}/media/`)) {
+      throw new Error('只能把解密流交给外部播放器')
+    }
+    // The submenu picks one for this file; otherwise the configured player,
+    // otherwise whatever detection found first. A choice made by hand is strict:
+    // silently swapping in another player would hide a stale path.
+    const chosen = typeof exe === 'string' ? exe.trim() : ''
+    return playExternal(url, chosen || storage.settings.playback?.externalPlayer, {
+      strict: !!chosen,
+    })
+  })
+
+  /** Candidates for the "外部播放器" submenu. */
+  handle('player:externalList', async () => ({
+    players: await listPlayers(storage.settings.playback?.externalPlayer),
+  }))
+
+  // --- clipboard -----------------------------------------------------------
+
+  /**
+   * Copy a decrypted stream URL.
+   *
+   * That loopback URL is the only way an external player (mpv, VLC, PotPlayer)
+   * can open a `.ske` without the plaintext ever touching the disk, which is
+   * exactly what the media router is built for. Its lifetime is the app's: the
+   * token is per launch and the media session closes with the track.
+   */
+  handle('clipboard:write', (_event, text) => {
+    const value = typeof text === 'string' ? text.trim() : ''
+    if (!value) throw new Error('没有可复制的内容')
+    clipboard.writeText(value)
     return {}
   })
 

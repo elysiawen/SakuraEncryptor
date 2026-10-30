@@ -19,6 +19,8 @@ export const player = reactive({
   mime: '',
   size: 0,
   kind: 'video',
+  /** Play order: which track comes after this one. */
+  mode: 'list',
   /** The entry the stream came from: needed to find sibling subtitles. */
   item: null,
 
@@ -106,6 +108,17 @@ export function wantsOwnWindow(kind) {
  * the routing version there would ask for another window and loop forever.
  */
 export async function playEntry(item, { playlist = [], index = -1, inline = false } = {}) {
+  // The file that is already open is the same for every kind: re-picking it
+  // must bring its window forward, never restart what is on. A paused track
+  // resumes, so a click on "the same song" never looks like a no-op.
+  if (player.url && sameEntry(item, player.item)) {
+    player.playlist = playlist
+    player.index = index
+    if (item.kind === 'audio' && !player.playing) togglePlay()
+    if (!inline) await window.ske.player.openWindow({ item, playlist, index }).catch(() => {})
+    return
+  }
+
   // Audio plays in the shell, but still gets a window: that window is a remote
   // control for this transport, so opening it never opens a second stream.
   if (item.kind === 'audio' && !inline) {
@@ -120,10 +133,8 @@ export async function playEntry(item, { playlist = [], index = -1, inline = fals
   }
 
   if (!inline && wantsOwnWindow(item.kind)) {
-    // Leaving audio for a video/image: the shell's own stream has to stop, or
-    // the two would play over each other.
-    await close()
-
+    // Independent windows: opening a video leaves the shell's audio and its
+    // music window alone. Stopping the track is the sidebar stop button's job.
     const res = await window.ske.player.openWindow({ item, playlist, index })
     if (!res?.ok) throw new Error(res?.error || '无法打开播放窗口')
     return
@@ -140,14 +151,78 @@ export async function playAt(index) {
   await openEntry(player.playlist[index])
 }
 
+/**
+ * True when two entries point at the same file.
+ *
+ * Mode and session are part of the identity: `/a.mp4` from two cloud profiles
+ * is two files, even though the paths are equal.
+ */
+export function sameEntry(a, b) {
+  if (!a || !b) return false
+  return (
+    (a.mode || '') === (b.mode || '') &&
+    (a.sessionId || '') === (b.sessionId || '') &&
+    (a.path || a.name || '') === (b.path || b.name || '')
+  )
+}
+
+// ── Play order ──
+/** Cycled by the button on the transport; the first one is the default. */
+export const PLAY_MODES = ['list', 'one', 'shuffle']
+export const PLAY_MODE_LABELS = {
+  list: '列表循环',
+  one: '单曲循环',
+  shuffle: '随机播放',
+}
+
+export function cycleMode() {
+  const at = PLAY_MODES.indexOf(player.mode)
+  player.mode = PLAY_MODES[(at + 1) % PLAY_MODES.length]
+  return player.mode
+}
+
+/** Any track but this one: a "random" pick that repeats itself is a bug. */
+function randomOtherIndex() {
+  const total = player.playlist.length
+  if (total < 2) return player.index
+  let pick = player.index
+  while (pick === player.index) pick = Math.floor(Math.random() * total)
+  return pick
+}
+
+/**
+ * The order is the audio transport's setting: the video window keeps its
+ * playlist in file order even when the music side is shuffled.
+ */
+function shuffled() {
+  return player.kind === 'audio' && player.mode === 'shuffle'
+}
+
 export async function next() {
-  if (player.playlist.length < 2) return
-  await playAt((player.index + 1) % player.playlist.length)
+  const total = player.playlist.length
+  if (total < 2) return
+  await playAt(shuffled() ? randomOtherIndex() : (player.index + 1) % total)
 }
 
 export async function prev() {
-  if (player.playlist.length < 2) return
-  await playAt((player.index - 1 + player.playlist.length) % player.playlist.length)
+  const total = player.playlist.length
+  if (total < 2) return
+  await playAt(shuffled() ? randomOtherIndex() : (player.index - 1 + total) % total)
+}
+
+/**
+ * What happens when a track reaches its end on its own.
+ *
+ * Repeat-one restarts the same track here rather than reopening the stream:
+ * the entry is already decrypted and the element is sitting at the end of it.
+ */
+export async function advance() {
+  if (player.mode === 'one' && player.url) {
+    seekTo(0)
+    audioEl?.play().catch(() => {})
+    return
+  }
+  await next()
 }
 
 export async function close() {

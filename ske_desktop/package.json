@@ -14,6 +14,7 @@
     "verify:stage": "electron scripts/verify-stage.mjs",
     "verify:music": "electron scripts/verify-music.mjs",
     "verify:range": "node scripts/verify-range.mjs",
+    "verify:tags": "node scripts/verify-tags.mjs",
     "verify:http": "node scripts/verify-http.mjs",
     "verify:names": "node scripts/verify-names.mjs",
     "verify:totp": "node scripts/verify-totp.mjs",
@@ -22,8 +23,8 @@
     "verify:jobs": "node scripts/verify-jobs.mjs"
   },
   "dependencies": {
+    "@ffprobe-installer/ffprobe": "^2.1.2",
     "ffmpeg-static": "^5.3.0",
-    "ffprobe-static": "^3.1.0",
     "vue": "^3.5.0",
     "vue-router": "^4.6.4"
   },
@@ -34,7 +35,7 @@
     "vite": "^6.2.0"
   },
   "build": {
-    "appId": "ai.sakura.encryptor",
+    "appId": "com.sakura.encryptor",
     "productName": "Sakura Encryptor",
     "directories": {
       "output": "release",
@@ -44,6 +45,10 @@
       "src/**/*",
       "out/**/*",
       "package.json"
+    ],
+    "asarUnpack": [
+      "node_modules/ffmpeg-static/**",
+      "node_modules/@ffprobe-installer/**"
     ],
     "extraResources": [
       {

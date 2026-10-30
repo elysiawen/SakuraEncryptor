@@ -33,6 +33,10 @@ const STATIC_MIME = {
   '.wasm': 'application/wasm',
 }
 
+/** A preview is a thumbnail, not a photo: refuse anything that pretends otherwise. */
+const MAX_REMOTE_THUMB_BYTES = 16 * 1024 * 1024
+const REMOTE_THUMB_TIMEOUT_MS = 15_000
+
 function sendText(res, status, text) {
   res.writeHead(status, { 'Content-Type': 'text/plain; charset=utf-8' })
   res.end(text)
@@ -93,6 +97,13 @@ async function serveStatic(res, root, pathname) {
  */
 export async function startServer({ registry, rendererDir, cloud }) {
   const token = crypto.randomBytes(24).toString('hex')
+  /**
+   * Dev mode serves the page from Vite on another origin, so the renderer's
+   * ranged reads (cover art) become cross-origin requests and need CORS. With
+   * `rendererDir` set the page is same-origin and the stricter policy stands.
+   */
+  const devCors = !rendererDir
+  const corsPaths = ['/media/', '/thumb/', '/remote-thumb/']
   const handleMedia = createMediaHandler(registry)
 
   /**
@@ -136,6 +147,70 @@ export async function startServer({ registry, rendererDir, cloud }) {
     }
   }
 
+  /**
+   * Preview endpoint for plain files: `/remote-thumb/<sessionId>/<base64url(path)>`.
+   *
+   * The storage already made this picture (AList's `thumb`), often on a CDN the
+   * renderer cannot reach under the app's CSP — and whose signed link has no
+   * business in the renderer either. Main fetches it and hands back the bytes.
+   * A 4xx means the signature expired (they last hours, not forever), so the
+   * link is re-resolved once before giving up.
+   */
+  async function handleRemoteThumb(req, res, url) {
+    const rest = url.pathname.slice('/remote-thumb/'.length)
+    const slash = rest.indexOf('/')
+    if (slash <= 0) {
+      sendText(res, 400, 'Bad thumbnail request')
+      return
+    }
+
+    const sessionId = rest.slice(0, slash)
+    const plainPath = Buffer.from(rest.slice(slash + 1), 'base64url').toString('utf8')
+
+    if (!cloud) {
+      sendText(res, 404, 'Not available')
+      return
+    }
+
+    let target = await cloud.remoteThumbUrl(sessionId, plainPath).catch((err) => {
+      console.error('[remote-thumb]', err.message)
+      return null
+    })
+
+    for (let attempt = 0; attempt < 2 && target; attempt += 1) {
+      let upstream
+      try {
+        upstream = await fetch(target, { signal: AbortSignal.timeout(REMOTE_THUMB_TIMEOUT_MS) })
+      } catch (err) {
+        console.error('[remote-thumb]', err.message)
+        break
+      }
+
+      if (upstream.ok) {
+        const bytes = Buffer.from(await upstream.arrayBuffer())
+        if (bytes.length === 0) break
+        if (bytes.length > MAX_REMOTE_THUMB_BYTES) {
+          sendText(res, 502, 'Preview too large')
+          return
+        }
+        res.writeHead(200, {
+          'Content-Type': upstream.headers.get('content-type') || 'image/jpeg',
+          'Content-Length': bytes.length,
+          // Chromium re-uses this for tiles that scroll back into view.
+          'Cache-Control': 'private, max-age=3600',
+        })
+        res.end(req.method === 'HEAD' ? undefined : bytes)
+        return
+      }
+
+      if (attempt > 0 || upstream.status < 400) break
+      target = await cloud.remoteThumbUrl(sessionId, plainPath, { refresh: true }).catch(() => null)
+    }
+
+    // The UI falls back to the original image / a captured frame.
+    sendText(res, 404, 'No preview')
+  }
+
   const server = http.createServer((req, res) => {
     let url
     try {
@@ -143,6 +218,24 @@ export async function startServer({ registry, rendererDir, cloud }) {
     } catch {
       sendText(res, 400, 'Bad request')
       return
+    }
+
+    if (devCors && corsPaths.some((prefix) => url.pathname.startsWith(prefix))) {
+      res.setHeader('Access-Control-Allow-Origin', '*')
+      // `Content-Range` is not a CORS-safelisted response header: without this
+      // the dev renderer reads null for the total size, which is exactly what
+      // end-of-file metadata (mp4 `moov`) needs to be found at all.
+      res.setHeader('Access-Control-Expose-Headers', 'Content-Range, Accept-Ranges')
+      if (req.method === 'OPTIONS') {
+        res.writeHead(204, {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Headers': 'Range',
+          'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+          'Access-Control-Max-Age': '600',
+        })
+        res.end()
+        return
+      }
     }
 
     // Media requests come from <video src>, which cannot attach headers, so the
@@ -156,6 +249,18 @@ export async function startServer({ registry, rendererDir, cloud }) {
         console.error('[media] unhandled:', err)
         if (!res.headersSent) sendText(res, 500, err.message)
         else res.destroy(err)
+      })
+      return
+    }
+
+    if (url.pathname.startsWith('/remote-thumb/')) {
+      if (!tokenOk(url, req, token)) {
+        sendText(res, 403, 'Forbidden')
+        return
+      }
+      handleRemoteThumb(req, res, url).catch((err) => {
+        console.error('[remote-thumb] unhandled:', err)
+        if (!res.headersSent) sendText(res, 500, err.message)
       })
       return
     }

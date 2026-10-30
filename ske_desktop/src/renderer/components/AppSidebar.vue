@@ -153,6 +153,7 @@ const initials = computed(() => {
 }
 
 .nav-item {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -161,6 +162,23 @@ const initials = computed(() => {
   color: var(--text-dim);
   font-size: 13px;
   transition: background 0.14s ease, color 0.14s ease;
+}
+
+/* The active marker grows out of the row instead of appearing whole: the eye
+   follows it when navigating rather than re-reading the list. */
+.nav-item::before {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 50%;
+  width: 3px;
+  height: 15px;
+  margin-top: -7.5px;
+  border-radius: 999px;
+  background: var(--accent-strong);
+  opacity: 0;
+  transform: scaleY(0.25);
+  transition: opacity 0.18s ease, transform 0.22s cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
 .nav-item:hover {
@@ -173,10 +191,20 @@ const initials = computed(() => {
   color: var(--accent-strong);
 }
 
+.nav-item.active::before {
+  opacity: 1;
+  transform: scaleY(1);
+}
+
 .icon {
   width: 17px;
   height: 17px;
   flex: 0 0 17px;
+  transition: transform 0.18s ease;
+}
+
+.nav-item:hover .icon {
+  transform: translateX(1px);
 }
 
 .spacer {

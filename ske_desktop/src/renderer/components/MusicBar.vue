@@ -9,13 +9,21 @@
   <div v-if="visible" class="music-bar">
     <button class="head" type="button" title="打开音乐页" @click="openPage">
       <span class="art">
-        <img v-if="cover" :src="cover" alt="" />
+        <img v-if="track.cover" :src="track.cover" alt="" />
         <span v-else class="note" aria-hidden="true">♪</span>
       </span>
       <span class="meta">
-        <span class="title">{{ player.name || '音乐' }}</span>
-        <span class="state">{{ player.playing ? '正在播放' : '已暂停' }}</span>
+        <span class="title" :title="track.title || player.name">{{ track.title || '音乐' }}</span>
+        <span class="state">{{ track.byline || (player.playing ? '正在播放' : '已暂停') }}</span>
       </span>
+    </button>
+
+    <!-- Anchored to the card's top-right corner, not the control row: stopping
+         is about the whole bar, not about the track. -->
+    <button class="mini close" type="button" title="停止播放" @click="stop">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+        <path d="M7 7l10 10M17 7L7 17" />
+      </svg>
     </button>
 
     <input
@@ -47,31 +55,27 @@
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 5h2v14h-2zM5 5.4 14.5 12 5 18.6z" /></svg>
       </button>
 
-      <span class="time mono">{{ formatTime(player.currentTime) }}</span>
-
-      <button class="mini close" type="button" title="停止播放" @click="stop">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
-          <path d="M7 7l10 10M17 7L7 17" />
-        </svg>
-      </button>
+      <span class="time mono">
+        {{ formatTime(player.currentTime) }}<template v-if="player.duration"> / {{ formatTime(player.duration) }}</template>
+      </span>
     </div>
   </div>
 </template>
 
 <script setup>
 import { computed, watch } from 'vue'
-import { coverFor, ensureCover } from '../state/covers.js'
 import { close, formatTime, next, player, prev, seekTo, togglePlay } from '../state/player.js'
+import { describeTrack, ensureTags } from '../state/track-tags.js'
 
 const visible = computed(() => player.kind === 'audio' && !!player.url)
-const cover = computed(() => coverFor(player.url))
+const track = computed(() => describeTrack(player.url, player.name))
 const percent = computed(() =>
   player.duration ? Math.min(100, (player.currentTime / player.duration) * 100) : 0,
 )
 
 watch(
   () => player.url,
-  (url) => ensureCover(url),
+  (url) => ensureTags(url),
   { immediate: true },
 )
 
@@ -88,6 +92,8 @@ function openPage() {
       item: { ...player.item },
       playlist: player.playlist.map((item) => ({ ...item })),
       index: player.index,
+      // Come back to the remote that is already open instead of adding another.
+      reuse: true,
     })
     .catch(() => {})
 }
@@ -114,6 +120,7 @@ async function stop() {
 
 <style scoped>
 .music-bar {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 7px;
@@ -122,6 +129,20 @@ async function stop() {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--panel);
+  /* Mounts with the track, not with the app: the rise is what tells the user
+     where the music went after clicking a song. */
+  animation: bar-rise 0.24s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+
+@keyframes bar-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 .head {
@@ -130,7 +151,9 @@ async function stop() {
   gap: 8px;
   width: 100%;
   min-width: 0;
-  padding: 0;
+  /* Room for the close button in the corner, so the title ellipsises before
+     it runs underneath. */
+  padding: 0 18px 0 0;
   border: 0;
   background: transparent;
   text-align: left;
@@ -177,6 +200,10 @@ async function stop() {
 .state {
   font-size: 10px;
   color: var(--muted);
+  /* The artist · album line is as long as the tags make it. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Filled track: the same slider language as the player window. */
@@ -251,15 +278,28 @@ async function stop() {
   color: var(--accent-strong);
 }
 
+/* Out of the control row and into the corner of the card. */
 .mini.close {
-  margin-left: 2px;
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
 }
 
+.mini.close svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* Played out of total, right-aligned under the controls. */
 .time {
   flex: 1;
   text-align: right;
   font-size: 10px;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 </style>

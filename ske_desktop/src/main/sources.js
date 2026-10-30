@@ -51,6 +51,9 @@ export class HttpSource {
     this.headers = headers
     this.size = 0
     this.ranged = false
+    // Whole-file copy for upstreams without Range support, fetched once.
+    this.whole = null
+    this.wholeTask = null
   }
 
   async open() {
@@ -61,8 +64,9 @@ export class HttpSource {
     if (!res.ok && res.status !== 206) {
       throw new Error(`上游返回 ${res.status}，无法读取加密文件`)
     }
-    // Drain the probe body; Node keeps the socket busy otherwise.
-    await res.arrayBuffer().catch(() => {})
+    // Drain the probe body; Node keeps the socket busy otherwise. A server that
+    // ignored Range has just handed us the whole file, so keep it instead.
+    const probeBody = await res.arrayBuffer().catch(() => null)
 
     const contentRange = res.headers.get('content-range')
     if (contentRange) {
@@ -83,6 +87,9 @@ export class HttpSource {
         // but the player still works for small files.
         this.size = length
         this.ranged = false
+        if (probeBody && probeBody.byteLength === length) {
+          this.whole = Buffer.from(probeBody)
+        }
       } else {
         throw new Error('无法确定上游文件大小')
       }
@@ -94,13 +101,19 @@ export class HttpSource {
     if (length <= 0) return Buffer.alloc(0)
 
     if (!this.ranged) {
-      // Fallback: fetch once and slice. Acceptable for the preview-sized files
-      // that end up here; large files without range support are rejected above.
-      const res = await fetch(this.url, { headers: this.headers, redirect: 'follow' })
-      if (!res.ok) throw new Error(`上游返回 ${res.status}`)
-      const whole = Buffer.from(await res.arrayBuffer())
-      this.size = whole.length
-      return whole.subarray(offset, offset + length)
+      // Fallback: fetch once and slice. It used to re-download the file for
+      // every read, which turned one cover-art probe into a dozen full
+      // downloads on a storage that ignores Range; one copy is kept instead.
+      if (!this.whole) {
+        this.wholeTask ||= this.#fetchWhole()
+        try {
+          await this.wholeTask
+        } finally {
+          this.wholeTask = null
+        }
+      }
+      if (!this.whole) throw new Error('上游读取失败')
+      return this.whole.subarray(offset, offset + length)
     }
 
     const end = Math.min(offset + length, this.size) - 1
@@ -115,8 +128,19 @@ export class HttpSource {
     return buffer.length > length ? buffer.subarray(0, length) : buffer
   }
 
+  async #fetchWhole() {
+    const res = await fetch(this.url, { headers: this.headers, redirect: 'follow' })
+    if (!res.ok) throw new Error(`上游返回 ${res.status}`)
+    const whole = Buffer.from(await res.arrayBuffer())
+    this.size = whole.length
+    this.whole = whole
+    return whole
+  }
+
   async close() {
-    // fetch keeps no state between calls; nothing to release.
+    // fetch keeps no state between calls; only the fallback copy is worth freeing.
+    this.whole = null
+    this.wholeTask = null
   }
 }
 

@@ -60,12 +60,19 @@ export async function ensureConnected({ force = false } = {}) {
   }
 }
 
-export async function load(path = cloud.path) {
+/**
+ * List a folder.
+ *
+ * `refresh` mirrors the web client's manual-refresh button: it asks the server
+ * to bypass its directory cache. Navigation leaves it off, so browsing stays
+ * served from the cache; only the refresh action pays for a re-scan.
+ */
+export async function load(path = cloud.path, { refresh = false } = {}) {
   if (!cloud.connected) return
   cloud.loading = true
   cloud.error = ''
   try {
-    const res = await window.ske.cloud.list(cloud.sessionId, path)
+    const res = await window.ske.cloud.list(cloud.sessionId, path, refresh)
     if (!res?.ok) throw new Error(res?.error || '无法读取目录')
     cloud.path = res.path || '/'
     cloud.entries = res.entries || []

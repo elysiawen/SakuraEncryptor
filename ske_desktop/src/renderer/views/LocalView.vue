@@ -116,10 +116,11 @@
 
         <div v-else class="rows" @click.self="clearSelection">
           <button
-            v-for="entry in local.entries"
+            v-for="(entry, i) in local.entries"
             :key="entry.storedName"
-            class="row-item"
+            class="row-item stagger-in"
             :class="{ selected: selected.has(entry.path) }"
+            :style="{ '--i': i }"
             type="button"
             :aria-pressed="selectMode ? selected.has(entry.path) : undefined"
             @click="onRowClick($event, entry)"
@@ -195,6 +196,13 @@ import ContextMenu from '../components/ContextMenu.vue'
 import EmptyState from '../components/EmptyState.vue'
 import IconImage from '../components/IconImage.vue'
 import PromptDialog from '../components/PromptDialog.vue'
+import {
+  copyable,
+  copyEntryLink,
+  listExternalPlayers,
+  openEntryExternally,
+  playerMenuItems,
+} from '../state/media-link.js'
 import { toast } from '../state/session.js'
 import {
   chooseRoot,
@@ -468,14 +476,34 @@ function downloadSelected() {
 const menu = reactive({ show: false, x: 0, y: 0, items: [] })
 const MENU_WIDTH = 184
 const MENU_ITEM_HEIGHT = 32
+/** A hairline plus its margins; only the menu's own bounds calculation needs it. */
+const MENU_SEPARATOR_HEIGHT = 9
 const MENU_PADDING = 12
 
-function buildMenu(entry) {
+/**
+ * Flatten action groups into menu items, with a divider between them.
+ *
+ * Categories are what make a six-item menu scannable: playing, transferring and
+ * managing a file are different kinds of act and should not read as one list.
+ */
+function grouped(groups) {
+  const items = []
+  for (const group of groups) {
+    if (!group.length) continue
+    if (items.length) items.push({ separator: true })
+    items.push(...group)
+  }
+  return items
+}
+
+function buildMenu(entry, players = []) {
   if (!entry) {
-    return [
-      { label: '新建文件夹', icon: '📁', action: openMkdir },
-      { label: '刷新', icon: '🔄', action: () => loadLocal(local.path) },
-    ]
+    return grouped([
+      [
+        { label: '新建文件夹', icon: '📁', action: openMkdir },
+        { label: '刷新', icon: '🔄', action: () => loadLocal(local.path) },
+      ],
+    ])
   }
 
   // Right-clicking a marked row acts on the whole selection; anything else is a
@@ -485,45 +513,96 @@ function buildMenu(entry) {
 
   if (targets.length > 1) {
     const files = targets.filter(isDownloadable)
-    return [
-      {
-        label: `下载 ${files.length} 个文件`,
-        icon: '⤓',
-        disabled: !files.length,
-        action: () => downloadMany(files),
-      },
-      {
-        label: `删除 ${targets.length} 项`,
-        icon: '🗑️',
-        danger: true,
-        action: () => openDeleteMany(targets),
-      },
-      { label: '取消选择', icon: '✕', action: clearSelection },
-    ]
+    return grouped([
+      [
+        {
+          label: `下载 ${files.length} 个文件`,
+          icon: '⤓',
+          disabled: !files.length,
+          action: () => downloadMany(files),
+        },
+      ],
+      [{ label: '取消选择', icon: '✕', action: clearSelection }],
+      [
+        {
+          label: `删除 ${targets.length} 项`,
+          icon: '🗑️',
+          danger: true,
+          action: () => openDeleteMany(targets),
+        },
+      ],
+    ])
   }
 
-  // Opening is a left click; the menu carries only the extra actions.
-  const items = []
-
+  // File actions first, playback in the middle, and destruction on its own at
+  // the bottom where a mis-aimed click cannot reach it on the way to something
+  // else. Opening is a left click, so the menu carries only the extras.
+  const file = []
   // Only containers are worth writing out again: a plain file already is one.
   if (!entry.isDir && entry.encrypted) {
-    items.push({
+    file.push({
       label: '下载',
       icon: '⤓',
       disabled: entry.locked,
       action: () => download(entry),
     })
   }
+  file.push({ label: '重命名', icon: '✏️', action: () => openRename(entry) })
 
-  items.push(
-    { label: '重命名', icon: '✏️', action: () => openRename(entry) },
-    { label: '删除', icon: '🗑️', danger: true, action: () => openDelete(entry) },
-  )
+  const playback = []
+  if (copyable(entry)) {
+    playback.push(
+      { label: '复制播放链接', icon: '🔗', disabled: entry.locked, action: () => copyLink(entry) },
+      {
+        label: '外部播放器',
+        icon: '🎬',
+        disabled: entry.locked,
+        // Second level: which player. Detection happens in the main process.
+        children: playerMenuItems(players, (player) => playExternal(entry, player.path)),
+      },
+    )
+  }
 
-  return items
+  const destroy = [{ label: '删除', icon: '🗑️', danger: true, action: () => openDelete(entry) }]
+
+  return grouped([file, playback, destroy])
 }
 
-function openMenu(event, entry) {
+/**
+ * Copy the URL of a decrypted stream.
+ *
+ * Only useful while the session behind it stays open: the main side keeps it
+ * and closes the previous one, while quitting the app or copying another entry
+ * ends it.
+ */
+async function copyLink(entry) {
+  try {
+    await copyEntryLink({ mode: 'local', path: entry.path, name: entry.name })
+    toast('播放链接已复制，可粘贴到 mpv / VLC 等播放器；复制其他文件或退出应用后失效', 'ok')
+  } catch (err) {
+    toast(err.message, 'error')
+  }
+}
+
+/**
+ * Hand the stream to mpv/VLC/PotPlayer — what the copied link exists for.
+ *
+ * The session stays open while the player reads it; launching another one
+ * closes this, and quitting the app ends both.
+ */
+async function playExternal(entry, exe = '') {
+  try {
+    const res = await openEntryExternally(
+      { mode: 'local', path: entry.path, name: entry.name },
+      exe,
+    )
+    toast(`已用 ${res.player || '外部播放器'} 打开；播放期间请保持应用运行`, 'ok')
+  } catch (err) {
+    toast(err.message, 'error')
+  }
+}
+
+async function openMenu(event, entry) {
   if (entry && selectMode.value) {
     // Right-click outside the marks targets that row alone; inside them the
     // batch is kept so the menu can act on the whole selection.
@@ -537,8 +616,17 @@ function openMenu(event, entry) {
     clearSelection()
   }
 
-  const items = buildMenu(entry)
-  const height = items.length * MENU_ITEM_HEIGHT + MENU_PADDING
+  // Which players exist is a main-process question (it caches the detection),
+  // so the menu is built after that round trip — a few milliseconds.
+  const players = entry ? await listExternalPlayers() : []
+  const items = buildMenu(entry, players)
+  // Dividers are shorter than rows, and a menu clamped as if they were rows
+  // would stop short of the window edge.
+  const height =
+    items.reduce(
+      (total, item) => total + (item.separator ? MENU_SEPARATOR_HEIGHT : MENU_ITEM_HEIGHT),
+      0,
+    ) + MENU_PADDING
 
   menu.x = Math.max(8, Math.min(event.clientX, window.innerWidth - MENU_WIDTH - 8))
   menu.y = Math.max(8, Math.min(event.clientY, window.innerHeight - height - 8))
@@ -853,6 +941,7 @@ function glyph(entry) {
   border-radius: var(--radius-sm);
   text-align: left;
   width: 100%;
+  transition: background 0.14s ease, box-shadow 0.16s ease;
 }
 
 .row-item:hover {

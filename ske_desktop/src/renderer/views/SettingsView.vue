@@ -89,9 +89,6 @@
 
     <section class="card">
       <h3>缓存</h3>
-      <p class="hint">
-        缓存省的是重复工作：回到刚看过的目录不必重新拉取并解密预览，拖动进度条不必重新解密读过的块。缩略图会跨重启保留，但落盘的是加密后的预览：只有容器里那张 512px 图，用媒体密码派生的密钥做 AES-GCM 加密，磁盘上不存在可读的图片。解密块和下载地址仍只在内存里，退出即释放，内存上限固定（每个登录 300 张预览、每个播放会话 8 个块），不提供开关。
-      </p>
 
       <div class="switch-row">
         <div>
@@ -175,7 +172,9 @@
 
     <section class="card">
       <h3>播放</h3>
-      <p class="hint">播放器后端在文件浏览接入后生效。</p>
+      <p class="hint">
+        内置播放器覆盖 mp4 / webm 等常见容器；avi、wmv、flv、ts 与老编码可以交给外部播放器，直接读同一条解密流。
+      </p>
 
       <div class="switch-row">
         <div>
@@ -210,17 +209,22 @@
 
       <div class="switch-row">
         <div>
-          <div class="label">优先使用外部播放器</div>
-          <div class="desc">
-            内置播放器不支持的容器（avi、wmv、老编码）交给 mpv 处理；mpv 集成尚未接入
+          <div class="label">外部播放器</div>
+          <div class="desc" :title="playback.externalPlayer || undefined">
+            {{ playback.externalPlayer || '留空则自动寻找 mpv / VLC / PotPlayer；右键文件的「外部播放器」里还能临时换一个' }}
           </div>
         </div>
-        <input
-          type="checkbox"
-          class="check"
-          :checked="playback.preferMpv"
-          @change="(e) => updatePlayback({ preferMpv: e.target.checked })"
-        />
+        <div class="row">
+          <button class="ghost sm" type="button" @click="pickPlayer">选择</button>
+          <button
+            v-if="playback.externalPlayer"
+            class="ghost sm"
+            type="button"
+            @click="updatePlayback({ externalPlayer: '' })"
+          >
+            自动
+          </button>
+        </div>
       </div>
     </section>
 
@@ -389,7 +393,7 @@ const cache = computed(() => ({
 const playback = computed(() => ({
   seekStep: session.settings?.playback?.seekStep ?? 5,
   autoPlayNext: session.settings?.playback?.autoPlayNext ?? true,
-  preferMpv: session.settings?.playback?.preferMpv ?? false,
+  externalPlayer: session.settings?.playback?.externalPlayer ?? '',
 }))
 
 const download = computed(() => ({
@@ -420,6 +424,13 @@ async function updateCache(patch) {
 
 function updatePlayback(patch) {
   attempt(() => patchSettings({ playback: patch }))
+}
+
+/** Pin the player the "外部播放器" command should launch; empty means auto-detect. */
+async function pickPlayer() {
+  const res = await window.ske.dialog.pickPlayer()
+  if (!res?.ok || !res.path) return
+  updatePlayback({ externalPlayer: res.path })
 }
 
 function updateWindow(patch) {

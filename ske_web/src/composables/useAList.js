@@ -157,6 +157,9 @@ export async function listDir(path = '/', refresh = false) {
         for (const entry of list) {
             if (seen.has(entry.name)) continue
             seen.add(entry.name)
+            // `/api/fs/list` already carries the preview URL. Drivers return
+            // either an absolute CDN link or a site-relative `/p/...` path.
+            if (entry.thumb) entry.thumb = absoluteUrl(entry.thumb)
             content.push(entry)
             added += 1
         }
@@ -284,7 +287,21 @@ export async function deleteItems(dir, names) {
     return json.data
 }
 
-/** Get a direct (signed) download URL and size for a file. */
+/**
+ * Make a value AList returned (URL or site-relative path) loadable by the page.
+ *
+ * `thumb` is driver-dependent: some return a full CDN URL, the local driver
+ * returns a `/p/...` path, and anything without a preview returns nothing.
+ */
+function absoluteUrl(value) {
+    const raw = (value || '').trim()
+    if (!raw) return ''
+    if (/^https?:\/\//i.test(raw)) return raw
+    if (raw.startsWith('//')) return `${location.protocol}${raw}`
+    return `${state.server}${raw.startsWith('/') ? '' : '/'}${raw}`
+}
+
+/** Get a direct (signed) download URL, size, and server thumbnail for a file. */
 export async function getFileInfo(path) {
     if (!state.server) restoreSession()
     const absPath = getAbsPath(path)
@@ -300,7 +317,11 @@ export async function getFileInfo(path) {
     if (json.code !== 200) throw new Error(json.message || 'Failed to get file info')
     return {
         url: json.data.raw_url,
-        size: json.data.size
+        size: json.data.size,
+        // Driver-generated thumbnail (images, and videos when AList has ffmpeg).
+        // Empty for storages that cannot produce one, which includes every
+        // encrypted container: AList cannot see inside a .ske body.
+        thumb: absoluteUrl(json.data.thumb)
     }
 }
 

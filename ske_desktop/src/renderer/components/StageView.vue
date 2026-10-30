@@ -11,6 +11,23 @@
         <div class="sub-slot" />
 
         <button
+          v-if="player.url"
+          class="icon"
+          :class="{ active: linkState === 'copied' }"
+          type="button"
+          :title="copyTitle"
+          @click="copyLink"
+        >
+          <svg v-if="linkState === 'copied'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M5 12.5l4.5 4.5L19 7.5" />
+          </svg>
+          <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+            <rect x="9" y="9" width="10" height="10" rx="2" />
+            <path d="M15 8.6V6.4A1.4 1.4 0 0 0 13.6 5H6.4A1.4 1.4 0 0 0 5 6.4v7.2A1.4 1.4 0 0 0 6.4 15h2.2" />
+          </svg>
+        </button>
+
+        <button
           v-if="total > 1"
           class="icon"
           :class="{ active: listOpen }"
@@ -109,8 +126,9 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import VideoStage from './VideoStage.vue'
 import ImageStage from './ImageStage.vue'
 import MusicStage from './MusicStage.vue'
-import { close, next, player, playAt, playEntry, prev } from '../state/player.js'
+import { close, next, player, playAt, playEntry, prev, sameEntry } from '../state/player.js'
 import { session, toast } from '../state/session.js'
+import { copyText } from '../utils/clipboard.js'
 
 const total = computed(() => player.playlist.length)
 const listOpen = ref(false)
@@ -131,6 +149,16 @@ let offLoad = null
 async function load(payload) {
   if (!payload?.item) {
     localError.value = '播放窗口没有收到文件信息'
+    return
+  }
+
+  // The same file is already on stage: reloading would only restart it from
+  // zero. A fresh queue can still be adopted without touching playback.
+  if (player.url && sameEntry(payload.item, player.item)) {
+    if (payload.playlist?.length) {
+      player.playlist = payload.playlist
+      if (Number.isInteger(payload.index)) player.index = payload.index
+    }
     return
   }
 
@@ -172,6 +200,35 @@ async function jumpTo(index) {
   } catch (err) {
     toast(err.message, 'error')
   }
+}
+
+/**
+ * Hand the decrypted stream to an external player.
+ *
+ * The loopback URL is a live decrypt endpoint — mpv, VLC and PotPlayer can open
+ * it and seek it over Range without the plaintext ever being written to disk.
+ * Its lifetime is the app's and the track's, so the tooltip says as much.
+ *
+ * The feedback lives in the button instead of a toast: this window draws no
+ * toast list, and a message nobody can see is worse than no message at all.
+ */
+const linkState = ref('')
+let linkTimer = 0
+
+const copyTitle = computed(() => {
+  if (linkState.value === 'copied') return '链接已复制，可粘贴到外部播放器；关闭应用后失效'
+  if (linkState.value === 'failed') return '复制失败，请重试'
+  return '复制解密播放链接'
+})
+
+async function copyLink() {
+  if (!player.url) return
+  const ok = await copyText(player.url)
+  linkState.value = ok ? 'copied' : 'failed'
+  clearTimeout(linkTimer)
+  linkTimer = setTimeout(() => {
+    linkState.value = ''
+  }, 2400)
 }
 
 function onMediaError(message) {

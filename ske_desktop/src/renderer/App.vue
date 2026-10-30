@@ -1,5 +1,8 @@
 <template>
-  <div class="shell">
+  <!-- A file dropped outside a drop target would otherwise navigate the window
+       to `file://…`, replacing the whole UI. Views that accept drops handle the
+       event first; this only stops the leftovers. -->
+  <div class="shell" @dragover.prevent @drop.prevent>
     <!-- The window is frameless, so the title bar is ours. It stays outside the
          page branches: boot, error and the app all need a caption to move and
          close the window with. -->
@@ -45,7 +48,13 @@
              the shell, where its transport sits in the sidebar and its full
              view is the music page. -->
         <div class="viewport">
-          <RouterView v-if="!isLocked" />
+          <RouterView v-if="!isLocked" v-slot="{ Component, route }">
+            <Transition name="page" mode="out-in">
+              <!-- Keyed by path, not fullPath: opening a file through a query
+                   must not remount the library the user is standing in. -->
+              <component :is="Component" :key="route.path" />
+            </Transition>
+          </RouterView>
         </div>
       </div>
     </div>
@@ -78,8 +87,10 @@ import LockScreen from './components/LockScreen.vue'
 import TitleBar from './components/TitleBar.vue'
 import { bootstrap, dismissToast, isLocked, session } from './state/session.js'
 import {
+  advance,
   attachAudio,
   close,
+  cycleMode,
   detachAudio,
   next,
   playAt,
@@ -90,6 +101,8 @@ import {
   toggleMute,
   togglePlay,
 } from './state/player.js'
+import { publishTrack, publishTransport, unbindMediaSession } from './state/media-session.js'
+import { describeTrack } from './state/track-tags.js'
 import { subscribeDownloads, downloads } from './state/downloads.js'
 import { subscribeUploads } from './state/uploads.js'
 import { cloud } from './state/cloud.js'
@@ -163,6 +176,24 @@ watch(
   { immediate: true },
 )
 
+// ── OS media controls ──
+// Windows SMTC, macOS Now Playing and Linux MPRIS all read a renderer's media
+// session, and this renderer is the only one with an audio element to publish:
+// the music window merely mirrors the transport. `describeTrack` is reactive,
+// so the panel picks up embedded tags as they finish reading rather than only
+// the file name.
+const currentTrack = computed(() => describeTrack(player.url, player.name))
+
+watch(currentTrack, (track) => publishTrack(track), { immediate: true })
+
+// Cheap fields only: this runs on every timeupdate, which is what keeps the
+// system timeline in step.
+watch(
+  () => [player.url, player.kind, player.playing, player.currentTime, player.duration],
+  () => publishTransport(),
+  { immediate: true },
+)
+
 function syncAudioMeta() {
   const el = audioEl.value
   if (!el) return
@@ -179,8 +210,10 @@ function syncAudioPlay(playing) {
 
 function onAudioEnded() {
   player.playing = false
-  if (session.settings?.playback?.autoPlayNext === false) return
-  next().catch(() => {})
+  // Repeat-one keeps looping the same track even when "play the next one" is
+  // switched off: that setting is about leaving the current track.
+  if (player.mode !== 'one' && session.settings?.playback?.autoPlayNext === false) return
+  advance().catch(() => {})
 }
 
 function onAudioError() {
@@ -211,6 +244,7 @@ function publishAudioState() {
       duration: player.duration,
       volume: player.volume,
       muted: player.muted,
+      mode: player.mode,
       // A Vue reactive array is a Proxy, and structured cloning refuses those.
       // Spreading the items keeps the IPC payload plain.
       playlist: player.playlist.map((item) => ({ ...item })),
@@ -236,6 +270,7 @@ watch(
     player.duration,
     player.volume,
     player.muted,
+    player.mode,
     player.index,
     player.playlist,
     player.loading,
@@ -257,6 +292,9 @@ function onPlayerCommand(command) {
       break
     case 'mute':
       toggleMute()
+      break
+    case 'mode':
+      cycleMode()
       break
     case 'next':
       next().catch(() => {})
@@ -292,6 +330,7 @@ onUnmounted(() => {
   offOpenFile?.()
   offCommand?.()
   detachAudio(audioEl.value)
+  unbindMediaSession()
 })
 </script>
 
@@ -405,13 +444,17 @@ onUnmounted(() => {
 
 .toasts {
   position: fixed;
-  right: 20px;
-  bottom: 20px;
+  /* Centred under the caption strip. The window is frameless, so the top 40 px
+     is the drag region: a toast there would move the window instead of being
+     read. */
+  top: 56px;
+  left: 50%;
+  transform: translateX(-50%);
   z-index: 200;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  align-items: flex-end;
+  align-items: center;
   pointer-events: none;
 }
 
@@ -452,10 +495,11 @@ onUnmounted(() => {
   transition: opacity 0.18s ease, transform 0.18s ease;
 }
 
+/* Drops in from above now that the stack sits at the top of the window. */
 .toast-enter-from,
 .toast-leave-to {
   opacity: 0;
-  transform: translateY(6px);
+  transform: translateY(-6px);
 }
 
 .toast-move {

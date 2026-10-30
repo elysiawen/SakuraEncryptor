@@ -7,49 +7,135 @@
 -->
 <template>
   <Teleport to="body">
-    <div
-      v-if="show"
-      class="ctx-layer"
-      @mousedown.self="close"
-      @contextmenu.prevent="close"
-    >
-      <div class="ctx-menu" :style="{ left: `${x}px`, top: `${y}px` }">
-        <button
-          v-for="item in items"
-          :key="item.label"
-          class="ctx-item"
-          :class="{ danger: item.danger }"
-          type="button"
-          :disabled="item.disabled"
-          @click="run(item)"
-        >
-          <span class="ctx-icon" aria-hidden="true">{{ item.icon }}</span>
-          <span class="ctx-label">{{ item.label }}</span>
-        </button>
+    <Transition name="ctx">
+      <div
+        v-if="show"
+        class="ctx-layer"
+        @mousedown.self="close"
+        @contextmenu.prevent="close"
+      >
+        <div class="ctx-menu" :style="{ left: `${x}px`, top: `${y}px` }">
+          <template v-for="(item, index) in items" :key="item.separator ? `sep-${index}` : item.label">
+            <!-- Group divider: the caller decides where the categories break. -->
+            <div v-if="item.separator" class="ctx-sep" role="separator" />
+
+            <div
+              v-else
+              class="ctx-row"
+              @mouseenter="openSub(item)"
+              @mouseleave="scheduleCloseSub"
+            >
+            <button
+              class="ctx-item"
+              :class="{ danger: item.danger, 'sub-open': subOpen === item.label }"
+              type="button"
+              :disabled="item.disabled"
+              :aria-haspopup="item.children?.length ? 'menu' : undefined"
+              :aria-expanded="item.children?.length ? subOpen === item.label : undefined"
+              @click="run(item)"
+            >
+              <span class="ctx-icon" aria-hidden="true">{{ item.icon }}</span>
+              <span class="ctx-label">{{ item.label }}</span>
+              <!-- Drawn rather than typed: `›` renders thin and light at this
+                   size, which made the second level easy to miss. -->
+              <span v-if="item.children?.length" class="ctx-arrow" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M9 5.5 15.5 12 9 18.5" />
+                </svg>
+              </span>
+            </button>
+
+            <!-- Submenu: the caller supplies the entries, this only positions them. -->
+            <div
+              v-if="item.children?.length && subOpen === item.label"
+              class="ctx-sub"
+              :class="{ flip: subFlip }"
+              role="menu"
+            >
+              <button
+                v-for="child in item.children"
+                :key="child.label"
+                class="ctx-item"
+                :class="{ danger: child.danger }"
+                type="button"
+                :disabled="child.disabled"
+                @click="run(child)"
+              >
+                <span class="ctx-icon" aria-hidden="true">{{ child.icon }}</span>
+                <span class="ctx-label">{{ child.label }}</span>
+              </button>
+            </div>
+            </div>
+          </template>
+        </div>
       </div>
-    </div>
+    </Transition>
   </Teleport>
 </template>
 
 <script setup>
-import { onBeforeUnmount, onMounted } from 'vue'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 const props = defineProps({
   show: { type: Boolean, default: false },
   x: { type: Number, default: 0 },
   y: { type: Number, default: 0 },
-  /** [{ label, icon, disabled?, action() }] */
+  /**
+   * [{ label, icon, disabled?, danger?, action(), children? }]
+   *
+   * A `{ separator: true }` entry draws a divider between groups.
+   */
   items: { type: Array, default: () => [] },
 })
 
 const emit = defineEmits(['close'])
 
+/** Label of the entry whose submenu is showing. */
+const subOpen = ref('')
+/** Submenus open to the left when the menu already sits near the right edge. */
+const subFlip = ref(false)
+let closeTimer = 0
+
+// A submenu belongs to one opening of the menu: reopening it must not show a
+// stale one from a previous right-click.
+watch(
+  () => props.show,
+  (show) => {
+    if (!show) subOpen.value = ''
+  },
+)
+
 function close() {
   emit('close')
 }
 
+function openSub(item) {
+  clearTimeout(closeTimer)
+  if (item.disabled || !item.children?.length) return
+  subOpen.value = item.label
+  // 152 px is this menu's width, ~176 the submenu's: beyond that it has to go
+  // the other way or it would be clipped by the window edge.
+  subFlip.value = props.x + 152 + 176 > window.innerWidth
+}
+
+/**
+ * Leaving a row closes its submenu, but not instantly: the pointer has to
+ * cross a couple of pixels to get from the row into the submenu.
+ */
+function scheduleCloseSub() {
+  clearTimeout(closeTimer)
+  closeTimer = setTimeout(() => {
+    subOpen.value = ''
+  }, 140)
+}
+
 function run(item) {
   if (item.disabled) return
+  // A parent is a doorway, not an action: clicking it just toggles the submenu.
+  if (item.children?.length) {
+    subOpen.value = subOpen.value === item.label ? '' : item.label
+    return
+  }
   close()
   item.action?.()
 }
@@ -72,12 +158,69 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
 
 .ctx-menu {
   position: absolute;
-  min-width: 152px;
+  /* A touch wider than the old 152 px so an entry with a submenu arrow does
+     not ellipsise the very label that announces the second level. */
+  min-width: 164px;
   padding: 4px;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
+  /* Grows out of the pointer, not the middle of its own box. */
+  transform-origin: top left;
+}
+
+.ctx-enter-active,
+.ctx-leave-active {
+  transition: opacity 0.12s ease;
+}
+
+.ctx-enter-active .ctx-menu,
+.ctx-leave-active .ctx-menu {
+  transition: opacity 0.12s ease, transform 0.14s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.ctx-enter-from,
+.ctx-leave-to {
+  opacity: 0;
+}
+
+.ctx-enter-from .ctx-menu,
+.ctx-leave-to .ctx-menu {
+  opacity: 0;
+  transform: scale(0.94) translateY(-2px);
+}
+
+.ctx-row {
+  position: relative;
+}
+
+/* Category break: a hairline with a little air on both sides, so the eye reads
+   groups rather than one long list. */
+.ctx-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--line);
+}
+
+/* Opens beside its row; flips left when the window edge is near. It stays a
+   child of the row so the pointer never leaves the hover area on the way in. */
+.ctx-sub {
+  position: absolute;
+  top: -4px;
+  left: 100%;
+  z-index: 1;
+  min-width: 168px;
+  padding: 4px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.ctx-sub.flip {
+  left: auto;
+  right: 100%;
 }
 
 .ctx-item {
@@ -119,6 +262,32 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
   text-align: center;
   font-size: 12px;
   line-height: 1;
+}
+
+.ctx-arrow {
+  flex: 0 0 14px;
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  color: var(--text-dim);
+}
+
+.ctx-arrow svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* The row that owns the open submenu stays lit, so the arrow and the panel are
+   visibly the same thing. */
+.ctx-item.sub-open:not(:disabled) {
+  background: var(--panel-hover);
+  color: var(--text);
+}
+
+.ctx-item:hover:not(:disabled) .ctx-arrow,
+.ctx-item.sub-open:not(:disabled) .ctx-arrow {
+  color: var(--text);
 }
 
 .ctx-label {

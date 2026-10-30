@@ -14,7 +14,7 @@
         :src="thumbUrl"
         :alt="displayName"
         loading="lazy"
-        @error="failed = true"
+        @error="onThumbError"
       />
       <FileIcon v-else class="fallback-icon" :item="item" />
 
@@ -33,7 +33,12 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import FileIcon from '../common/FileIcon.vue'
 import { formatSize, isEncryptedFileName } from '../../composables/useFileDetection.js'
-import { isVideoEntry, resolveThumbnail, thumbnailKind } from '../../composables/useThumbnails.js'
+import {
+  isVideoEntry,
+  resolveThumbnail,
+  resolveThumbnailFallback,
+  thumbnailKind,
+} from '../../composables/useThumbnails.js'
 
 const props = defineProps({
   item: { type: Object, required: true },
@@ -56,6 +61,8 @@ const isVideo = computed(() => isVideoEntry(props.item))
 
 let observer = null
 let requested = false
+/** Set once the fallback URL has been tried, so a second error ends the attempts. */
+let recovered = false
 
 function absPath() {
   if (props.mode === 'local') return props.item.path || ''
@@ -72,6 +79,23 @@ async function load() {
   } catch {
     failed.value = true
   }
+}
+
+/**
+ * The preview URL can be a server thumbnail that the page itself cannot load
+ * (expired signature, hotlink protection). Ask for one more URL before giving
+ * up on the tile: the original image, or a locally captured video frame.
+ */
+async function onThumbError() {
+  if (!recovered) {
+    recovered = true
+    const fallback = await resolveThumbnailFallback(props.mode, props.item, absPath())
+    if (fallback && fallback !== thumbUrl.value) {
+      thumbUrl.value = fallback
+      return
+    }
+  }
+  failed.value = true
 }
 
 onMounted(() => {

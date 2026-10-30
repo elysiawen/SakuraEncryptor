@@ -19,6 +19,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
 
 /**
  * Bitmaps for grid tiles, kept in memory only.
@@ -58,14 +60,17 @@ object PreviewCache {
  * Loads the preview a grid tile shows, reusing the very same code paths that
  * play the file.
  *
- * For a `.ske` container only the thumbnail envelope is read — header plus the
- * encrypted JPEG — so a remote tile costs one ~40 KB range request instead of a
- * download. Plaintext files (only possible for local folders) are decoded
- * directly, and video frames come from the platform decoder.
+ * A plain file has no envelope, so it uses the picture the storage already made
+ * (AList's `thumb`, handed out with the listing): one small download, no
+ * `fs/get`, no original. For a `.ske` container only the thumbnail envelope is
+ * read — header plus the encrypted JPEG — so a remote tile costs one ~40 KB
+ * range request instead of a download. Local files are decoded directly, and
+ * video frames come from the platform decoder.
  */
 class PreviewLoader(
     private val context: Context,
     private val sources: CipherBlockSourceFactory,
+    private val client: OkHttpClient,
 ) {
 
     /**
@@ -73,6 +78,7 @@ class PreviewLoader(
      *   uri for local files). It is what the cache is keyed on: a signed
      *   download url must never be used, because it is re-issued on every login
      *   and would leave every entry unreachable after a restart.
+     * @param remoteThumbUrl the storage's own preview, when it has one.
      * @param resolveUri resolves the downloadable url, and is only invoked on a
      *   cache miss — a warm grid then costs no network call at all.
      */
@@ -80,22 +86,35 @@ class PreviewLoader(
         identity: String,
         displayName: String,
         password: String?,
+        remoteThumbUrl: String? = null,
         resolveUri: suspend () -> Uri?,
     ): Bitmap? {
         // The key carries the lock state: unlocking must not keep a null hit.
         val key = "$identity|${if (password.isNullOrEmpty()) "locked" else "unlocked"}"
-        return PreviewCache.load(key) { build(key, displayName, password, resolveUri) }
+        return PreviewCache.load(key) {
+            build(key, displayName, password, remoteThumbUrl, resolveUri)
+        }
     }
 
     private suspend fun build(
         key: String,
         displayName: String,
         password: String?,
+        remoteThumbUrl: String?,
         resolveUri: suspend () -> Uri?,
     ): Bitmap? = withContext(Dispatchers.IO) {
         // A disk hit skips the request *and* the KDF for this container.
         ThumbnailDiskCache.get(key)?.let { bytes ->
             decode(bytes)?.let { return@withContext it }
+        }
+
+        // The storage's preview: cheaper than resolving and decoding an original,
+        // and the only option for a remote plain file.
+        if (!remoteThumbUrl.isNullOrBlank()) {
+            fetchBytes(remoteThumbUrl)?.let { bytes ->
+                ThumbnailDiskCache.put(key, bytes)
+                decode(bytes)?.let { return@withContext it }
+            }
         }
 
         val uri = resolveUri() ?: return@withContext null
@@ -160,6 +179,26 @@ class PreviewLoader(
         }
     }
 
+    /**
+     * Download a preview image, refusing anything that is not a small response.
+     *
+     * The url comes from the server's own listing, so the only real failure
+     * modes are an expired signature and a host that blocks the request; both
+     * return null and leave the tile on its glyph.
+     */
+    private fun fetchBytes(url: String): ByteArray? = try {
+        client.newCall(Request.Builder().url(url).build()).execute().use { response ->
+            val body = response.body
+            when {
+                !response.isSuccessful || body == null -> null
+                body.contentLength() > MAX_REMOTE_THUMB_BYTES -> null
+                else -> body.bytes().takeIf { it.isNotEmpty() && it.size <= MAX_REMOTE_THUMB_BYTES }
+            }
+        }
+    } catch (t: Throwable) {
+        null
+    }
+
     private fun decode(bytes: ByteArray): Bitmap? {
         if (bytes.isEmpty()) return null
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
@@ -202,6 +241,7 @@ class PreviewLoader(
     private companion object {
         const val TARGET_PX = 320
         const val MAX_PLAIN_BYTES = 24L * 1024 * 1024
+        const val MAX_REMOTE_THUMB_BYTES = 16L * 1024 * 1024
     }
 }
 

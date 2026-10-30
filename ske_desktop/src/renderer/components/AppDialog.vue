@@ -12,35 +12,37 @@
 -->
 <template>
   <Teleport to="body">
-    <form
-      v-if="visible"
-      class="dlg-overlay"
-      @mousedown.self="cancel"
-      @submit.prevent="submit"
-    >
-      <div
-        class="dlg"
-        :style="{ width: `${width}px` }"
-        role="dialog"
-        aria-modal="true"
-        :aria-label="title || undefined"
+    <Transition name="dlg">
+      <form
+        v-if="visible"
+        class="dlg-overlay"
+        @mousedown.self="cancel"
+        @submit.prevent="submit"
       >
-        <h2 v-if="title">{{ title }}</h2>
-        <p v-if="description" class="dlg-desc">{{ description }}</p>
+        <div
+          class="dlg"
+          :style="{ width: `${width}px` }"
+          role="dialog"
+          aria-modal="true"
+          :aria-label="title || undefined"
+        >
+          <h2 v-if="title">{{ title }}</h2>
+          <p v-if="description" class="dlg-desc">{{ description }}</p>
 
-        <!-- Only the body scrolls: on a short window a long form must not drag
-             the title and the buttons out of reach. -->
-        <div class="dlg-body">
-          <slot />
+          <!-- Only the body scrolls: on a short window a long form must not drag
+               the title and the buttons out of reach. -->
+          <div class="dlg-body">
+            <slot />
+          </div>
+
+          <p v-if="error" class="dlg-error">{{ error }}</p>
+
+          <footer v-if="$slots.footer" class="dlg-actions">
+            <slot name="footer" />
+          </footer>
         </div>
-
-        <p v-if="error" class="dlg-error">{{ error }}</p>
-
-        <footer v-if="$slots.footer" class="dlg-actions">
-          <slot name="footer" />
-        </footer>
-      </div>
-    </form>
+      </form>
+    </Transition>
   </Teleport>
 </template>
 

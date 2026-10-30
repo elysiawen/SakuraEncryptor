@@ -111,9 +111,10 @@ app.whenReady().then(async () => {
         pendingPayload = null
         return value
       },
-      stageWindow: () => stageWin,
-      stageOwner: () => (stageOwnerId ? webContents.fromId(stageOwnerId) : null),
-      closeStage: () => {},
+      stageWindows: () => (stageWin ? [stageWin] : []),
+      stageOwnerOf: (id) =>
+        stageWin && stageWin.webContents.id === id && stageOwnerId ? webContents.fromId(stageOwnerId) : null,
+      closeMusicStage: () => {},
       onLock: () => {},
     })
 
@@ -193,7 +194,9 @@ app.whenReady().then(async () => {
 
     assert('音乐窗口有自己的标题栏', dom.titlebar)
     assert('状态已同步到窗口', !dom.empty, JSON.stringify(dom))
-    assert('曲名来自主窗口状态', dom.track === '合成音乐.flac', dom.track)
+    // The stream cannot be read here, so the title falls back to the file name
+    // without its extension.
+    assert('曲名回退到文件名', dom.track === '合成音乐', dom.track)
     assert('进度来自主窗口状态', dom.elapsed === '0:42', dom.elapsed)
     assert('时长来自主窗口状态', dom.seekMax === 200, `max=${dom.seekMax}`)
 

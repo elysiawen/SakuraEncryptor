@@ -32,11 +32,11 @@ export const DEFAULT_SETTINGS = {
     seekStep: 5,
     volume: 1,
     autoPlayNext: true,
-    preferMpv: false,
+    /** Empty means "find mpv/VLC/PotPlayer yourself", which is the usual case. */
+    externalPlayer: '',
   },
   encrypt: {
     outputDir: '',
-    thumbnails: true,
   },
   download: {
     /** Empty means "ask every time": there is no sane cross-platform default. */

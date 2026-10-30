@@ -2,10 +2,14 @@
  * Thumbnail resolution, ported from the web client
  * (`ske_web/src/composables/useThumbnails.js`).
  *
- * The cheap source is the `/thumb/...` envelope: containers carry a 512px preview
- * that costs ≈40 KB to decrypt, so tiles use it whenever it exists. When a
- * container has no preview the web client does not give up, and neither does
- * this one:
+ * The cheap source is `/thumb/...`: containers carry a 512px preview in their
+ * encrypted envelope, which costs ≈40 KB to decrypt. Plain files carry no
+ * envelope, so they use `/remote-thumb/...` instead — the picture the storage
+ * already made (AList's `thumb`, handed out with the listing), proxied through
+ * the loopback server because the renderer's CSP allows no remote images.
+ *
+ * When neither exists the web client does not give up, and neither does this
+ * one:
  *
  *   - image  → use the decrypted original directly, the browser scales it;
  *   - video  → load it offscreen, seek to 30% and capture a frame to JPEG.
@@ -168,9 +172,11 @@ export async function noteThumbFailure(entry) {
 }
 
 /**
- * Resolve and remember the preview for an entry whose `/thumb/` envelope is
- * missing: plain files carry no preview at all, so nothing would ever trigger a
- * fallback for them otherwise.
+ * Resolve and remember the preview for an entry the server has none for.
+ *
+ * A container with an empty envelope, or a plain file whose storage cannot make
+ * a thumbnail, has no URL for the tile to fail on — so the fallback is resolved
+ * up front instead of waiting for an `<img>` error that never comes.
  */
 export async function ensureFallback(entry) {
   const key = keyOf(entry)

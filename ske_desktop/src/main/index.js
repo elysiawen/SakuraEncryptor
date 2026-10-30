@@ -12,6 +12,7 @@ import { LocalLibrary } from './local-fs.js'
 import { UploadQueue } from './uploads.js'
 import { JobQueue } from './jobs.js'
 import { DownloadQueue } from './downloads.js'
+import { listPlayers } from './external-player.js'
 import { createTray } from './tray.js'
 import { registerIpc } from './ipc.js'
 
@@ -22,6 +23,9 @@ const rendererDir = path.join(rootDir, 'out/renderer')
 
 const isDev = process.env.SKE_DEV === '1'
 const devUrl = process.env.SKE_DEV_URL || 'http://localhost:5173'
+
+
+if (process.platform === 'win32') app.setAppUserModelId('com.sakura.encryptor')
 
 const registry = new MediaRegistry()
 const storage = new Storage()
@@ -76,10 +80,18 @@ let quitting = false
 let saveTimer = null
 /** A `.ske` from the command line, held until a renderer exists to receive it. */
 let pendingOpenFile = ''
-/** The single player window; a second pick reuses it rather than stacking up. */
-let stageWindow = null
-/** The renderer that opened the stage window: audio commands go back to it. */
-let stageOwnerId = 0
+/**
+ * Every open player window. Each file gets its own: opening a second track or
+ * video must never take away the window the user already has — while the same
+ * file only ever has one.
+ */
+const stageWindows = new Set()
+/** What each player window plays, keyed by its webContents id. */
+const stageRoles = new Map()
+/** The file each player window is showing, for "already open" lookups. */
+const stageFiles = new Map()
+/** Which shell renderer a player window's commands go back to. */
+const stageOwners = new Map()
 /** Initial payload for a fresh stage window, keyed by its webContents id. */
 const stagePayloads = new Map()
 /** IPC surface returned by registerIpc, used for per-window media cleanup. */
@@ -182,6 +194,8 @@ function createWindow({
   primary = null,
   width = 0,
   height = 0,
+  x = null,
+  y = null,
   minWidth = 1040,
   minHeight = 680,
   title = 'Sakura Encryptor',
@@ -193,6 +207,8 @@ function createWindow({
   const win = new BrowserWindow({
     width: width || saved.width || 1440,
     height: height || saved.height || 900,
+    // Electron needs both or neither.
+    ...(x != null && y != null ? { x, y } : {}),
     minWidth,
     minHeight,
     parent: parent || undefined,
@@ -249,8 +265,7 @@ function createWindow({
       mainWindow = null
       // The player is an independent window now, so it no longer disappears
       // with its owner: close it explicitly when the shell really closes.
-      if (stageWindow && !stageWindow.isDestroyed()) stageWindow.destroy()
-      stageWindow = null
+      destroyStageWindows()
     }
     // A renderer that dies without running its unmount hooks would otherwise
     // leave a decrypted stream open in the registry.
@@ -291,16 +306,29 @@ function openWindow(route = '') {
   return createWindow({ route })
 }
 
+/** Every player window that is still alive. */
+function stageWindowList() {
+  return [...stageWindows].filter((win) => win && !win.isDestroyed())
+}
+
+function destroyStageWindows() {
+  for (const win of stageWindowList()) win.destroy()
+  stageWindows.clear()
+  stageRoles.clear()
+  stageFiles.clear()
+}
+
 /**
- * Close the player window, if any.
+ * Close the music windows.
  *
- * Used when the shell starts playing audio: the two would otherwise play over
- * each other. `close()` (not `destroy()`) lets the stage release its own media
- * session; the window's `closed` handler is the backstop.
+ * Used when the shell stops the track: remotes with nothing to drive would
+ * only invite clicks that do nothing. `close()` (not `destroy()`) lets a window
+ * release its own media session; its `closed` handler is the backstop.
  */
-function closeStage() {
-  if (stageWindow && !stageWindow.isDestroyed()) stageWindow.close()
-  stageWindow = null
+function closeMusicStage() {
+  for (const win of stageWindowList()) {
+    if (stageRoles.get(win.webContents.id) === 'audio') win.close()
+  }
 }
 
 /** Initial payload for a stage window; each webContents receives it exactly once. */
@@ -310,25 +338,69 @@ function takeStagePayload(webContentsId) {
   return payload
 }
 
+/** What a player window shows: audio means it mirrors the shell transport. */
+function stageRole(payload) {
+  return payload?.item?.kind === 'audio' ? 'audio' : 'media'
+}
+
 /**
- * Open (or refocus) the player window for video and images.
+ * Identity of the file a payload points at.
  *
- * An independent top-level window, not a child of the shell: it must be able to
- * sit behind the library while browsing, and only stay above other windows when
- * the user pins it.
+ * The mode and session are part of it: `/a.mp4` in two cloud profiles is two
+ * different files, and a local path with the same shape is a third.
+ */
+function stageFileKey(item) {
+  if (!item) return ''
+  const path = item.path || item.name
+  if (!path) return ''
+  return `${item.mode || 'cloud'}|${item.sessionId || ''}|${path}`
+}
+
+/**
+ * Where a new player window goes: stepped off the last one, so a second file
+ * does not land exactly on top of the first and read as a replacement.
+ */
+function cascadePosition() {
+  const previous = stageWindowList().at(-1)
+  if (!previous) return {}
+  const { x, y } = previous.getBounds()
+  return { x: x + 28, y: y + 28 }
+}
+
+/**
+ * Open a player window for [payload].
+ *
+ * One window per file, always a new one: a window the user already has is never
+ * reloaded or reused. It is an independent top-level window, not a child of the
+ * shell: it must be able to sit behind the library while browsing, and only stay
+ * above other windows when the user pins it.
+ *
+ * The same file is the exception: it already has a window, so opening it again
+ * brings that one forward instead of building a second copy of the same video.
+ * `payload.reuse` is the looser version of the same idea, for the sidebar's
+ * "open the music page": come back to the remote, don't add another.
  */
 function openStage(payload, ownerId = 0) {
-  // Which shell the music window belongs to. Every reuse refreshes it, so a
-  // second window opening the same player still routes commands to the right
-  // audio element.
-  if (ownerId) stageOwnerId = ownerId
+  const key = stageFileKey(payload?.item)
+  const existing = key
+    ? stageWindowList().find((win) => stageFiles.get(win.webContents.id) === key)
+    : null
 
-  if (stageWindow && !stageWindow.isDestroyed()) {
-    stageWindow.webContents.send('stage:load', payload)
-    if (stageWindow.isMinimized()) stageWindow.restore()
-    stageWindow.show()
-    stageWindow.focus()
+  if (existing) {
+    if (existing.isMinimized()) existing.restore()
+    existing.show()
+    existing.focus()
     return true
+  }
+
+  if (payload?.reuse) {
+    const audio = stageWindowList().find((win) => stageRoles.get(win.webContents.id) === 'audio')
+    if (audio) {
+      if (audio.isMinimized()) audio.restore()
+      audio.show()
+      audio.focus()
+      return true
+    }
   }
 
   // Deliberately *not* a child window: on Windows an owned window inherits the
@@ -340,6 +412,7 @@ function openStage(payload, ownerId = 0) {
     primary: false,
     width: 1024,
     height: 640,
+    ...cascadePosition(),
     minWidth: 480,
     minHeight: 320,
     title: payload?.item?.name || '播放器',
@@ -348,15 +421,29 @@ function openStage(payload, ownerId = 0) {
   })
 
   const id = win.webContents.id
-  stageWindow = win
+  stageWindows.add(win)
+  stageRoles.set(id, stageRole(payload))
+  stageFiles.set(id, key)
   stagePayloads.set(id, payload)
+  if (ownerId) stageOwners.set(id, ownerId)
 
   win.on('closed', () => {
+    stageWindows.delete(win)
+    stageRoles.delete(id)
+    stageFiles.delete(id)
     stagePayloads.delete(id)
-    if (stageWindow === win) stageWindow = null
+    stageOwners.delete(id)
   })
 
   return true
+}
+
+/** The shell a player window reports to, for routing its commands back. */
+function stageOwnerOf(webContentsId) {
+  const ownerId = stageOwners.get(webContentsId)
+  if (!ownerId) return null
+  const owner = webContents.fromId(ownerId)
+  return owner && !owner.isDestroyed() ? owner : null
 }
 
 if (!app.requestSingleInstanceLock()) {
@@ -409,18 +496,19 @@ app.whenReady().then(async () => {
     openWindow,
     openStage,
     takeStagePayload,
-    stageWindow: () => stageWindow,
-    stageOwner: () => (stageOwnerId ? webContents.fromId(stageOwnerId) : null),
-    closeStage,
-    // Locking closes the player window: leaving a video over the lock screen
+    stageWindows: stageWindowList,
+    stageOwnerOf,
+    closeMusicStage,
+    // Locking closes the player windows: leaving a video over the lock screen
     // would defeat the lock.
-    onLock: () => {
-      stageWindow?.destroy()
-      stageWindow = null
-    },
+    onLock: destroyStageWindows,
   })
 
   createWindow()
+
+  // Warm the external-player detection in the background: the first right-click
+  // should not pay for the registry queries behind it.
+  listPlayers().catch(() => {})
 
   tray = createTray({
     iconPath: resolveIcon(),

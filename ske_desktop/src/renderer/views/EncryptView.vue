@@ -26,11 +26,6 @@
           placeholder="留空则使用当前配置的媒体密码"
         />
       </div>
-
-      <label class="check">
-        <input v-model="thumbnails" type="checkbox" @change="saveThumbSetting" />
-        <span>生成预览图（需要系统 ffmpeg，缺失时自动跳过）</span>
-      </label>
     </section>
 
     <section class="dropzone" :class="{ ready: !!outputDir }" @dragover.prevent @drop.prevent="onDrop">
@@ -107,7 +102,6 @@ import {
 } from '../state/jobs.js'
 
 const password = ref('')
-const thumbnails = ref(session.settings?.encrypt?.thumbnails ?? true)
 const outputDir = computed(() => session.settings?.encrypt?.outputDir || '')
 
 const runningCount = computed(() => activeCount())
@@ -151,10 +145,6 @@ async function pickOutput() {
   await attempt(() => patchSettings({ encrypt: { outputDir: res.path } }))
 }
 
-async function saveThumbSetting() {
-  await attempt(() => patchSettings({ encrypt: { thumbnails: thumbnails.value } }))
-}
-
 async function enqueue(paths) {
   if (!outputDir.value) {
     toast('请先选择输出目录', 'error')
@@ -165,11 +155,12 @@ async function enqueue(paths) {
   let queued = 0
   for (const srcPath of paths) {
     try {
+      // Previews are not optional: the main process decides that, and a job
+      // fails loudly if the bundled ffmpeg is unavailable.
       await addJob({
         srcPath,
         destDir: outputDir.value,
         password: password.value || '',
-        thumbnails: thumbnails.value,
       })
       queued += 1
     } catch (err) {
@@ -225,21 +216,6 @@ async function clear() {
   grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
   gap: 4px 20px;
   align-items: start;
-}
-
-.settings .check {
-  grid-column: 1 / -1;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  color: var(--text-dim);
-  margin-top: 2px;
-}
-
-.settings .check input {
-  width: auto;
-  accent-color: var(--accent);
 }
 
 .dropzone {

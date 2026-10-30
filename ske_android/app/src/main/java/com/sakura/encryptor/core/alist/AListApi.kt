@@ -95,7 +95,9 @@ class AListApi(
             var added = 0
             for (entry in entries) {
                 if (seen.add(entry.name)) {
-                    content += entry
+                    // The listing already carries the preview link, so a grid of
+                    // plain files needs no `/api/fs/get` per tile.
+                    content += entry.copy(thumb = absoluteThumb(server, entry.thumb))
                     added++
                 }
             }
@@ -216,6 +218,25 @@ class AListApi(
     // -----------------------------------------------------------------------
 
     private fun url(server: String, path: String): String = server.trimEnd('/') + path
+
+    /**
+     * Absolute form of a preview link AList returned.
+     *
+     * Drivers hand out either a CDN url or a site-relative `/p/...` path, and an
+     * empty string when nothing can be generated. Only the grid consumes this,
+     * so normalising here keeps every caller free of the distinction.
+     */
+    private fun absoluteThumb(server: String, value: String?): String? {
+        val raw = value?.trim().orEmpty()
+        if (raw.isEmpty()) return null
+        if (raw.startsWith("http://", ignoreCase = true) ||
+            raw.startsWith("https://", ignoreCase = true)
+        ) {
+            return raw
+        }
+        if (raw.startsWith("//")) return "https:$raw"
+        return server.trimEnd('/') + if (raw.startsWith("/")) raw else "/$raw"
+    }
 
     private fun normalizeUploadPath(dir: String, fileName: String): String {
         val trimmed = dir.trim()

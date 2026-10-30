@@ -36,6 +36,18 @@ export async function refreshUploads() {
 }
 
 /**
+ * Turn paths dropped onto the window into upload candidates.
+ *
+ * A drop yields `File` objects with no size and no guarantee the file still
+ * exists; the main process answers both and drops folders from the list.
+ */
+export async function prepareUploads(paths) {
+  const res = await window.ske.uploads.prepare(paths)
+  if (!res?.ok) throw new Error(res?.error || '无法读取拖入的文件')
+  return res.files || []
+}
+
+/**
  * @param {{ sessionId: string, path: string, files: { path: string, name?: string }[], encrypt?: boolean }} input
  */
 export async function enqueueUploads({ sessionId, path, files, encrypt = true }) {
