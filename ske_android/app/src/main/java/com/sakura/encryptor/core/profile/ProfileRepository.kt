@@ -158,6 +158,28 @@ class ProfileRepository(
         remoteRepository.clear()
     }
 
+    /**
+     * Find or create the profile that fronts the embedded OpenList server.
+     *
+     * Matched by address, so the row survives edits as long as the user keeps
+     * pointing it at the local server. The account password is always known,
+     * which is why only it is stored here.
+     */
+    suspend fun ensureLocalProfile(server: String, username: String, sealedPassword: String): Long {
+        val existing = dao.all().firstOrNull { it.server == server }
+        val entity = (existing ?: ProfileEntity(name = "内置服务器")).copy(
+            server = server,
+            username = username,
+            sealedAlistPassword = sealedPassword,
+        )
+        val id = dao.upsert(entity)
+        return if (id > 0) id else entity.id
+    }
+
+    /** The profile pointing at [server], if the user still has one. */
+    suspend fun findLocalProfile(server: String): ProfileEntity? =
+        dao.all().firstOrNull { it.server == server }
+
     /** Drop all in-memory secrets. */
     fun lockAll() {
         cloudVault.lock()

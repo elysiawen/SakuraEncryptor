@@ -135,5 +135,12 @@ dependencies {
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.coil.compose)
 
+    // In-process OpenList, bound from Go by openlist-lib/build.ps1. The AAR is
+    // a 28 MB artifact and is not committed: without it the app still builds
+    // and the optional local server simply reports itself unsupported.
+    file("libs/openlistlib.aar").takeIf { it.exists() }?.let {
+        implementation(files(it))
+    }
+
     testImplementation(libs.junit)
 }

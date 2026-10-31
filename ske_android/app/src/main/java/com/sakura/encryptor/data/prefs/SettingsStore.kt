@@ -47,6 +47,11 @@ class SettingsStore(private val context: Context) {
         val LAST_SERVER = stringPreferencesKey("last_server")
         val LAST_USERNAME = stringPreferencesKey("last_username")
 
+        // Optional OpenList running inside the app process.
+        val LOCAL_OPENLIST_ENABLED = booleanPreferencesKey("local_openlist_enabled")
+        val LOCAL_OPENLIST_SEALED_PASSWORD = stringPreferencesKey("local_openlist_sealed_password")
+        val LOCAL_OPENLIST_RESTORE_PROFILE = longPreferencesKey("local_openlist_restore_profile")
+
         // Local folder grants.
         val LOCAL_TREE_URI = stringPreferencesKey("local_tree_uri")
         val LOCAL_OUTPUT_URI = stringPreferencesKey("local_output_uri")
@@ -149,6 +154,41 @@ class SettingsStore(private val context: Context) {
         context.settingsDataStore.edit {
             it[Keys.LAST_SERVER] = server
             it[Keys.LAST_USERNAME] = username
+        }
+
+    // ---- built-in OpenList ---------------------------------------------------
+
+    /** Whether the embedded server should be running (and driving the cloud UI). */
+    val localOpenListEnabled: Flow<Boolean> =
+        context.settingsDataStore.data.map { it[Keys.LOCAL_OPENLIST_ENABLED] ?: false }
+
+    /** Keystore-sealed password of the embedded server's `admin` account. */
+    val localOpenListSealedPassword: Flow<String?> =
+        context.settingsDataStore.data.map { it[Keys.LOCAL_OPENLIST_SEALED_PASSWORD] }
+
+    /** Profile to return to when the embedded server is switched off. */
+    val localOpenListRestoreProfileId: Flow<Long?> =
+        context.settingsDataStore.data.map { it[Keys.LOCAL_OPENLIST_RESTORE_PROFILE] }
+
+    suspend fun setLocalOpenListEnabled(enabled: Boolean) =
+        context.settingsDataStore.edit { it[Keys.LOCAL_OPENLIST_ENABLED] = enabled }
+
+    suspend fun setLocalOpenListSealedPassword(value: String?) =
+        context.settingsDataStore.edit {
+            if (value == null) {
+                it.remove(Keys.LOCAL_OPENLIST_SEALED_PASSWORD)
+            } else {
+                it[Keys.LOCAL_OPENLIST_SEALED_PASSWORD] = value
+            }
+        }
+
+    suspend fun setLocalOpenListRestoreProfileId(id: Long?) =
+        context.settingsDataStore.edit {
+            if (id == null) {
+                it.remove(Keys.LOCAL_OPENLIST_RESTORE_PROFILE)
+            } else {
+                it[Keys.LOCAL_OPENLIST_RESTORE_PROFILE] = id
+            }
         }
 
     // ---- cache / appearance --------------------------------------------------

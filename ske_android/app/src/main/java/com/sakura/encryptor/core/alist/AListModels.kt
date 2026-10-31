@@ -19,6 +19,10 @@ data class LoginRequest(
     @SerialName("otp_code") val otpCode: String? = null,
 )
 
+/** First-run setup: creates the single admin account of a fresh server. */
+@Serializable
+data class SetupRequest(val username: String, val password: String)
+
 @Serializable
 data class LoginData(val token: String)
 
@@ -83,6 +87,83 @@ data class RenameRequest(val path: String, val name: String)
 
 @Serializable
 data class RemoveRequest(val dir: String, val names: List<String>)
+
+// ---------------------------------------------------------------------------
+// Storage management (embedded server only)
+// ---------------------------------------------------------------------------
+
+/**
+ * One form field a driver exposes.
+ *
+ * The server derives these from the driver's Go struct (`json` tags and
+ * `conf.Type*`), which is exactly what the official web admin renders its
+ * storage form from. `type` is one of string / text / number / bool / select,
+ * plus a few reflected Go kinds (int, uint, float…).
+ */
+@Serializable
+data class DriverItem(
+    val name: String,
+    val type: String = "string",
+    val default: String = "",
+    val options: String = "",
+    val required: Boolean = false,
+    val help: String = "",
+) {
+    val isBoolean: Boolean get() = type.equals("bool", ignoreCase = true)
+
+    val isNumber: Boolean
+        get() = type.equals("number", ignoreCase = true) ||
+            type.startsWith("int", ignoreCase = true) ||
+            type.startsWith("uint", ignoreCase = true) ||
+            type.startsWith("float", ignoreCase = true)
+
+    /** `options` is a comma-separated list, already in display order. */
+    val optionList: List<String>
+        get() = options.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+}
+
+@Serializable
+data class DriverConfig(
+    val name: String = "",
+    /** Root the driver suggests when the storage does not set one. */
+    @SerialName("default_root") val defaultRoot: String? = null,
+)
+
+/** Every field a driver needs, split into mount-level and driver-level halves. */
+@Serializable
+data class DriverInfo(
+    val common: List<DriverItem> = emptyList(),
+    val additional: List<DriverItem> = emptyList(),
+    val config: DriverConfig = DriverConfig(),
+)
+
+/** A row of `/api/admin/storage/list`; also the payload of update. */
+@Serializable
+data class StorageInfo(
+    val id: Int = 0,
+    @SerialName("mount_path") val mountPath: String = "",
+    val order: Int = 0,
+    val driver: String = "",
+    @SerialName("cache_expiration") val cacheExpiration: Int = 0,
+    @SerialName("custom_cache_policies") val customCachePolicies: String = "",
+    val status: String = "work",
+    /** Driver-specific settings, carried as a JSON document in a string. */
+    val addition: String = "",
+    val remark: String = "",
+    val modified: String = "",
+    val disabled: Boolean = false,
+    @SerialName("disable_index") val disableIndex: Boolean = false,
+    @SerialName("enable_sign") val enableSign: Boolean = false,
+    @SerialName("seed_policy") val seedPolicy: String = "inherit",
+    @SerialName("order_by") val orderBy: String = "",
+    @SerialName("order_direction") val orderDirection: String = "",
+    @SerialName("extract_folder") val extractFolder: String = "",
+    @SerialName("web_proxy") val webProxy: Boolean = false,
+    @SerialName("webdav_policy") val webdavPolicy: String = "",
+    @SerialName("proxy_range") val proxyRange: Boolean = false,
+    @SerialName("down_proxy_url") val downProxyUrl: String = "",
+    @SerialName("disable_proxy_sign") val disableProxySign: Boolean = false,
+)
 
 /** A cloud entry with its encrypted name already decrypted for display. */
 data class DecryptedEntry(

@@ -71,6 +71,8 @@ import com.sakura.encryptor.core.cache.PlaintextBlockCache
 import com.sakura.encryptor.core.cache.ThumbnailDiskCache
 import com.sakura.encryptor.core.cache.cacheLimitMbToBytes
 import com.sakura.encryptor.core.media.PreviewCache
+import com.sakura.encryptor.core.openlist.LocalOpenListManager
+import com.sakura.encryptor.core.openlist.LocalOpenListService
 import com.sakura.encryptor.core.profile.ProfileRepository
 import com.sakura.encryptor.core.security.AppLockCredential
 import com.sakura.encryptor.core.security.AppLockFactor
@@ -120,6 +122,7 @@ class SettingsViewModel(
     private val database: SakuraDatabase,
     private val keyStore: KeyStoreManager,
     private val appLockManager: AppLockManager,
+    private val localOpenList: LocalOpenListManager,
     profileRepository: ProfileRepository,
 ) : ViewModel() {
 
@@ -308,12 +311,43 @@ class SettingsViewModel(
 
     fun lockLocal() = localVault.lock()
 
+    // ---- built-in server -----------------------------------------------------
+
+    /** False when this build was made without the optional Go binding. */
+    val localOpenListSupported: Boolean = localOpenList.isSupported
+
+    val localOpenListAddress: String = localOpenList.baseUrl
+
+    val localOpenListEnabled: StateFlow<Boolean> = settings.localOpenListEnabled
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    private val _localOpenListBusy = MutableStateFlow(false)
+    val localOpenListBusy: StateFlow<Boolean> = _localOpenListBusy.asStateFlow()
+
+    private val _localOpenListError = MutableStateFlow<String?>(null)
+    val localOpenListError: StateFlow<String?> = _localOpenListError.asStateFlow()
+
+    fun setLocalOpenListEnabled(enabled: Boolean) = viewModelScope.launch {
+        if (_localOpenListBusy.value) return@launch
+        _localOpenListBusy.value = true
+        _localOpenListError.value = null
+        // Starting the server can take a few seconds; the switch waits for it.
+        val result = if (enabled) {
+            localOpenList.enable()
+        } else {
+            runCatching { localOpenList.disable() }
+        }
+        result.onFailure { _localOpenListError.value = it.message ?: "内置服务器切换失败" }
+        _localOpenListBusy.value = false
+    }
+
     fun clearHistory() = viewModelScope.launch { database.historyDao().clear() }
 }
 
 @Composable
 fun SettingsScreen(
     onManageProfiles: () -> Unit,
+    onManageLocalStorage: () -> Unit,
     onOpenDrawer: () -> Unit,
 ) {
     val viewModel = rememberAppViewModel { container ->
@@ -325,6 +359,7 @@ fun SettingsScreen(
             database = container.database,
             keyStore = container.keyStore,
             appLockManager = container.appLockManager,
+            localOpenList = container.localOpenListManager,
             profileRepository = container.profileRepository,
         )
     }
@@ -347,11 +382,24 @@ fun SettingsScreen(
     val cacheUsage by viewModel.cacheUsage.collectAsStateWithLifecycle()
     val cacheThumbnailLimitMb by viewModel.cacheThumbnailLimitMb.collectAsStateWithLifecycle()
     val cacheFileLimitMb by viewModel.cacheFileLimitMb.collectAsStateWithLifecycle()
+    val localOpenListEnabled by viewModel.localOpenListEnabled.collectAsStateWithLifecycle()
+    val localOpenListBusy by viewModel.localOpenListBusy.collectAsStateWithLifecycle()
+    val localOpenListError by viewModel.localOpenListError.collectAsStateWithLifecycle()
 
     // Sizes require a directory walk, so they are read when the screen opens.
     LaunchedEffect(Unit) { viewModel.refreshCacheUsage() }
 
     val context = LocalContext.current
+
+    // The notification is what keeps the embedded server's process unfrozen.
+    LaunchedEffect(localOpenListEnabled) {
+        if (localOpenListEnabled) {
+            LocalOpenListService.start(context)
+        } else {
+            LocalOpenListService.stop(context)
+        }
+    }
+
     // Whether the device can fingerprint at all is a device property, so it is
     // asked once rather than recomputed on every recomposition.
     val biometricSupported = remember { BiometricUnlock.isAvailable(context) }
@@ -415,6 +463,60 @@ fun SettingsScreen(
                         "已解锁（仅存于内存）"
                     } else {
                         "未解锁，切换到该配置时会提示输入"
+                    },
+                )
+            }
+
+            Spacer(Modifier.height(22.dp))
+
+            // ---- built-in server ---------------------------------------------
+            SectionHeader("内置服务器")
+
+            SakuraCard {
+                SwitchRow(
+                    title = "在本机运行 OpenList",
+                    subtitle = when {
+                        !viewModel.localOpenListSupported ->
+                            "此安装包未包含内置服务器，需先运行 openlist-lib/build.ps1"
+                        localOpenListBusy -> "正在启动，请稍候…"
+                        localOpenListEnabled -> "运行中 · ${viewModel.localOpenListAddress}"
+                        else -> "无需远程服务器，文件保存在应用私有目录"
+                    },
+                    checked = localOpenListEnabled,
+                    enabled = viewModel.localOpenListSupported && !localOpenListBusy,
+                    onCheckedChange = viewModel::setLocalOpenListEnabled,
+                )
+                localOpenListError?.let { message ->
+                    Text(
+                        text = message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp),
+                    )
+                }
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                Text(
+                    text = "开启后会切换到「内置服务器」这套云端配置，加密密码照常在浏览页输入；" +
+                        "文件写入应用私有目录，卸载应用时会一并删除。关闭后回到之前使用的云端配置。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp),
+                )
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                SettingRow(
+                    title = "管理内置存储",
+                    subtitle = if (localOpenListEnabled) {
+                        "添加 WebDAV、S3 等存储，或调整已有挂载"
+                    } else {
+                        "开启内置服务器后可添加和管理存储"
+                    },
+                    onClick = if (localOpenListEnabled) onManageLocalStorage else null,
+                    trailing = {
+                        Icon(
+                            imageVector = Icons.Rounded.KeyboardArrowRight,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     },
                 )
             }

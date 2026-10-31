@@ -17,6 +17,21 @@ object Routes {
     /** Cloud profile management. */
     const val PROFILES = "profiles"
 
+    /** Storages of the embedded OpenList server. */
+    const val OPENLIST_STORAGE = "openlist_storage"
+
+    const val STORAGE_ARG_ID = "storageId"
+    const val STORAGE_ARG_DRIVER = "driver"
+
+    /** `storageId = -1` means "create a storage for this driver". */
+    const val STORAGE_EDIT =
+        "openlist_storage_edit?$STORAGE_ARG_ID={$STORAGE_ARG_ID}&$STORAGE_ARG_DRIVER={$STORAGE_ARG_DRIVER}"
+    const val NEW_STORAGE_ID = -1
+
+    fun storageEdit(id: Int? = null, driver: String = ""): String =
+        "openlist_storage_edit?$STORAGE_ARG_ID=${id ?: NEW_STORAGE_ID}" +
+            "&$STORAGE_ARG_DRIVER=${Uri.encode(driver)}"
+
     const val PROFILE_ARG_ID = "profileId"
 
     /** `profileId = -1` means "create a new profile". */

@@ -16,6 +16,8 @@ import com.sakura.encryptor.core.local.LocalSkeStore
 import com.sakura.encryptor.core.media.PreviewCache
 import com.sakura.encryptor.core.media.PreviewLoader
 import com.sakura.encryptor.core.media.ReaderPageCache
+import com.sakura.encryptor.core.openlist.LocalOpenListManager
+import com.sakura.encryptor.core.openlist.LocalOpenListServer
 import com.sakura.encryptor.core.player.AudioTags
 import com.sakura.encryptor.core.player.CipherBlockSourceFactory
 import com.sakura.encryptor.core.player.DecryptedBytesReader
@@ -92,7 +94,7 @@ class AppContainer(private val appContext: Context) {
     // one account can be signed in at a time. [remoteRepository] is the only
     // entry point the rest of the app uses, so the active provider is decided
     // once (by the signed-in profile) instead of at every call site.
-    private val aListApi: AListApi by lazy { AListApi(okHttpClient, json) }
+    val aListApi: AListApi by lazy { AListApi(okHttpClient, json) }
     private val openListApi: OpenListApi by lazy { OpenListApi(okHttpClient, json) }
     private val remoteSession: RemoteSession by lazy { RemoteSession() }
 
@@ -101,6 +103,26 @@ class AppContainer(private val appContext: Context) {
             session = remoteSession,
             aListApi = aListApi,
             openListApi = openListApi,
+        )
+    }
+
+    /**
+     * Optional OpenList running inside this process, so a user without a
+     * remote server still has somewhere to store files. Off unless something
+     * calls [LocalOpenListServer.start]; absent from builds that did not run
+     * `openlist-lib/build.ps1`.
+     */
+    val localOpenList: LocalOpenListServer by lazy { LocalOpenListServer(appContext) }
+
+    /** Switch, account setup and storage provisioning for [localOpenList]. */
+    val localOpenListManager: LocalOpenListManager by lazy {
+        LocalOpenListManager(
+            settings = settings,
+            keyStore = keyStore,
+            server = localOpenList,
+            api = aListApi,
+            session = remoteSession,
+            profiles = profileRepository,
         )
     }
 
@@ -274,6 +296,9 @@ class AppContainer(private val appContext: Context) {
                 settings.activeProfileId.first()?.let { profileRepository.activateStored(it) }
             }
             vault.markRestoreFinished()
+            // Sequenced after the profile restore so the embedded server's
+            // login wins over a stored profile that now points nowhere.
+            localOpenListManager.restore()
         }
 
         val invalidate = {

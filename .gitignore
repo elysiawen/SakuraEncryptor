@@ -58,3 +58,7 @@ yarn-error.log*
 
 _verify/
 ske_android/.kotlin/
+
+# Built by ske_android/openlist-lib/build.ps1; a 28 MB binary, not committed.
+ske_android/app/libs/
+ske_android/openlist-lib/.work/

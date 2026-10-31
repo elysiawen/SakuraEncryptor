@@ -4,7 +4,11 @@ import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.lifecycleScope
+import com.sakura.encryptor.core.openlist.LocalOpenListService
 import com.sakura.encryptor.ui.SakuraRoot
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 /**
  * Hosts the whole app.
@@ -19,6 +23,15 @@ class MainActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
 
         val container = (application as SakuraApp).container
+
+        // A foreground service cannot be started from the application object
+        // reliably, so the notification that keeps the embedded server alive
+        // is raised from here, where the app is visibly in the foreground.
+        lifecycleScope.launch {
+            if (container.settings.localOpenListEnabled.first()) {
+                LocalOpenListService.start(this@MainActivity)
+            }
+        }
 
         setContent {
             SakuraRoot(container)

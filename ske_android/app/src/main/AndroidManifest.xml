@@ -69,6 +69,13 @@
             </intent-filter>
         </service>
 
+        <!-- Optional OpenList running inside the app process. Same lifetime as
+             the process, so the notification is what keeps it from being frozen. -->
+        <service
+            android:name=".core.openlist.LocalOpenListService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

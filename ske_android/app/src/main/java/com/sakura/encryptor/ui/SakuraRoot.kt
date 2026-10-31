@@ -77,6 +77,8 @@ import com.sakura.encryptor.ui.screens.browse.BrowseScreen
 import com.sakura.encryptor.ui.screens.encrypt.EncryptScreen
 import com.sakura.encryptor.ui.screens.local.LocalScreen
 import com.sakura.encryptor.ui.screens.lock.AppLockScreen
+import com.sakura.encryptor.ui.screens.openlist.StorageEditScreen
+import com.sakura.encryptor.ui.screens.openlist.StorageScreen
 import com.sakura.encryptor.ui.screens.player.PlayerScreen
 import com.sakura.encryptor.ui.screens.profiles.ProfileEditScreen
 import com.sakura.encryptor.ui.screens.profiles.ProfilesScreen
@@ -377,7 +379,42 @@ private fun SakuraNavigation(
             composable(Routes.SETTINGS) {
                 SettingsScreen(
                     onManageProfiles = { navController.navigate(Routes.PROFILES) },
+                    onManageLocalStorage = { navController.navigate(Routes.OPENLIST_STORAGE) },
                     onOpenDrawer = openDrawer,
+                )
+            }
+
+            composable(Routes.OPENLIST_STORAGE) {
+                StorageScreen(
+                    onBack = { navController.popBackStack() },
+                    onAddStorage = { driver ->
+                        navController.navigate(Routes.storageEdit(driver = driver))
+                    },
+                    onEditStorage = { id ->
+                        navController.navigate(Routes.storageEdit(id = id))
+                    },
+                )
+            }
+
+            composable(
+                route = Routes.STORAGE_EDIT,
+                arguments = listOf(
+                    navArgument(Routes.STORAGE_ARG_ID) {
+                        type = NavType.IntType
+                        defaultValue = Routes.NEW_STORAGE_ID
+                    },
+                    navArgument(Routes.STORAGE_ARG_DRIVER) {
+                        type = NavType.StringType
+                        defaultValue = ""
+                    },
+                ),
+            ) { entry ->
+                val id = entry.arguments?.getInt(Routes.STORAGE_ARG_ID) ?: Routes.NEW_STORAGE_ID
+                StorageEditScreen(
+                    storageId = id.takeIf { it != Routes.NEW_STORAGE_ID },
+                    driverName = entry.arguments?.getString(Routes.STORAGE_ARG_DRIVER).orEmpty(),
+                    onBack = { navController.popBackStack() },
+                    onSaved = { navController.popBackStack() },
                 )
             }
 
