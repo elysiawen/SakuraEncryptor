@@ -486,28 +486,7 @@ async function clear() {
   font-weight: 600;
 }
 
-/* The global input chrome does not cover textareas, so match it here. */
-textarea {
-  font-family: inherit;
-  font-size: 13px;
-  color: var(--text);
-  background: var(--bg);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  padding: 9px 11px;
-  outline: none;
-  width: 100%;
-  line-height: 1.55;
-  resize: vertical;
-}
-
-textarea:focus {
-  border-color: var(--accent);
-}
-
-textarea::placeholder {
-  color: var(--muted);
-}
+/* Textareas share the global field chrome in `styles.css`. */
 
 .text-error {
   margin: 12px 0 0;

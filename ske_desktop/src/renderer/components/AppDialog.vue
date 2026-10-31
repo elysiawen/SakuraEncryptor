@@ -16,6 +16,7 @@
       <form
         v-if="visible"
         class="dlg-overlay"
+        :style="layer ? { zIndex: layer } : undefined"
         @mousedown.self="cancel"
         @submit.prevent="submit"
       >
@@ -62,6 +63,12 @@ const props = defineProps({
    * it is a bad way to discover the backdrop closes things.
    */
   dismissible: { type: Boolean, default: true },
+  /**
+   * Stacking override for a dialog opened on top of another one. The overlay
+   * sits at 65 in the stylesheet; a dialog that must stay above its parent
+   * passes 66 rather than relying on document order.
+   */
+  layer: { type: Number, default: 0 },
 })
 
 const emit = defineEmits(['cancel', 'submit'])

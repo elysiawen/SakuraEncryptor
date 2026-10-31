@@ -88,6 +88,59 @@
     />
 
     <section class="card">
+      <h3>内置服务器</h3>
+      <p class="hint">
+        在本机直接跑一个 AList 或 OpenList：文件留在这台电脑，不需要外部服务器或账号。
+        首次开启会从 GitHub 下载对应平台的程序包，之后都从本机启动；服务器只监听 127.0.0.1，局域网看不到它。
+      </p>
+
+      <div class="switch-row">
+        <div>
+          <div class="label">运行状态</div>
+          <div class="desc">{{ embeddedLine }}</div>
+        </div>
+        <button
+          v-if="embeddedState?.status !== 'running'"
+          class="primary sm"
+          type="button"
+          :disabled="embeddedBusy"
+          @click="toggleEmbedded"
+        >
+          {{ embeddedBusy ? '处理中…' : embeddedState?.status === 'error' ? '重试' : '开启' }}
+        </button>
+        <button v-else class="ghost sm" type="button" :disabled="embeddedBusy" @click="toggleEmbedded">
+          关闭
+        </button>
+      </div>
+
+      <div class="row" style="margin-top: 12px">
+        <button class="ghost sm" type="button" @click="embeddedDialog = 'backend'">后端管理</button>
+        <button
+          class="ghost sm"
+          type="button"
+          :disabled="embeddedState?.status !== 'running'"
+          :title="embeddedState?.status !== 'running' ? '先开启服务器' : ''"
+          @click="embeddedDialog = 'account'"
+        >
+          账号密码
+        </button>
+        <button
+          class="ghost sm"
+          type="button"
+          :disabled="embeddedState?.status !== 'running'"
+          :title="embeddedState?.status !== 'running' ? '先开启服务器' : ''"
+          @click="embeddedDialog = 'storage'"
+        >
+          存储管理
+        </button>
+      </div>
+    </section>
+
+    <EmbeddedBackendDialog :visible="embeddedDialog === 'backend'" @close="embeddedDialog = null" />
+    <EmbeddedAccountDialog :visible="embeddedDialog === 'account'" @close="embeddedDialog = null" />
+    <EmbeddedStorageDialog :visible="embeddedDialog === 'storage'" @close="embeddedDialog = null" />
+
+    <section class="card">
       <h3>缓存</h3>
 
       <div class="switch-row">
@@ -281,7 +334,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, reactive } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import {
   attempt,
   beginTotp,
@@ -295,7 +348,17 @@ import {
   unbindTotp,
 } from '../state/session.js'
 import { resetThumbnailCache, thumbnailStats } from '../state/thumbnails.js'
+import {
+  bindEmbedded,
+  disableEmbedded,
+  embedded,
+  enableEmbedded,
+  loadEmbedded,
+} from '../state/embedded.js'
 import LockDialog from '../components/LockDialog.vue'
+import EmbeddedBackendDialog from '../components/EmbeddedBackendDialog.vue'
+import EmbeddedAccountDialog from '../components/EmbeddedAccountDialog.vue'
+import EmbeddedStorageDialog from '../components/EmbeddedStorageDialog.vue'
 
 /**
  * Mirrors `MIN_PASSWORD_LENGTH` in `src/main/security.js`.
@@ -373,11 +436,19 @@ function bytesLabel(bytes) {
 // Poll while the page is open: a download or a playback session changes these
 // numbers without anything in the section re-rendering.
 let usageTimer = null
+let stopEmbedded = () => {}
 onMounted(() => {
   refreshUsage()
   usageTimer = setInterval(refreshUsage, 2000)
+  // The card has to reflect a download started from another page, so it follows
+  // the same push channel as the dedicated page.
+  loadEmbedded()
+  stopEmbedded = bindEmbedded()
 })
-onUnmounted(() => clearInterval(usageTimer))
+onUnmounted(() => {
+  clearInterval(usageTimer)
+  stopEmbedded()
+})
 
 /**
  * Only the on-disk preview cache is configurable.
@@ -403,6 +474,34 @@ const download = computed(() => ({
 const winPrefs = computed(() => ({
   closeToTray: session.settings?.window?.closeToTray ?? false,
 }))
+
+const embeddedState = computed(() => embedded.state)
+const embeddedBusy = computed(() => embedded.busy)
+
+/** Which embedded-server dialog is open: 'backend' | 'account' | 'storage' | null. */
+const embeddedDialog = ref(null)
+
+/** One line is all the settings page says; details live on the dedicated page. */
+const embeddedLine = computed(() => {
+  const current = embedded.state
+  if (!current) return '正在读取状态…'
+  if (current.status === 'running') return `${current.backendLabel} 运行中 · ${current.origin}`
+  if (current.status === 'downloading') {
+    const progress = current.progress
+    if (progress?.phase === 'download' && progress.total) {
+      return `正在下载 ${current.backendLabel} ${Math.round((progress.received / progress.total) * 100)}%`
+    }
+    return '正在准备安装包…'
+  }
+  if (current.status === 'starting') return '正在启动…'
+  if (current.status === 'error') return current.error || '启动失败'
+  return current.installed ? `已下载 ${current.installed.tag}，尚未运行` : '未启用'
+})
+
+async function toggleEmbedded() {
+  if (embedded.state?.status === 'running') await disableEmbedded()
+  else await enableEmbedded()
+}
 
 function clampNumber(event, min, max) {
   const value = Number(event.target.value)

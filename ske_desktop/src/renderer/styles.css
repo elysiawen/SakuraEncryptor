@@ -150,7 +150,8 @@ button.danger:hover:not(:disabled) {
 /* Range inputs are sliders, not text fields: the field chrome (border, fill,
    padding, 100% width) turned every progress/volume bar into a boxed widget. */
 input:not([type='range']),
-select {
+select,
+textarea {
   font-family: inherit;
   font-size: 13px;
   color: var(--text);
@@ -163,11 +164,21 @@ select {
 }
 
 input:not([type='range']):focus,
-select:focus {
+select:focus,
+textarea:focus {
   border-color: var(--accent);
 }
 
-input::placeholder {
+/* Multi-line fields grow downwards only. The default `both` lets a drag widen
+   the box past the dialog it sits in, and the content never needs that. */
+textarea {
+  line-height: 1.6;
+  min-height: 64px;
+  resize: vertical;
+}
+
+input::placeholder,
+textarea::placeholder {
   color: var(--muted);
 }
 
@@ -268,6 +279,22 @@ input::placeholder {
   min-width: 0;
 }
 
+/* A button in a flex row must keep its label on one line: shrinking it turns
+   保存 into 保 / 存 stacked vertically. */
+.row > button {
+  flex: none;
+  white-space: nowrap;
+}
+
+/* Inputs are `width: 100%`, which starves whatever sits beside them. Inside a
+   row they should claim the leftover space instead of all of it. */
+.row > input:not([type='range']),
+.row > select,
+.row > textarea {
+  flex: 1;
+  min-width: 0;
+}
+
 .switch-row {
   display: flex;
   align-items: center;
@@ -345,7 +372,8 @@ input::placeholder {
 .dlg-overlay {
   position: fixed;
   inset: 0;
-  /* Above the page, below the lock screen (90) and toasts (200). */
+  /* Above the page, below the lock screen (90) and toasts (200). A dialog that
+     opens on top of another one passes AppDialog a `layer` of 66. */
   z-index: 65;
   display: grid;
   place-items: center;
@@ -401,6 +429,37 @@ input::placeholder {
   color: var(--muted);
 }
 
+/* Notes inside a dialog body.
+   The `.card .hint` rule does not reach them — a dialog is teleported to `body`
+   — and every dialog that explains itself would otherwise repeat this block. */
+.dlg-body .hint,
+.dlg-body .note {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+/* A failed request that keeps a form from filling itself: the reason is the
+   point, so it gets the danger colour and a retry beside it. */
+.dlg-body .load-error {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--danger);
+}
+
+.dlg-body .load-error span {
+  flex: 1;
+  min-width: 0;
+}
+
+.dlg-body .load-error button {
+  flex: 0 0 auto;
+}
+
 .dlg-check {
   display: flex;
   align-items: center;
@@ -425,6 +484,10 @@ input::placeholder {
   justify-content: flex-end;
   gap: 10px;
   margin-top: 4px;
+  /* The footer is its own zone: without the rule, a dialog whose body ends in a
+     destructive block reads as if the action belonged to that block. */
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
 }
 
 /* The destructive action is a filled tint rather than an outlined button: the

@@ -18,7 +18,7 @@ With this system, you can encrypt private videos, audio, and image files and sto
 - **📊 Real-Time Performance Monitor** — Integrated FPS, frame drops, decryption latency, network speed, and cache hit rate display on the playback page.
 - **💾 Smart Offline Caching** — Service Worker 2.0 block-level caching (LRU) significantly reduces network traffic and solves the bandwidth amplification problem.
 - **🧩 Two Cloud Backends** — A profile can talk to AList or OpenList (a community fork that keeps the same `/api` surface), on any of the three clients; OpenList additionally accepts chunked uploads, so very large encrypted containers never hit a single-request size limit.
-- **🏠 Android Embedded Server** — The `openlist` flavor compiles OpenList into the app process and serves it on `127.0.0.1`, keeping its data in the app's private directory: full directory tree, thumbnails and streaming playback without any external server, with a foreground notification that keeps the process alive.
+- **🏠 Built-in Server** — With no external service around, either client can run AList or OpenList locally. The Android `openlist` flavor compiles OpenList into the app process and keeps it awake with a foreground notification; the desktop app downloads that platform's build from *Settings → Built-in server* and starts it on demand. Both bind `127.0.0.1` only, keep files on this machine, and expose the port, the admin account and the mounted folders in the UI.
 - **📱 Android Client** — Native Kotlin + Jetpack Compose app with local encrypt/decrypt, AList / OpenList cloud browsing, and streaming decryption playback; its decrypted caches are optional and wiped when the vault locks.
 - **🖥️ Desktop Client** — Electron + Vue 3, bringing the cloud library, local library, encryption workbench and transfer queue into one window. The local library reads the disk directly behind its own password — no uploads — and both libraries support a multi-select mode for batch download and delete, alongside an app lock, tray and `.ske` file association.
 - **🔐 App Lock** — A launch passphrase, optionally combined with a TOTP token and fingerprint/face. The ticked methods can demand all of them or any one, and each proof is remembered as it passes, so the order is up to you. The TOTP secret is sealed with the Android Keystore and must be confirmed with a live code before it is stored.
@@ -31,7 +31,7 @@ With this system, you can encrypt private videos, audio, and image files and sto
 
 - **`ske_cli/`** — Python desktop client for fast local file encryption.
 - **`ske_web/`** — Vue 3 + Service Worker powered web player for real-time streaming decryption and playback of cloud files.
-- **`ske_desktop/`** — Electron + Vue 3 desktop client: cloud library, local library, encryption workbench and transfer queue in one window, with an app lock and tray.
+- **`ske_desktop/`** — Electron + Vue 3 desktop client: cloud library, local library, encryption workbench and transfer queue in one window, with an app lock, tray, and an optional local server (downloads AList / OpenList at runtime, see `src/main/embedded/`).
 - **`ske_android/`** — Kotlin + Jetpack Compose Android client with local encryption, AList / OpenList browsing and streaming decryption playback; `openlist-lib/` builds OpenList into an AAR with gomobile for the embedded server.
 - **`ske_extension/`** — Chrome extension (Sakura Encryptor CORS Helper) that adds `Access-Control-Allow-Origin` to the drives you whitelist, so the web client can read drives that ship no CORS headers.
 - **`tests/`** — Comprehensive encryption consistency test suite.
@@ -91,6 +91,7 @@ npm start        # run the built app
 The app opens straight into the main UI — no account required — with four pages covering the whole workflow:
 
 - **Cloud library** — create a profile under *Cloud profiles* (one AList / OpenList account + its own encryption password), then browse, play and upload from the cloud page.
+- **No server at all** — pick AList or OpenList under *Settings → Built-in server*; the app downloads that platform's build on first use and runs it locally on `127.0.0.1` only, with its data under `embedded/` in the user directory. Port, admin account and mounted folders are all editable from the *Backend / Account / Storage* dialogs on that settings card.
 - **Local library** — pick a directory once, unlock it with the **local password**, then read and write `.ske` and plain files directly on disk. It is fully independent of every cloud profile.
 - **Encryption workbench** — encrypt files or an entire folder into a target directory, with a live job queue.
 - **Transfers** — downloads (decrypt) and uploads (encrypt) run in background queues, two at a time by default; with *close to tray* enabled they keep going after the window is closed.

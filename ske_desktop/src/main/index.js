@@ -15,6 +15,7 @@ import { DownloadQueue } from './downloads.js'
 import { listPlayers } from './external-player.js'
 import { createTray } from './tray.js'
 import { registerIpc } from './ipc.js'
+import { EmbeddedService } from './embedded/index.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const rootDir = path.resolve(here, '../..')
@@ -78,6 +79,20 @@ let mainWindow = null
 let tray = null
 let quitting = false
 let saveTimer = null
+/** Set once `before-quit` has begun shutting things down asynchronously. */
+let shuttingDown = false
+
+/**
+ * The optional AList / OpenList server running on this machine.
+ *
+ * Created eagerly (it only reads settings) so `settings:get` can report its
+ * state, but started later: a first run may have to download ~40 MB, and the
+ * window must appear before that finishes.
+ */
+const embedded = new EmbeddedService({
+  storage,
+  onUpdate: broadcaster('embedded:update'),
+})
 /** A `.ske` from the command line, held until a renderer exists to receive it. */
 let pendingOpenFile = ''
 /**
@@ -491,6 +506,7 @@ app.whenReady().then(async () => {
     jobs,
     downloads,
     uploads,
+    embedded,
     serverInfo: () => (server ? { origin: server.origin, token: server.token } : null),
     mainWindow: activeWindow,
     openWindow,
@@ -503,6 +519,11 @@ app.whenReady().then(async () => {
     // would defeat the lock.
     onLock: destroyStageWindows,
   })
+
+  // Deliberately not awaited: a first run downloads the server, and the window
+  // has to be usable while that happens. The settings page follows the
+  // `embedded:update` stream.
+  embedded.restore().catch(() => {})
 
   createWindow()
 
@@ -536,8 +557,15 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
 
-app.on('before-quit', async () => {
+app.on('before-quit', async (event) => {
   quitting = true
+  // Electron does not await this handler, so a child process that needs a
+  // graceful stop would simply be orphaned. Hold the quit, run the cleanup, then
+  // exit explicitly.
+  if (shuttingDown) return
+  shuttingDown = true
+  event.preventDefault()
+
   clearTimeout(saveTimer)
   jobs.cancelAll()
   downloads.cancelAll()
@@ -545,5 +573,9 @@ app.on('before-quit', async () => {
   tray?.destroy()
   tray = null
   await registry.closeAll().catch(() => {})
+  // Before the media server: the built-in server owns a child process whose
+  // database wants a clean shutdown on POSIX.
+  await embedded.shutdown().catch(() => {})
   await server?.close().catch(() => {})
+  app.exit(0)
 })

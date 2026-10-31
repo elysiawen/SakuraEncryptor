@@ -80,6 +80,7 @@ function decodeSubtitleBuffer(buf) {
  * @param {import('./jobs.js').JobQueue} deps.jobs
  * @param {import('./downloads.js').DownloadQueue} deps.downloads
  * @param {import('./uploads.js').UploadQueue} deps.uploads
+ * @param {import('./embedded/index.js').EmbeddedService} deps.embedded
  * @param {() => { origin: string, token: string } | null} deps.serverInfo
  * @param {() => import('electron').BrowserWindow | null} deps.mainWindow
  * @param {(route?: string) => import('electron').BrowserWindow | null} [deps.openWindow]
@@ -99,6 +100,7 @@ export function registerIpc({
   jobs,
   downloads,
   uploads,
+  embedded,
   serverInfo,
   mainWindow,
   openWindow,
@@ -312,6 +314,74 @@ export function registerIpc({
     })
     return { path: result.canceled ? null : result.filePaths[0] }
   })
+
+  // --- embedded server -----------------------------------------------------
+
+  /**
+   * Every mutating call returns the refreshed profile list as well: the built-in
+   * server owns one profile whose address and credentials it rewrites, and the
+   * renderer must not keep rendering the stale one.
+   */
+  function embeddedPayload(state) {
+    return { state, ...storage.listProfiles() }
+  }
+
+  handle('embedded:state', async () => ({ state: await embedded.snapshot() }))
+
+  handle('embedded:enable', async (_e, backendId) => embeddedPayload(await embedded.enable(backendId)))
+
+  handle('embedded:disable', async () => {
+    await embedded.disable()
+    // Any session was talking to a server that has just stopped.
+    cloud.logoutAll()
+    return embeddedPayload(await embedded.snapshot())
+  })
+
+  handle('embedded:reinstall', async (_e, backendId) => embeddedPayload(await embedded.reinstall(backendId)))
+
+  handle('embedded:setBackend', async (_e, backendId) => embeddedPayload(await embedded.setBackend(backendId)))
+
+  handle('embedded:setPort', async (_e, port) => embeddedPayload(await embedded.setPort(port)))
+
+  handle('embedded:setVersion', async (_e, version) => embeddedPayload(await embedded.setVersion(version)))
+
+  handle('embedded:setMirror', async (_e, mirror) => embeddedPayload(await embedded.setMirror(mirror)))
+
+  handle('embedded:account', async () => ({ account: await embedded.account() }))
+
+  handle('embedded:updateAccount', async (_e, patch = {}) => {
+    const account = await embedded.updateAccount(patch)
+    return { account, ...embeddedPayload(await embedded.snapshot()) }
+  })
+
+  handle('embedded:revealPassword', async () => ({ password: await embedded.revealPassword() }))
+
+  handle('embedded:randomPassword', () => ({ password: embedded.regeneratePassword() }))
+
+  handle('embedded:storages', async () => ({ storages: await embedded.storages() }))
+
+  handle('embedded:drivers', async () => ({ drivers: await embedded.drivers() }))
+
+  handle('embedded:driverInfo', async (_e, driver) => ({ info: await embedded.driverInfo(driver) }))
+
+  handle('embedded:createStorage', async (_e, payload = {}) => ({ storages: await embedded.createStorage(payload) }))
+
+  handle('embedded:updateStorage', async (_e, payload = {}) => ({ storages: await embedded.updateStorage(payload) }))
+
+  handle('embedded:deleteStorage', async (_e, id) => ({ storages: await embedded.deleteStorage(id) }))
+
+  handle('embedded:setStorageEnabled', async (_e, id, enabled) => ({
+    storages: await embedded.setStorageEnabled(id, enabled),
+  }))
+
+  handle('embedded:logs', () => ({ logs: embedded.logs() }))
+
+  handle('embedded:openDir', async () => {
+    await embedded.openDataDir()
+    return {}
+  })
+
+  handle('embedded:uninstall', async (_e, backendId) => embeddedPayload(await embedded.uninstall(backendId)))
 
   // --- cloud ---------------------------------------------------------------
 

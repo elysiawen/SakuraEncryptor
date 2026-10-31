@@ -49,6 +49,22 @@ export const DEFAULT_SETTINGS = {
     /** Closing the window keeps the app alive in the tray when true. */
     closeToTray: false,
   },
+  /**
+   * The optional AList / OpenList server run on this machine.
+   *
+   * `enabled` means "start it with the app", not "throw its data away": turning
+   * it off keeps the download and the database so switching it back on is
+   * instant. `version` follows upstream's latest unless the user pins a tag.
+   */
+  embedded: {
+    enabled: false,
+    backend: 'openlist',
+    port: 5244,
+    version: 'latest',
+    mirror: '',
+    /** Recorded by the embedded service: the tag that last started cleanly. */
+    installedTag: '',
+  },
 }
 
 function userDataPath(name) {
@@ -77,7 +93,7 @@ async function writeJson(filePath, value) {
 }
 
 /** Seal a secret with the OS keychain. Returns null for an empty value. */
-function seal(plain) {
+export function sealSecret(plain) {
   if (!plain) return null
   if (safeStorage.isEncryptionAvailable()) {
     return { enc: safeStorage.encryptString(plain).toString('base64') }
@@ -87,7 +103,7 @@ function seal(plain) {
   return { plain: Buffer.from(plain, 'utf8').toString('base64'), insecure: true }
 }
 
-function unseal(record) {
+export function unsealSecret(record) {
   if (!record) return ''
   try {
     if (record.enc) return safeStorage.decryptString(Buffer.from(record.enc, 'base64'))
@@ -116,6 +132,8 @@ function publicProfile(profile) {
     hasPassword: !!profile.secrets?.password,
     hasSkePassword: !!profile.secrets?.skePassword,
     insecure: !!(profile.secrets?.password?.insecure || profile.secrets?.skePassword?.insecure),
+    /** True for the profile that belongs to the built-in server. */
+    embedded: !!profile.embedded,
   }
 }
 
@@ -150,6 +168,7 @@ export class Storage {
         encrypt: { ...DEFAULT_SETTINGS.encrypt, ...(settings.encrypt || {}) },
         download: { ...DEFAULT_SETTINGS.download, ...(settings.download || {}) },
         window: { ...DEFAULT_SETTINGS.window, ...(settings.window || {}) },
+        embedded: { ...DEFAULT_SETTINGS.embedded, ...(settings.embedded || {}) },
       }
     }
 
@@ -179,8 +198,8 @@ export class Storage {
     const profile = this.vault.profiles.find((p) => p.id === id)
     if (!profile) return null
     return {
-      password: unseal(profile.secrets?.password),
-      skePassword: unseal(profile.secrets?.skePassword),
+      password: unsealSecret(profile.secrets?.password),
+      skePassword: unsealSecret(profile.secrets?.skePassword),
     }
   }
 
@@ -203,15 +222,19 @@ export class Storage {
     profile.username = String(input.username || '')
     profile.basePath = String(input.basePath || '')
     profile.remember = input.remember !== false
+    // Only the embedded service sets this, and it must survive an edit from the
+    // profile dialog — an edited embedded profile is still the embedded one.
+    if (input.embedded !== undefined) profile.embedded = !!input.embedded
+    else if (existing?.embedded) profile.embedded = true
     profile.secrets = profile.secrets || {}
 
     // An empty password field means "keep what is stored": the dialog never
     // shows existing passwords, so blank cannot be distinguished from "clear".
     if (typeof input.password === 'string' && input.password.length > 0) {
-      profile.secrets.password = seal(input.password)
+      profile.secrets.password = sealSecret(input.password)
     }
     if (typeof input.skePassword === 'string' && input.skePassword.length > 0) {
-      profile.secrets.skePassword = seal(input.skePassword)
+      profile.secrets.skePassword = sealSecret(input.skePassword)
     }
     if (input.clearPassword) delete profile.secrets.password
     if (input.clearSkePassword) delete profile.secrets.skePassword
@@ -241,6 +264,31 @@ export class Storage {
     this.vault.activeId = id || null
     await this.saveVault()
     return this.vault.activeId
+  }
+
+  /**
+   * Create or refresh the profile that points at the built-in server.
+   *
+   * It is identified by the `embedded` flag rather than by its address, because
+   * the port can change between runs. Only the login credentials are written
+   * here: the media password still comes from the user, exactly as it does for
+   * a remote profile.
+   */
+  async ensureEmbeddedProfile({ backend, server, username, password, activate = true }) {
+    let profile = this.vault.profiles.find((p) => p.embedded)
+    if (!profile) {
+      profile = { id: newId(), secrets: {}, embedded: true, basePath: '', remember: true }
+      this.vault.profiles.push(profile)
+    }
+    profile.name = '内置服务器'
+    profile.provider = backend === 'openlist' ? 'openlist' : 'alist'
+    profile.server = String(server || '').replace(/\/+$/, '')
+    profile.username = String(username || '')
+    profile.embedded = true
+    if (password) profile.secrets.password = sealSecret(password)
+    if (activate) this.vault.activeId = profile.id
+    await this.saveVault()
+    return publicProfile(profile)
   }
 
   // --- settings ------------------------------------------------------------

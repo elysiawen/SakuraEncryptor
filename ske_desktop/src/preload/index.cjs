@@ -61,6 +61,42 @@ contextBridge.exposeInMainWorld('ske', {
     patch: (patch) => invoke('settings:patch', patch),
   },
 
+  /**
+   * The AList / OpenList server run on this machine. Nothing here accepts a
+   * password from the renderer except the explicit "change account" call: the
+   * admin password is generated in main and sealed with the OS keychain.
+   */
+  embedded: {
+    state: () => invoke('embedded:state'),
+    enable: (backendId) => invoke('embedded:enable', backendId),
+    disable: () => invoke('embedded:disable'),
+    reinstall: (backendId) => invoke('embedded:reinstall', backendId),
+    setBackend: (backendId) => invoke('embedded:setBackend', backendId),
+    setPort: (port) => invoke('embedded:setPort', port),
+    setVersion: (version) => invoke('embedded:setVersion', version),
+    setMirror: (mirror) => invoke('embedded:setMirror', mirror),
+    account: () => invoke('embedded:account'),
+    updateAccount: (patch) => invoke('embedded:updateAccount', patch),
+    revealPassword: () => invoke('embedded:revealPassword'),
+    randomPassword: () => invoke('embedded:randomPassword'),
+    storages: () => invoke('embedded:storages'),
+    drivers: () => invoke('embedded:drivers'),
+    driverInfo: (driver) => invoke('embedded:driverInfo', driver),
+    createStorage: (payload) => invoke('embedded:createStorage', payload),
+    updateStorage: (payload) => invoke('embedded:updateStorage', payload),
+    deleteStorage: (id) => invoke('embedded:deleteStorage', id),
+    setStorageEnabled: (id, enabled) => invoke('embedded:setStorageEnabled', id, enabled),
+    logs: () => invoke('embedded:logs'),
+    openDir: () => invoke('embedded:openDir'),
+    uninstall: (backendId) => invoke('embedded:uninstall', backendId),
+    /** Progress and status while downloading / starting. Returns an unsubscribe. */
+    onUpdate: (callback) => {
+      const handler = (_event, state) => callback(state)
+      ipcRenderer.on('embedded:update', handler)
+      return () => ipcRenderer.removeListener('embedded:update', handler)
+    },
+  },
+
   dialog: {
     /** Existing container (decrypt / play). */
     pickFile: () => invoke('dialog:pickFile'),
