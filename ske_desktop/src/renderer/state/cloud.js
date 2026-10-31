@@ -5,6 +5,7 @@
  * listing and gets names, sizes and ready-made preview URLs back.
  */
 import { reactive } from 'vue'
+import { waitUntilRunning } from './embedded.js'
 import { activeProfile, toast } from './session.js'
 
 export const cloud = reactive({
@@ -12,6 +13,8 @@ export const cloud = reactive({
   profileId: null,
   connected: false,
   connecting: false,
+  /** The built-in server is still coming up, so connecting has not started. */
+  starting: false,
   loading: false,
   path: '/',
   entries: [],
@@ -52,6 +55,15 @@ export async function ensureConnected({ force = false, otpCode = '' } = {}) {
 
   cloud.connecting = true
   try {
+    // An embedded profile points at 127.0.0.1:port, and that port is not open
+    // yet on a cold start — main starts the server in parallel with the window.
+    // Waiting is the difference between "无法连接云端" on launch and a directory.
+    if (profile.embedded) {
+      cloud.starting = true
+      await waitUntilRunning()
+      cloud.starting = false
+    }
+
     const res = await window.ske.cloud.connect(profile.id, otpCode)
     if (!res?.ok) {
       cloud.needsOtp = !!res?.needsOtp
@@ -69,6 +81,7 @@ export async function ensureConnected({ force = false, otpCode = '' } = {}) {
     return false
   } finally {
     cloud.connecting = false
+    cloud.starting = false
   }
 }
 

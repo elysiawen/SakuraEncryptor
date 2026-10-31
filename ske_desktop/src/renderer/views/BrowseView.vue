@@ -34,7 +34,7 @@
 
     <div v-else-if="cloud.connecting" class="centre">
       <span class="spinner" />
-      <span>正在连接 {{ activeProfile.name }}…</span>
+      <span>{{ cloud.starting ? '正在启动内置服务器…' : `正在连接 ${activeProfile.name}…` }}</span>
     </div>
 
     <EmptyState

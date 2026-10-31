@@ -85,6 +85,41 @@ function adopt(res) {
   if (res?.state) embedded.state = res.state
 }
 
+/**
+ * Resolve once the built-in server is running.
+ *
+ * The window is interactive before the server is: main fires `restore()` and
+ * then creates the window without waiting, so the first connect of an embedded
+ * profile is answered with "connection refused" and the user has to press 重试.
+ * Polling the snapshot here turns a warm start into a short "正在启动…", and
+ * reports the real reason when it cannot come up at all.
+ */
+export async function waitUntilRunning({ timeout = 30_000, downloadTimeout = 10 * 60_000, interval = 250 } = {}) {
+  if (!api?.embedded?.state) return
+
+  let deadline = Date.now() + timeout
+  for (;;) {
+    let current = null
+    try {
+      const res = await api.embedded.state()
+      if (res?.ok) current = res.state
+    } catch {
+      // A single failed snapshot is not a verdict; keep trying until the deadline.
+    }
+    if (current) embedded.state = current
+
+    if (current?.status === 'running') return
+    // Nothing is bringing it up: waiting would only delay the explanation.
+    if (current && !current.enabled) throw new Error('内置服务器没有开启，到设置里开启后再试')
+    if (current?.status === 'error') throw new Error(current.error || '内置服务器启动失败')
+    // A first-run download is not a hang: give it its own budget.
+    if (current?.status === 'downloading') deadline = Math.max(deadline, Date.now() + downloadTimeout)
+    if (Date.now() >= deadline) throw new Error('内置服务器启动超时，请稍后再试')
+
+    await new Promise((resolve) => setTimeout(resolve, interval))
+  }
+}
+
 export async function loadEmbedded() {
   if (!api?.embedded) return
   try {
