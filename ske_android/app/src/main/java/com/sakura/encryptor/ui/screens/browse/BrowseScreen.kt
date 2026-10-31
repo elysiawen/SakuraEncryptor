@@ -88,7 +88,6 @@ import com.sakura.encryptor.ui.components.LoadingState
 import com.sakura.encryptor.ui.components.MediaTile
 import com.sakura.encryptor.ui.components.SakuraTopBar
 import com.sakura.encryptor.ui.components.StateMessage
-import com.sakura.encryptor.ui.components.TaskProgressDialog
 import com.sakura.encryptor.ui.components.TileBadges
 import com.sakura.encryptor.ui.components.UnlockPanel
 import com.sakura.encryptor.ui.components.ViewModeToggle
@@ -111,6 +110,7 @@ fun BrowseScreen(
             vault = c.vault,
             downloadManager = c.downloadManager,
             runner = c.cryptoTaskRunner,
+            uploadManager = c.uploadManager,
             profileRepository = c.profileRepository,
             cipherBlockSourceFactory = c.cipherBlockSourceFactory,
             previews = c.previewLoader,
@@ -612,15 +612,6 @@ fun BrowseScreen(
             dismissButton = {
                 TextButton(onClick = clearPending) { Text("取消") }
             },
-        )
-    }
-
-    state.uploadProgress?.let { progress ->
-        TaskProgressDialog(
-            title = "正在上传",
-            detail = "${progress.fileName}  (${progress.index}/${progress.count}) · ${progress.stage}",
-            fraction = progress.fraction,
-            onSendToBackground = viewModel::dismissUploadUi,
         )
     }
 }

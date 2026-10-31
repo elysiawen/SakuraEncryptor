@@ -137,6 +137,19 @@ class CryptoTaskRunner(private val context: Context) {
     /** Display name of a picked document, or `null` when the provider hides it. */
     fun displayNameOf(uri: Uri): String? = queryDisplayName(uri)
 
+    /** Size reported by the document provider, or 0 when it cannot be read. */
+    fun sizeOf(uri: Uri): Long = runCatching {
+        context.contentResolver.query(
+            uri,
+            arrayOf(OpenableColumns.SIZE),
+            null,
+            null,
+            null,
+        )?.use { cursor ->
+            if (cursor.moveToFirst() && cursor.columnCount > 0) cursor.getLong(0) else 0L
+        } ?: 0L
+    }.getOrDefault(0L)
+
     // -----------------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------------

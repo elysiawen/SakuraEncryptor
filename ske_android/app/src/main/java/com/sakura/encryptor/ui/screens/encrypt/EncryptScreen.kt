@@ -543,7 +543,7 @@ private fun TextConverterPanel(
                 error = if (encrypting) {
                     "加密失败"
                 } else {
-                    "解密失败：密码不对，或这段文字不是本工具生成的密文"
+                    "解密失败：加密密码错误，或这段文字不是本工具生成的密文"
                 }
             }
         }

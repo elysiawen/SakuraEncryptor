@@ -9,6 +9,7 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import okhttp3.Call
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
@@ -189,6 +190,7 @@ class AListApi(
         file: File,
         asTask: Boolean = false,
         onProgress: ((bytesWritten: Long, contentLength: Long) -> Unit)? = null,
+        onCall: ((Call) -> Unit)? = null,
     ) {
         val remotePath = normalizeUploadPath(dirPath, fileName)
         withContext(Dispatchers.IO) {
@@ -209,7 +211,10 @@ class AListApi(
                 .header("File-Path", remotePath)
                 .apply { if (asTask) header("As-Task", "true") }
                 .build()
-            execute(request)
+            val call = client.newCall(request)
+            // The caller may need the handle to cancel a large upload.
+            onCall?.invoke(call)
+            execute(call)
         }
     }
 
@@ -262,9 +267,11 @@ class AListApi(
      * Executes [request] and returns the JSON `data` element.
      * @throws AListException on transport errors or a non-200 AList code.
      */
-    private fun execute(request: Request): JsonElement {
+    private fun execute(request: Request): JsonElement = execute(client.newCall(request))
+
+    private fun execute(call: Call): JsonElement {
         val response = try {
-            client.newCall(request).execute()
+            call.execute()
         } catch (e: Exception) {
             throw AListException(-1, "网络请求失败：${e.message ?: e.javaClass.simpleName}", e)
         }

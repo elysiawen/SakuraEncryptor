@@ -207,6 +207,14 @@ contextBridge.exposeInMainWorld('ske', {
     write: (text) => invoke('clipboard:write', text),
   },
 
+  /**
+   * Text converter: the same deterministic name-key scheme as file names, so a
+   * token is portable between this app, Android, the CLI and the web client.
+   */
+  text: {
+    convert: (payload) => invoke('text:convert', payload),
+  },
+
   media: {
     open: (payload) => invoke('media:open', payload),
     openCloud: (payload) => invoke('media:openCloud', payload),

@@ -10,7 +10,8 @@ object Routes {
     /** Standalone file-encryption workspace, kept out of the local browser. */
     const val ENCRYPT = "encrypt"
 
-    const val DOWNLOADS = "downloads"
+    /** Upload and download queues in one page. */
+    const val TRANSFERS = "transfers"
     const val SETTINGS = "settings"
 
     /** Cloud profile management. */
@@ -48,7 +49,7 @@ object Routes {
             "&$PLAYER_ARG_DIR=${Uri.encode(dir)}"
 
     /** The drawer destinations, in order. Encryption leads and is the start screen. */
-    val mainDestinations = listOf(ENCRYPT, BROWSE, LOCAL, DOWNLOADS, SETTINGS)
+    val mainDestinations = listOf(ENCRYPT, BROWSE, LOCAL, TRANSFERS, SETTINGS)
 }
 
 /** Where a playback request came from. */

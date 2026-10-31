@@ -19,6 +19,7 @@ import com.sakura.encryptor.core.player.MediaTypes
 import com.sakura.encryptor.core.profile.ProfileRepository
 import com.sakura.encryptor.core.session.NameKeyCache
 import com.sakura.encryptor.core.session.VaultSession
+import com.sakura.encryptor.core.upload.UploadManager
 import com.sakura.encryptor.data.db.ProfileEntity
 import com.sakura.encryptor.ui.navigation.PlaybackSource
 import kotlinx.coroutines.channels.Channel
@@ -38,6 +39,7 @@ class BrowseViewModel(
     private val vault: VaultSession,
     private val downloadManager: DownloadManager,
     private val runner: CryptoTaskRunner,
+    private val uploadManager: UploadManager,
     private val profileRepository: ProfileRepository,
     private val cipherBlockSourceFactory: CipherBlockSourceFactory,
     private val previews: PreviewLoader,
@@ -52,23 +54,9 @@ class BrowseViewModel(
         val selected: Set<String> = emptySet(),
         /** True while a `.ske` entry is being resolved to a playable url. */
         val isPreparing: Boolean = false,
-        /** True while an upload job runs, so the picker cannot be re-entered. */
-        val isUploading: Boolean = false,
-        /** Non-null while the upload progress dialog should be on screen. */
-        val uploadProgress: UploadProgress? = null,
     ) {
         val inSelectionMode: Boolean get() = selected.isNotEmpty()
     }
-
-    data class UploadProgress(
-        val fileName: String,
-        val index: Int,
-        val count: Int,
-        /** Progress of the whole job, not just the current file. */
-        val fraction: Float,
-        /** What the current file is doing right now, e.g. 加密中 / 上传中. */
-        val stage: String = "",
-    )
 
     sealed interface Event {
         data class OpenPlayer(val uri: String, val name: String, val source: PlaybackSource) : Event
@@ -181,6 +169,12 @@ class BrowseViewModel(
             viewModelScope.launch(Dispatchers.Default) {
                 runCatching { nameKey() }
             }
+        }
+
+        // Uploads run in the app-level queue, so a finished one may land while
+        // the screen is open; re-list to make the new file visible.
+        viewModelScope.launch {
+            uploadManager.completed.collect { refresh() }
         }
 
         // Initial loading is driven by the UI, which observes unlock/login state.
@@ -364,20 +358,16 @@ class BrowseViewModel(
         uris.map { runner.displayNameOf(it) ?: "file_${System.currentTimeMillis()}" }
 
     /**
-     * Upload picked local [uris] into the current directory.
+     * Queue the picked local [uris] into the current directory.
      *
-     * Mirrors the web client: with [encrypt] both the bytes and the file name are
-     * converted into vault format (`.ske`), so the result is only readable inside
-     * the app; otherwise the file goes up as-is under its own name. [names] holds
-     * the user-edited name for each uri; blank or missing entries fall back to the
+     * The actual work lives in the app-level [UploadManager], so it keeps going
+     * when this screen is left. With [encrypt] both the bytes and the name are
+     * converted into vault format (`.ske`); otherwise the file goes up as-is.
+     * [names] holds the user-edited name for each uri; blanks fall back to the
      * picked document's own name.
      */
     fun upload(uris: List<Uri>, encrypt: Boolean, names: List<String> = emptyList()) {
         if (uris.isEmpty()) return
-        if (_state.value.isUploading) {
-            send(Event.Message("已有上传任务正在进行"))
-            return
-        }
 
         // The AList form API cannot address a drive root, and a sub-account's
         // virtual root is not a real directory either.
@@ -386,94 +376,21 @@ class BrowseViewModel(
             send(Event.Message("请先进入一个具体目录再上传"))
             return
         }
-        if (encrypt && !vault.isUnlocked) {
-            send(Event.Message("缺少加密主密码，无法加密上传"))
+
+        val created = runCatching {
+            uploadManager.enqueue(
+                uris = uris,
+                names = names,
+                encrypt = encrypt,
+                plainPath = _state.value.path,
+            )
+        }.getOrElse { throwable ->
+            send(Event.Message(throwable.message ?: "无法加入上传队列"))
             return
         }
 
-        _state.update { it.copy(isUploading = true, uploadProgress = null) }
-
-        viewModelScope.launch {
-            val total = uris.size
-            var uploaded = 0
-            // Progress callbacks fire once per buffer — thousands of times for a
-            // big file — so only publish when the rounded percentage or the stage
-            // changes. Otherwise every chunk would recompose the dialog.
-            var lastBucket = -1
-            var lastStage = ""
-            fun publish(fileName: String, position: Int, fileFraction: Float, stage: String) {
-                val overall = ((position - 1) + fileFraction.coerceIn(0f, 1f)) / total
-                val bucket = (overall * 100).toInt()
-                if (bucket == lastBucket && stage == lastStage) return
-                lastBucket = bucket
-                lastStage = stage
-                _state.update {
-                    it.copy(uploadProgress = UploadProgress(fileName, position, total, overall, stage))
-                }
-            }
-
-            try {
-                uris.forEachIndexed { index, uri ->
-                    val name = names.getOrNull(index)?.trim().orEmpty().ifEmpty {
-                        runner.displayNameOf(uri) ?: "file_${System.currentTimeMillis()}"
-                    }
-                    val position = index + 1
-                    publish(name, position, 0f, "准备中")
-
-                    val remoteName = if (encrypt) {
-                        SkeCrypto.encryptName(name, nameKey()) + SkeFormat.SKE_EXT
-                    } else {
-                        // A separator typed into the name field would become a
-                        // sub-path instead of part of the file name.
-                        name.replace('/', '_').replace('\\', '_')
-                    }
-
-                    val payload = if (encrypt) {
-                        runner.encryptToCache(uri, vault.requirePassword()) { bytesDone, bytesTotal ->
-                            val fraction = if (bytesTotal <= 0) {
-                                0f
-                            } else {
-                                (bytesDone.toFloat() / bytesTotal).coerceIn(0f, 1f)
-                            }
-                            // Encryption and upload both take real time, so each
-                            // file's slot is split between the two stages.
-                            publish(name, position, fraction * 0.5f, "加密中")
-                        }
-                    } else {
-                        runner.copyToCache(uri)
-                    }
-
-                    // The payload is always a cache temp file we own, so it goes
-                    // away whether or not the request succeeded.
-                    try {
-                        repository.upload(_state.value.path, remoteName, payload) { sent, length ->
-                            val fraction = if (length <= 0) {
-                                0f
-                            } else {
-                                (sent.toFloat() / length).coerceIn(0f, 1f)
-                            }
-                            val fileFraction = if (encrypt) 0.5f + fraction * 0.5f else fraction
-                            publish(name, position, fileFraction, "上传中")
-                        }.getOrThrow()
-                    } finally {
-                        payload.delete()
-                    }
-                    uploaded++
-                    publish(name, position, 1f, "已上传")
-                }
-
-                send(Event.Message("已上传 $uploaded 个文件"))
-                refresh()
-            } catch (throwable: Throwable) {
-                send(Event.Message(throwable.message ?: "上传失败"))
-            } finally {
-                _state.update { it.copy(isUploading = false, uploadProgress = null) }
-            }
-        }
+        send(Event.Message("已加入上传队列：${created.size} 个文件"))
     }
-
-    /** Hide the progress dialog; the job keeps running in the background. */
-    fun dismissUploadUi() = _state.update { it.copy(uploadProgress = null) }
 
     fun delete(entries: List<DecryptedEntry>) {
         val names = entries.map { it.raw.name }

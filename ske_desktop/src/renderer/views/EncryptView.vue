@@ -3,12 +3,42 @@
     <div class="page-head">
       <div>
         <h2>加密工作台</h2>
-        <p>文件在本地完成加密，文件名同样会被加密；拖进来即可开始。</p>
+        <p v-if="mode === 'files'">文件在本地完成加密，文件名同样会被加密；拖进来即可开始。</p>
+        <p v-else>把一段文字加密成可复制的密文，或把密文还原成明文；与文件名使用同一套密钥。</p>
       </div>
-      <button v-if="finishedCount" class="ghost" type="button" @click="clear">清理已完成</button>
+      <div class="row">
+        <div class="segmented" role="tablist">
+          <button
+            type="button"
+            role="tab"
+            :aria-selected="mode === 'files'"
+            :class="{ on: mode === 'files' }"
+            @click="mode = 'files'"
+          >
+            文件
+          </button>
+          <button
+            type="button"
+            role="tab"
+            :aria-selected="mode === 'text'"
+            :class="{ on: mode === 'text' }"
+            @click="mode = 'text'"
+          >
+            文本
+          </button>
+        </div>
+        <button
+          v-if="mode === 'files' && finishedCount"
+          class="ghost"
+          type="button"
+          @click="clear"
+        >
+          清理已完成
+        </button>
+      </div>
     </div>
 
-    <section class="card settings">
+    <section v-if="mode === 'files'" class="card settings">
       <div class="field">
         <label>输出目录</label>
         <div class="row">
@@ -28,7 +58,7 @@
       </div>
     </section>
 
-    <section class="dropzone" :class="{ ready: !!outputDir }" @dragover.prevent @drop.prevent="onDrop">
+    <section v-if="mode === 'files'" class="dropzone" :class="{ ready: !!outputDir }" @dragover.prevent @drop.prevent="onDrop">
       <div class="drop-inner">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
           <path d="M12 16V5" />
@@ -44,7 +74,7 @@
       </div>
     </section>
 
-    <section class="card">
+    <section v-if="mode === 'files'" class="card">
       <div class="row between">
         <h3 style="margin: 0">任务队列</h3>
         <span class="badge">
@@ -84,6 +114,62 @@
         </li>
       </ul>
     </section>
+
+    <section v-else class="card">
+      <div class="field">
+        <label>加密密码</label>
+        <input
+          v-model="password"
+          type="password"
+          autocomplete="off"
+          placeholder="留空则使用当前配置的媒体密码"
+        />
+        <span class="meta">加密与解密共用这一个密码；密文可在安卓端、CLI 或网页端解密。</span>
+      </div>
+
+      <div class="field">
+        <label>内容</label>
+        <textarea
+          v-model="textInput"
+          rows="7"
+          spellcheck="false"
+          placeholder="要加密的文字，或粘贴一段密文"
+        />
+      </div>
+
+      <div class="row">
+        <button
+          class="primary"
+          type="button"
+          :disabled="converting"
+          @click="convert('encrypt')"
+        >
+          加密
+        </button>
+        <button
+          class="ghost"
+          type="button"
+          :disabled="converting"
+          @click="convert('decrypt')"
+        >
+          解密
+        </button>
+        <span v-if="converting" class="meta">处理中…</span>
+      </div>
+
+      <p v-if="textError" class="text-error">{{ textError }}</p>
+
+      <div v-if="textOutput" class="text-result">
+        <div class="row between">
+          <label>结果</label>
+          <div class="row">
+            <span class="meta">{{ textOutput.length }} 字符</span>
+            <button class="ghost tiny" type="button" @click="copyResult">复制</button>
+          </div>
+        </div>
+        <textarea class="result mono" :value="textOutput" rows="6" readonly />
+      </div>
+    </section>
   </div>
 </template>
 
@@ -103,6 +189,47 @@ import {
 
 const password = ref('')
 const outputDir = computed(() => session.settings?.encrypt?.outputDir || '')
+
+// Two workspaces in one page: file containers and short text tokens.
+const mode = ref('files')
+const textInput = ref('')
+const textOutput = ref('')
+const textError = ref('')
+const converting = ref(false)
+
+async function convert(direction) {
+  if (converting.value) return
+  const source = textInput.value.trim()
+  if (!source) {
+    textOutput.value = ''
+    textError.value = '请先输入内容'
+    return
+  }
+
+  converting.value = true
+  textError.value = ''
+  try {
+    const res = await window.ske.text.convert({
+      direction,
+      text: source,
+      password: password.value,
+    })
+    if (!res?.ok) throw new Error(res?.error || '转换失败')
+    textOutput.value = res.text
+  } catch (err) {
+    textOutput.value = ''
+    textError.value = err.message
+  } finally {
+    converting.value = false
+  }
+}
+
+async function copyResult() {
+  if (!textOutput.value) return
+  await attempt(() => window.ske.clipboard.write(textOutput.value), {
+    success: '已复制到剪贴板',
+  })
+}
 
 const runningCount = computed(() => activeCount())
 const finishedCount = computed(
@@ -334,5 +461,76 @@ async function clear() {
 
 .job-meta .err {
   color: var(--danger);
+}
+
+.segmented {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--bg-elevated);
+}
+
+.segmented button {
+  border: 0;
+  border-radius: 999px;
+  padding: 5px 14px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.segmented button.on {
+  background: color-mix(in srgb, var(--accent) 18%, var(--panel));
+  color: var(--accent-strong);
+  font-weight: 600;
+}
+
+/* The global input chrome does not cover textareas, so match it here. */
+textarea {
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 9px 11px;
+  outline: none;
+  width: 100%;
+  line-height: 1.55;
+  resize: vertical;
+}
+
+textarea:focus {
+  border-color: var(--accent);
+}
+
+textarea::placeholder {
+  color: var(--muted);
+}
+
+.text-error {
+  margin: 12px 0 0;
+  font-size: 12px;
+  color: var(--danger);
+}
+
+.text-result {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.text-result label {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.text-result .result {
+  font-family: var(--mono);
+  font-size: 12.5px;
 }
 </style>

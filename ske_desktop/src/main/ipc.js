@@ -9,7 +9,7 @@ import { BrowserWindow, app, clipboard, dialog, ipcMain, screen, shell } from 'e
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 import { listPlayers, playExternal } from './external-player.js'
-import { deriveNameKey } from './ske-names.js'
+import { decryptName, deriveNameKey, encryptName } from './ske-names.js'
 
 function handle(channel, fn) {
   ipcMain.handle(channel, async (event, ...args) => {
@@ -611,6 +611,37 @@ export function registerIpc({
   handle('jobs:cancel', (_e, id) => ({ cancelled: jobs.cancel(id), jobs: jobs.snapshot() }))
 
   handle('jobs:clear', () => ({ jobs: jobs.clearFinished() }))
+
+  // --- text converter ------------------------------------------------------
+
+  /**
+   * Encrypt or decrypt a snippet with the file-name key scheme.
+   *
+   * The same primitive backs the Android text panel, the CLI's text tab and the
+   * web client's name tool, so a token made here decrypts there and vice versa —
+   * as long as both sides use the same password. Only the result crosses back;
+   * the password never leaves the main process.
+   */
+  handle('text:convert', (_e, { direction, text, password } = {}) => {
+    requireUnlocked()
+    const source = typeof text === 'string' ? text.trim() : ''
+    if (!source) throw new Error('请先输入内容')
+
+    // Same fallback as the encryption queue: an empty field means "use the
+    // active profile's media password".
+    const secret = String(password || '') || activeSecrets()?.skePassword || ''
+    if (!secret) throw new Error('请填写加密密码，或先配置一个带媒体密码的云端配置')
+
+    const key = deriveNameKey(secret)
+    if (direction === 'decrypt') {
+      try {
+        return { text: decryptName(source, key) }
+      } catch {
+        throw new Error('解密失败：加密密码错误，或这段文字不是本工具生成的密文')
+      }
+    }
+    return { text: encryptName(source, key) }
+  })
 
   // --- downloads -----------------------------------------------------------
 

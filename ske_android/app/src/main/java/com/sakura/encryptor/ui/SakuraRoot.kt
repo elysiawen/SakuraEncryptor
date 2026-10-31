@@ -21,10 +21,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Cloud
-import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Shield
+import androidx.compose.material.icons.rounded.SwapVert
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -74,7 +74,6 @@ import com.sakura.encryptor.ui.components.rememberMusicController
 import com.sakura.encryptor.ui.navigation.PlaybackSource
 import com.sakura.encryptor.ui.navigation.Routes
 import com.sakura.encryptor.ui.screens.browse.BrowseScreen
-import com.sakura.encryptor.ui.screens.downloads.DownloadsScreen
 import com.sakura.encryptor.ui.screens.encrypt.EncryptScreen
 import com.sakura.encryptor.ui.screens.local.LocalScreen
 import com.sakura.encryptor.ui.screens.lock.AppLockScreen
@@ -82,6 +81,7 @@ import com.sakura.encryptor.ui.screens.player.PlayerScreen
 import com.sakura.encryptor.ui.screens.profiles.ProfileEditScreen
 import com.sakura.encryptor.ui.screens.profiles.ProfilesScreen
 import com.sakura.encryptor.ui.screens.settings.SettingsScreen
+import com.sakura.encryptor.ui.screens.transfers.TransfersScreen
 import com.sakura.encryptor.ui.theme.AccentTheme
 import com.sakura.encryptor.ui.theme.SakuraTheme
 import kotlinx.coroutines.launch
@@ -222,7 +222,7 @@ private val drawerDestinations = listOf(
     DrawerDestination(Routes.ENCRYPT, "加密", Icons.Rounded.Shield),
     DrawerDestination(Routes.BROWSE, "云端", Icons.Rounded.Cloud),
     DrawerDestination(Routes.LOCAL, "本地", Icons.Rounded.FolderOpen),
-    DrawerDestination(Routes.DOWNLOADS, "下载", Icons.Rounded.Download),
+    DrawerDestination(Routes.TRANSFERS, "传输", Icons.Rounded.SwapVert),
     DrawerDestination(Routes.SETTINGS, "设置", Icons.Rounded.Settings),
 )
 
@@ -370,8 +370,8 @@ private fun SakuraNavigation(
                 EncryptScreen(onOpenDrawer = openDrawer)
             }
 
-            composable(Routes.DOWNLOADS) {
-                DownloadsScreen(onOpenDrawer = openDrawer)
+            composable(Routes.TRANSFERS) {
+                TransfersScreen(onOpenDrawer = openDrawer)
             }
 
             composable(Routes.SETTINGS) {

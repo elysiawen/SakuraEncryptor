@@ -2,9 +2,9 @@
   <div class="image-view" :class="{ 'comic-mode': comicMode }">
     <MediaTopbar
       :title="decryptedName || '加载中…'"
-      :download-url="rawUrl"
+      :download-url="downloadUrl"
       :download-name="decryptedName"
-      :download-size="rawSize"
+      :download-size="downloadSize"
       @back="goBack"
       class="image-topbar"
       :class="{ 'ui-hidden': !uiVisible }"
@@ -107,10 +107,25 @@ import ComicReader from '../components/media-player/ComicReader.vue'
 import PlaylistPanel from '../components/media-player/PlaylistPanel.vue'
 import { useFileResolver } from '../composables/useFileResolver.js'
 import { usePlaylist } from '../composables/usePlaylist.js'
+import { toDownloadUrl } from '../composables/useFileDownload.js'
 
 const route = useRoute()
 const { decryptedName, playUrl, isEncrypted, rawUrl, rawSize, error, resolve, goBack, isLocal } = useFileResolver()
 const playlist = usePlaylist('image')
+
+// Encrypted images must be downloaded through the Service Worker's plaintext
+// endpoint; handing the raw upstream link to the download manager would save
+// the .ske container under the decrypted name, which no viewer can open.
+const downloadUrl = computed(() => {
+  if (isEncrypted.value && !isLocal.value && playUrl.value) {
+    return toDownloadUrl(playUrl.value)
+  }
+  return rawUrl.value
+})
+
+// Plaintext size is only known once the SW responds, so let the download
+// manager derive it from Content-Length instead of the encrypted size.
+const downloadSize = computed(() => (isEncrypted.value && !isLocal.value ? 0 : rawSize.value))
 const viewerRef = ref(null)
 const showPlaylist = ref(false)
 const comicMode = ref(false)

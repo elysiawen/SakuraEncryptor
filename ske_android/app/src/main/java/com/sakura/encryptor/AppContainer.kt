@@ -30,6 +30,7 @@ import com.sakura.encryptor.core.security.KeyStoreManager
 import com.sakura.encryptor.core.session.NameKeyCache
 import com.sakura.encryptor.core.session.VaultSession
 import com.sakura.encryptor.core.subtitle.SubtitleRepository
+import com.sakura.encryptor.core.upload.UploadManager
 import com.sakura.encryptor.data.db.SakuraDatabase
 import com.sakura.encryptor.data.prefs.SettingsStore
 import kotlinx.coroutines.CoroutineScope
@@ -205,6 +206,16 @@ class AppContainer(private val appContext: Context) {
 
     val downloadManager: DownloadManager by lazy {
         DownloadManager(appContext, database, aListApi, aListSession, vault, okHttpClient)
+    }
+
+    /**
+     * Queue for encrypting and pushing local files to the cloud.
+     *
+     * Kept in memory on purpose: the picked documents are content URIs whose
+     * read grant dies with the activity, so a restored job could only fail.
+     */
+    val uploadManager: UploadManager by lazy {
+        UploadManager(aListRepository, vault, cryptoTaskRunner)
     }
 
     init {

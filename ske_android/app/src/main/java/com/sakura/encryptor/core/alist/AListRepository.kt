@@ -3,6 +3,7 @@ package com.sakura.encryptor.core.alist
 import com.sakura.encryptor.core.crypto.SkeCrypto
 import com.sakura.encryptor.core.crypto.SkeFormat
 import com.sakura.encryptor.core.util.DisplayNameOrder
+import okhttp3.Call
 import java.io.File
 
 
@@ -114,6 +115,7 @@ class AListRepository(
         fileName: String,
         file: File,
         onProgress: ((bytesWritten: Long, contentLength: Long) -> Unit)? = null,
+        onCall: ((Call) -> Unit)? = null,
     ): Result<Unit> = runCatching {
         api.upload(
             server = session.server,
@@ -122,6 +124,7 @@ class AListRepository(
             fileName = fileName,
             file = file,
             onProgress = onProgress,
+            onCall = onCall,
         )
     }
 
