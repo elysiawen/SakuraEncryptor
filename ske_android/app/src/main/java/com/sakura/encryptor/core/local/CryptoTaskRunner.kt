@@ -47,14 +47,16 @@ class CryptoTaskRunner(private val context: Context) {
             val displayName = queryDisplayName(uri) ?: "file_${System.currentTimeMillis()}"
             onProgress(Progress(displayName, index + 1, uris.size, 0, 0))
 
-            val tempPlain = createTemp("plain")
+            val tempPlain = createTempFor(displayName)
             val tempEncrypted = createTemp("ske")
             try {
                 copyUriToFile(uri, tempPlain)
                 // Every container carries a preview envelope. Generation lives here rather than in
                 // SkeFileCipher so the crypto layer stays free of Android
                 // framework types (and unit-testable on the JVM).
-                val preview = runCatching { ThumbnailGenerator.generate(tempPlain) }.getOrNull()
+                val preview = runCatching {
+                    ThumbnailGenerator.generate(tempPlain, queryMimeType(uri))
+                }.getOrNull()
                 SkeFileCipher.encryptFile(tempPlain, tempEncrypted, password, preview) { done, total ->
                     onProgress(Progress(displayName, index + 1, uris.size, done, total))
                 }
@@ -109,13 +111,15 @@ class CryptoTaskRunner(private val context: Context) {
     /** Encrypt a single local file into the app cache; used before uploading. */
     suspend fun encryptToCache(uri: Uri, password: String, onProgress: ((Long, Long) -> Unit)? = null): File =
         withContext(Dispatchers.IO) {
-            val tempPlain = createTemp("plain")
+            val tempPlain = createTempFor(queryDisplayName(uri))
             val tempEncrypted = createTemp("ske")
             copyUriToFile(uri, tempPlain)
             // Previews must survive uploads too: this is the path that puts a
             // file into the vault, and a container with an empty envelope
             // shows as a generic tile in every other client.
-            val preview = runCatching { ThumbnailGenerator.generate(tempPlain) }.getOrNull()
+            val preview = runCatching {
+                ThumbnailGenerator.generate(tempPlain, queryMimeType(uri))
+            }.getOrNull()
             SkeFileCipher.encryptFile(tempPlain, tempEncrypted, password, preview) { done, total ->
                 onProgress?.invoke(done, total)
             }
@@ -140,6 +144,20 @@ class CryptoTaskRunner(private val context: Context) {
     private fun createTemp(suffix: String): File =
         File.createTempFile("ske_", ".$suffix", context.cacheDir)
 
+    /**
+     * Temp file for a copied source, reusing the original extension.
+     *
+     * `ThumbnailGenerator` tells a video from a picture by extension, so a
+     * cache file named `*.plain` would sample nothing at all; keeping the
+     * source's suffix is what lets video previews be generated. Non-media
+     * sources fall back to `plain`, which is byte-identical for the cipher.
+     */
+    private fun createTempFor(name: String?): File {
+        val extension = name?.substringAfterLast('.', "")?.lowercase().orEmpty()
+        val usable = extension.isNotEmpty() && extension.all { it.isLetterOrDigit() }
+        return createTemp(if (usable) extension else "plain")
+    }
+
     private fun copyUriToFile(uri: Uri, target: File) {
         val input = context.contentResolver.openInputStream(uri)
             ?: throw IOException("无法读取所选文件")
@@ -162,6 +180,10 @@ class CryptoTaskRunner(private val context: Context) {
 
         return document.uri
     }
+
+    /** MIME type the provider reports for [uri], or `null` when it has none. */
+    private fun queryMimeType(uri: Uri): String? =
+        runCatching { context.contentResolver.getType(uri) }.getOrNull()
 
     private fun queryDisplayName(uri: Uri): String? {
         runCatching {

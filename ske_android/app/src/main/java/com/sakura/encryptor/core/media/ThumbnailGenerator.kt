@@ -23,15 +23,22 @@ import java.io.File
  */
 object ThumbnailGenerator {
 
-    /** Return a JPEG preview of [src], or `null` when none is worth storing. */
-    fun generate(src: File): ByteArray? {
+    /**
+     * Return a JPEG preview of [src], or `null` when none is worth storing.
+     *
+     * @param mimeType the source's type as reported by the content provider,
+     *   when known. A SAF copy has no extension of its own, so `video/*` is the
+     *   most reliable signal; the extension is only a fallback for providers
+     *   that report `null` or a generic `application/octet-stream`.
+     */
+    fun generate(src: File, mimeType: String? = null): ByteArray? {
         val sourceSize = src.length()
         if (sourceSize <= 0) return null
 
         // Decoding a 100 MP JPEG can throw OutOfMemoryError; a missing preview
         // must never abort an encryption job.
         val preview = runCatching {
-            if (isVideo(src)) videoPreview(src) else imagePreview(src)
+            if (isVideo(src, mimeType)) videoPreview(src) else imagePreview(src)
         }.getOrNull() ?: return null
 
         if (preview.size < SkeFormat.THUMB_MIN_BYTES) return null
@@ -39,7 +46,14 @@ object ThumbnailGenerator {
         return preview
     }
 
-    private fun isVideo(src: File): Boolean {
+    private fun isVideo(src: File, mimeType: String?): Boolean {
+        // A definitive provider type wins: it knows a `.ts` video from a `.ts`
+        // TypeScript source, and a video with no usable extension at all.
+        val type = mimeType?.lowercase()
+        if (type != null) {
+            if (type.startsWith("video/")) return true
+            if (type.startsWith("image/")) return false
+        }
         val extension = src.extension.lowercase()
         return extension.isNotEmpty() && ".$extension" in SkeFormat.VIDEO_SUFFIXES
     }
