@@ -58,7 +58,7 @@ class RemoteException(
  */
 abstract class RemoteClient(
     protected val client: OkHttpClient,
-    protected val json: Json = DEFAULT_JSON,
+    internal val json: Json = DEFAULT_JSON,
 ) {
 
     companion object {
@@ -336,7 +336,7 @@ abstract class RemoteClient(
         val ok: Boolean get() = httpCode in 200..299 && code == OK
     }
 
-    protected fun url(server: String, path: String): String = server.trimEnd('/') + path
+    internal fun url(server: String, path: String): String = server.trimEnd('/') + path
 
     /**
      * Absolute form of a preview link the server returned.
@@ -370,7 +370,7 @@ abstract class RemoteClient(
             java.net.URLEncoder.encode(segment, "UTF-8").replace("+", "%20")
         }
 
-    protected suspend fun requestJson(
+    internal suspend fun requestJson(
         method: String,
         url: String,
         token: String?,

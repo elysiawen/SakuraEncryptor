@@ -51,6 +51,9 @@ class SettingsStore(private val context: Context) {
         val LOCAL_OPENLIST_ENABLED = booleanPreferencesKey("local_openlist_enabled")
         val LOCAL_OPENLIST_SEALED_PASSWORD = stringPreferencesKey("local_openlist_sealed_password")
         val LOCAL_OPENLIST_RESTORE_PROFILE = longPreferencesKey("local_openlist_restore_profile")
+        val LOCAL_OPENLIST_PORT = intPreferencesKey("local_openlist_port")
+        val LOCAL_OPENLIST_USERNAME = stringPreferencesKey("local_openlist_username")
+        val LOCAL_OPENLIST_PROFILE = longPreferencesKey("local_openlist_profile")
 
         // Local folder grants.
         val LOCAL_TREE_URI = stringPreferencesKey("local_tree_uri")
@@ -188,6 +191,33 @@ class SettingsStore(private val context: Context) {
                 it.remove(Keys.LOCAL_OPENLIST_RESTORE_PROFILE)
             } else {
                 it[Keys.LOCAL_OPENLIST_RESTORE_PROFILE] = id
+            }
+        }
+
+    /** Loopback port of the embedded server; takes effect when it next starts. */
+    val localOpenListPort: Flow<Int> =
+        context.settingsDataStore.data.map { it[Keys.LOCAL_OPENLIST_PORT] ?: DEFAULT_LOCAL_PORT }
+
+    /** Admin account name the embedded server is set up with. */
+    val localOpenListUsername: Flow<String> =
+        context.settingsDataStore.data.map { it[Keys.LOCAL_OPENLIST_USERNAME] ?: DEFAULT_ADMIN_USER }
+
+    /** Row in the profile table that fronts the embedded server, created on first enable. */
+    val localOpenListProfileId: Flow<Long?> =
+        context.settingsDataStore.data.map { it[Keys.LOCAL_OPENLIST_PROFILE] }
+
+    suspend fun setLocalOpenListPort(port: Int) =
+        context.settingsDataStore.edit { it[Keys.LOCAL_OPENLIST_PORT] = port }
+
+    suspend fun setLocalOpenListUsername(username: String) =
+        context.settingsDataStore.edit { it[Keys.LOCAL_OPENLIST_USERNAME] = username }
+
+    suspend fun setLocalOpenListProfileId(id: Long?) =
+        context.settingsDataStore.edit {
+            if (id == null) {
+                it.remove(Keys.LOCAL_OPENLIST_PROFILE)
+            } else {
+                it[Keys.LOCAL_OPENLIST_PROFILE] = id
             }
         }
 
@@ -362,6 +392,12 @@ class SettingsStore(private val context: Context) {
         const val DEFAULT_CACHE_BLOCKS = 64
         const val MIN_CACHE_BLOCKS = 8
         const val MAX_CACHE_BLOCKS = 256
+
+        /** Matches the OpenList default and the port the binding writes into config.json. */
+        const val DEFAULT_LOCAL_PORT = 5244
+
+        /** The account OpenList creates on first setup when the user does not pick one. */
+        const val DEFAULT_ADMIN_USER = "admin"
 
         // Cache budgets are the user's call; these are only the starting point.
         const val DEFAULT_THUMBNAIL_CACHE_MB = 128

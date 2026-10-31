@@ -38,10 +38,14 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.sakura.encryptor.core.alist.AListApi
-import com.sakura.encryptor.core.alist.DriverInfo
-import com.sakura.encryptor.core.alist.DriverItem
-import com.sakura.encryptor.core.alist.StorageInfo
-import com.sakura.encryptor.core.openlist.LocalOpenListManager
+import com.sakura.encryptor.core.embedded.EmbeddedServer
+import com.sakura.encryptor.core.openlist.DriverInfo
+import com.sakura.encryptor.core.openlist.DriverItem
+import com.sakura.encryptor.core.openlist.StorageInfo
+import com.sakura.encryptor.core.openlist.createStorage
+import com.sakura.encryptor.core.openlist.driverInfos
+import com.sakura.encryptor.core.openlist.storages
+import com.sakura.encryptor.core.openlist.updateStorage
 import com.sakura.encryptor.ui.components.LoadingState
 import com.sakura.encryptor.ui.components.PrimaryButton
 import com.sakura.encryptor.ui.components.SakuraCard
@@ -80,7 +84,7 @@ data class StorageEditState(
 class StorageEditViewModel(
     private val api: AListApi,
     private val json: Json,
-    private val localOpenList: LocalOpenListManager,
+    private val embeddedServer: EmbeddedServer,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(StorageEditState())
@@ -92,7 +96,7 @@ class StorageEditViewModel(
     fun load(storageId: Int?, driverName: String) = viewModelScope.launch {
         _state.value = _state.value.copy(loading = true, error = null)
         runCatching {
-            val (server, token) = localOpenList.requireSession()
+            val (server, token) = embeddedServer.requireSession()
             val current = storageId?.let { id ->
                 api.storages(server, token).firstOrNull { it.id == id }
                     ?: error("这条存储不存在，可能已被删除")
@@ -173,7 +177,7 @@ class StorageEditViewModel(
 
         _state.value = current.copy(saving = true, error = null)
         runCatching {
-            val (server, token) = localOpenList.requireSession()
+            val (server, token) = embeddedServer.requireSession()
             val addition = buildAddition(current)
             val base = existing
             val defaultWebdav = driverInfo?.common?.firstOrNull { it.name == "webdav_policy" }?.default.orEmpty()
@@ -264,7 +268,7 @@ fun StorageEditScreen(
     val viewModel = rememberAppViewModel(
         key = "storage_edit:${storageId ?: -1}:$driverName",
     ) { container ->
-        StorageEditViewModel(container.aListApi, container.json, container.localOpenListManager)
+        StorageEditViewModel(container.aListApi, container.json, container.embeddedServer)
     }
     val state by viewModel.state.collectAsStateWithLifecycle()
 

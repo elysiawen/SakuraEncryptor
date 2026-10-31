@@ -2,7 +2,7 @@
 
 **Sakura Encryptor** (formerly SKV-Shield) is a complete **Zero-Knowledge** privacy solution designed for fast encryption and seamless cross-device playback of personal cloud media files.
 
-With this system, you can encrypt private videos, audio, and image files and store them on AList or any WebDAV service, then enjoy smooth real-time decrypted playback in the browser, on Android, or in the desktop app — without worrying about the server exposing your data or passwords.
+With this system, you can encrypt private videos, audio, and image files and store them on AList, OpenList or any WebDAV service, then enjoy smooth real-time decrypted playback in the browser, on Android, or in the desktop app — without worrying about the server exposing your data or passwords.
 
 > 🇨🇳 [中文说明](README.md)
 
@@ -17,7 +17,9 @@ With this system, you can encrypt private videos, audio, and image files and sto
 - **📋 Playlist** — Music, video, and image players all support folder-based playlists with the same media type. Quickly switch tracks and auto-play the next item.
 - **📊 Real-Time Performance Monitor** — Integrated FPS, frame drops, decryption latency, network speed, and cache hit rate display on the playback page.
 - **💾 Smart Offline Caching** — Service Worker 2.0 block-level caching (LRU) significantly reduces network traffic and solves the bandwidth amplification problem.
-- **📱 Android Client** — Native Kotlin + Jetpack Compose app with local encrypt/decrypt, AList cloud browsing, and streaming decryption playback; its decrypted caches are optional and wiped when the vault locks.
+- **🧩 Two Cloud Backends** — A profile can talk to AList or OpenList (a community fork that keeps the same `/api` surface), on any of the three clients; OpenList additionally accepts chunked uploads, so very large encrypted containers never hit a single-request size limit.
+- **🏠 Android Embedded Server** — The `openlist` flavor compiles OpenList into the app process and serves it on `127.0.0.1`, keeping its data in the app's private directory: full directory tree, thumbnails and streaming playback without any external server, with a foreground notification that keeps the process alive.
+- **📱 Android Client** — Native Kotlin + Jetpack Compose app with local encrypt/decrypt, AList / OpenList cloud browsing, and streaming decryption playback; its decrypted caches are optional and wiped when the vault locks.
 - **🖥️ Desktop Client** — Electron + Vue 3, bringing the cloud library, local library, encryption workbench and transfer queue into one window. The local library reads the disk directly behind its own password — no uploads — and both libraries support a multi-select mode for batch download and delete, alongside an app lock, tray and `.ske` file association.
 - **🔐 App Lock** — A launch passphrase, optionally combined with a TOTP token and fingerprint/face. The ticked methods can demand all of them or any one, and each proof is remembered as it passes, so the order is up to you. The TOTP secret is sealed with the Android Keystore and must be confirmed with a live code before it is stored.
 - **🗂️ Cache Controls** — The thumbnail cache, the decrypted media-block cache and the derived-key memo can each be switched off; the first two also take a size budget with least-recently-used eviction.
@@ -30,7 +32,7 @@ With this system, you can encrypt private videos, audio, and image files and sto
 - **`ske_cli/`** — Python desktop client for fast local file encryption.
 - **`ske_web/`** — Vue 3 + Service Worker powered web player for real-time streaming decryption and playback of cloud files.
 - **`ske_desktop/`** — Electron + Vue 3 desktop client: cloud library, local library, encryption workbench and transfer queue in one window, with an app lock and tray.
-- **`ske_android/`** — Kotlin + Jetpack Compose Android client with local encryption, AList browsing and streaming decryption playback.
+- **`ske_android/`** — Kotlin + Jetpack Compose Android client with local encryption, AList / OpenList browsing and streaming decryption playback; `openlist-lib/` builds OpenList into an AAR with gomobile for the embedded server.
 - **`ske_extension/`** — Chrome extension (Sakura Encryptor CORS Helper) that adds `Access-Control-Allow-Origin` to the drives you whitelist, so the web client can read drives that ship no CORS headers.
 - **`tests/`** — Comprehensive encryption consistency test suite.
 
@@ -66,9 +68,11 @@ npm run dev
 ```
 
 1. Open `http://localhost:5173` in your browser.
-2. Enter your AList / WebDAV server address and password.
+2. Pick the *AList* or *OpenList* tab and enter the server address, account and password (a one-time code is asked for when 2FA is on).
 3. Click an encrypted file and enter the password used during encryption.
 4. Enjoy private playback!
+
+> To play files straight off this machine, switch to the *Local* tab and pick a folder — everything is decrypted in the browser, nothing is uploaded.
 
 > The web client fetches cloud files directly from the browser (through a Service Worker), so the drive's direct links have to send CORS headers. When a drive refuses — the browser only reports `Failed to fetch` — the UI names the reason and hands that host to the helper extension in `ske_extension/` (Sakura Encryptor CORS Helper); once it is installed and the host added, a refresh is enough. Without the extension, use the desktop or Android client for that drive.
 
@@ -86,7 +90,7 @@ npm start        # run the built app
 
 The app opens straight into the main UI — no account required — with four pages covering the whole workflow:
 
-- **Cloud library** — create a profile under *Cloud profiles* (one AList account + its own encryption password), then browse, play and upload from the cloud page.
+- **Cloud library** — create a profile under *Cloud profiles* (one AList / OpenList account + its own encryption password), then browse, play and upload from the cloud page.
 - **Local library** — pick a directory once, unlock it with the **local password**, then read and write `.ske` and plain files directly on disk. It is fully independent of every cloud profile.
 - **Encryption workbench** — encrypt files or an entire folder into a target directory, with a live job queue.
 - **Transfers** — downloads (decrypt) and uploads (encrypt) run in background queues, two at a time by default; with *close to tray* enabled they keep going after the window is closed.
@@ -101,14 +105,20 @@ Requires the Android SDK (compileSdk 35) and JDK 17+.
 
 ```bash
 cd ske_android
-./gradlew assembleDebug
-# Artifact: app/build/outputs/apk/debug/app-debug.apk
+./gradlew assemblePlainDebug      # regular build, no embedded server
+# Artifact: app/build/outputs/apk/plain/debug/app-plain-debug.apk
+
+./gradlew assembleOpenlistDebug   # bundles OpenList
+# Artifact: app/build/outputs/apk/openlist/debug/app-openlist-debug.apk
 ```
+
+`assembleDebug` builds both flavors at once. The `openlist` flavor depends on `app/libs/openlistlib.aar` (28 MB, not committed) and the build fails without it; regenerate it with `ske_android/openlist-lib/build.ps1`, which needs Go, gomobile, the Android SDK and an NDK, targets `android/arm64` only by default, and takes `-Targets "android/arm64,android/amd64"` to add the emulator.
 
 The app opens **straight into the main UI — no account required**:
 
 - **Local-only**: unlock once with the **local password** on the Local tab to play or encrypt/decrypt `.ske` files, then pick a folder to encrypt new files into. It is fully independent from every cloud profile.
-- **Cloud**: create profiles under *Settings → Cloud profiles* — **one profile = one AList account + its own encryption password**. Keep several and switch at any time; switching unlocks and reconnects automatically.
+- **Cloud**: create profiles under *Settings → Cloud profiles* — **one profile = one AList / OpenList account + its own encryption password**. Keep several and switch at any time; switching unlocks and reconnects automatically.
+- **No server at all**: the `openlist` flavor offers *Settings → Embedded server*, which runs OpenList inside the phone with its data in the app's private directory. Turning it on creates and switches to an "Embedded server" profile; the encryption password is still entered on the browse page, and *Manage embedded storage* lets you add storage, change its mount path or drop the mount — dropping a mount never deletes the files.
 
 Every password is stored only as a Keystore-sealed blob (opt in per profile) and lives in memory while in use.
 
@@ -136,6 +146,9 @@ The SW 2.0 architecture introduces **session-level caching**: file headers and d
 ### Android Implementation
 The Android client reuses the exact same `.ske` version 001 format (byte-compatible, verified in `ske_android/app/src/test`). Playback goes through a custom Media3 `DataSource` that fetches only the ciphertext blocks covering the requested plaintext range — HTTP Range for remote files, SAF random access for local ones — decrypts them in memory and feeds the player. Decrypted blocks are reused from an in-memory LRU; two further disk caches are optional — thumbnails (on by default, 128 MB) and decrypted media blocks (off by default, 1 GB) — written under the app's private `cache/` directory, evicted least-recently-used over budget, and wiped when the vault locks, when switched off or by the system.
 
+### Embedded Server (Android `openlist` flavor)
+The other path: `openlist-lib/build.ps1` builds OpenList (v4.2.9 by default) into an AAR with gomobile, and the app starts it inside its own process. It listens on the loopback interface only and keeps config and data in the app's private directory, so nothing on the network can reach it. A foreground `dataSync` service keeps the process from being frozen; Android 15's timeout stops the service along with the server, and the next launch starts it again.
+
 ### Desktop Implementation
 The desktop client keeps every disk and cloud operation in the Electron main process; the renderer only asks for listings, thumbnails and media streams over IPC, so passwords never leave the main process.
 
@@ -146,6 +159,7 @@ The desktop client keeps every disk and cloud operation in the Electron main pro
 - **Media controls** — audio plays in the shell window, so that one renderer publishes the app's only Media Session: Windows SMTC, macOS Now Playing and Linux MPRIS show the title and artwork and take over play, previous, next and seek without any native module. Locking the app or stopping a track clears it, leaving no title on the system panel or the lock screen.
 - **App lock** — the password is stored with `scrypt` and a per-install salt; the TOTP secret is sealed with `safeStorage` (DPAPI on Windows, Keychain on macOS, libsecret on Linux), because "match any" has to verify a code before any password is available.
 - **Caches** — thumbnail previews are re-encrypted with a key derived from the media password before they touch the disk, with a size budget and LRU eviction; decrypted blocks and signed download links stay in memory and are released when the session ends.
+- **Backends** — AList and OpenList share one request layer; the OpenList subclass only adds `/api/fs/multipart/*` chunked upload (init → chunks → complete) for large containers, falling back to a single upload when the server does not offer it.
 
 ---
 

@@ -41,6 +41,22 @@ android {
         vectorDrawables { useSupportLibrary = true }
     }
 
+    /**
+     * Two APKs from one tree: `plain` is the regular build, `openlist` bundles
+     * the in-process OpenList server. The AAR is a 28 MB binary built by
+     * openlist-lib/build.ps1 and is not committed, so it is wired only into the
+     * `openlist` flavor and the build fails there when it is missing.
+     */
+    flavorDimensions += "openlist"
+    productFlavors {
+        create("plain") {
+            dimension = "openlist"
+        }
+        create("openlist") {
+            dimension = "openlist"
+        }
+    }
+
     buildTypes {
         debug {
             isMinifyEnabled = false
@@ -136,11 +152,31 @@ dependencies {
     implementation(libs.coil.compose)
 
     // In-process OpenList, bound from Go by openlist-lib/build.ps1. The AAR is
-    // a 28 MB artifact and is not committed: without it the app still builds
-    // and the optional local server simply reports itself unsupported.
-    file("libs/openlistlib.aar").takeIf { it.exists() }?.let {
-        implementation(files(it))
-    }
+    // a 28 MB artifact and is not committed, so only the `openlist` flavor
+    // carries it; `plain` keeps building without any Go toolchain.
+    // The flavor-specific configuration name has no typed accessor in this
+    // script, so it is addressed by name.
+    add("openlistImplementation", files("libs/openlistlib.aar"))
 
     testImplementation(libs.junit)
+}
+
+// A missing AAR would otherwise yield an "openlist" APK without the server, so
+// the assemble/bundle tasks of that flavor refuse to run without it.
+val openListAar = layout.projectDirectory.file("libs/openlistlib.aar")
+val verifyOpenListLib = tasks.register("verifyOpenListLib") {
+    val aar = openListAar.asFile
+    doLast {
+        if (!aar.exists()) {
+            throw GradleException(
+                "缺少 ${aar}，无法打包 openlist 版本。先运行 ske_android/openlist-lib/build.ps1。"
+            )
+        }
+    }
+}
+
+tasks.configureEach {
+    if (name.startsWith("assembleOpenlist") || name.startsWith("bundleOpenlist")) {
+        dependsOn(verifyOpenListLib)
+    }
 }

@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Status bar / notification icon: the five-petal sakura mark from the app logo,
+    reduced to an alpha silhouette. Notification small icons are tinted by the
+    system, so only the shape matters — keep every fill white and opaque.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <group
+        android:pivotX="12"
+        android:pivotY="12"
+        android:scaleX="1.06"
+        android:scaleY="1.06">
+
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M12,12C10,11.2 9.3,9.2 9.3,7.2C9.3,5.2 9.7,4 10.3,3.6C11,4.2 11.6,4.8 12,5.2C12.4,4.8 13,4.2 13.7,3.6C14.3,4 14.7,5.2 14.7,7.2C14.7,9.2 14,11.2 12,12Z" />
+
+        <group
+            android:pivotX="12"
+            android:pivotY="12"
+            android:rotation="72">
+            <path
+                android:fillColor="#FFFFFFFF"
+                android:pathData="M12,12C10,11.2 9.3,9.2 9.3,7.2C9.3,5.2 9.7,4 10.3,3.6C11,4.2 11.6,4.8 12,5.2C12.4,4.8 13,4.2 13.7,3.6C14.3,4 14.7,5.2 14.7,7.2C14.7,9.2 14,11.2 12,12Z" />
+        </group>
+
+        <group
+            android:pivotX="12"
+            android:pivotY="12"
+            android:rotation="144">
+            <path
+                android:fillColor="#FFFFFFFF"
+                android:pathData="M12,12C10,11.2 9.3,9.2 9.3,7.2C9.3,5.2 9.7,4 10.3,3.6C11,4.2 11.6,4.8 12,5.2C12.4,4.8 13,4.2 13.7,3.6C14.3,4 14.7,5.2 14.7,7.2C14.7,9.2 14,11.2 12,12Z" />
+        </group>
+
+        <group
+            android:pivotX="12"
+            android:pivotY="12"
+            android:rotation="216">
+            <path
+                android:fillColor="#FFFFFFFF"
+                android:pathData="M12,12C10,11.2 9.3,9.2 9.3,7.2C9.3,5.2 9.7,4 10.3,3.6C11,4.2 11.6,4.8 12,5.2C12.4,4.8 13,4.2 13.7,3.6C14.3,4 14.7,5.2 14.7,7.2C14.7,9.2 14,11.2 12,12Z" />
+        </group>
+
+        <group
+            android:pivotX="12"
+            android:pivotY="12"
+            android:rotation="288">
+            <path
+                android:fillColor="#FFFFFFFF"
+                android:pathData="M12,12C10,11.2 9.3,9.2 9.3,7.2C9.3,5.2 9.7,4 10.3,3.6C11,4.2 11.6,4.8 12,5.2C12.4,4.8 13,4.2 13.7,3.6C14.3,4 14.7,5.2 14.7,7.2C14.7,9.2 14,11.2 12,12Z" />
+        </group>
+
+        <!-- Fills the wedge gaps where the petals meet at the centre. -->
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M10.5,12a1.5,1.5 0 1,0 3,0a1.5,1.5 0 1,0 -3,0Z" />
+    </group>
+</vector>

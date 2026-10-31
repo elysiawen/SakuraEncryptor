@@ -20,6 +20,9 @@ object Routes {
     /** Storages of the embedded OpenList server. */
     const val OPENLIST_STORAGE = "openlist_storage"
 
+    /** Port and admin account of the embedded OpenList server. */
+    const val OPENLIST_SERVER = "openlist_server"
+
     const val STORAGE_ARG_ID = "storageId"
     const val STORAGE_ARG_DRIVER = "driver"
 

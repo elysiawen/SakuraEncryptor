@@ -30,3 +30,12 @@
 -dontwarn androidx.media3.**
 -keep class androidx.media3.exoplayer.DefaultRenderersFactory { *; }
 
+# The embedded OpenList binding is reached only through Class.forName, so R8
+# cannot see a single reference to it and would strip the whole AAR from the
+# `openlist` release APK. The interfaces are proxied reflectively as well.
+-keep class openlistlib.** { *; }
+
+# The flavor's EmbeddedServer implementation is loaded by name too. The rule
+# matches nothing in `plain`, which ships no such class.
+-keep class com.sakura.encryptor.embedded.** { *; }
+

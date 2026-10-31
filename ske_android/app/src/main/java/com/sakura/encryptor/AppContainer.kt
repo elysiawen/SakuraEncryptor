@@ -16,8 +16,8 @@ import com.sakura.encryptor.core.local.LocalSkeStore
 import com.sakura.encryptor.core.media.PreviewCache
 import com.sakura.encryptor.core.media.PreviewLoader
 import com.sakura.encryptor.core.media.ReaderPageCache
-import com.sakura.encryptor.core.openlist.LocalOpenListManager
-import com.sakura.encryptor.core.openlist.LocalOpenListServer
+import com.sakura.encryptor.core.embedded.EmbeddedServer
+import com.sakura.encryptor.core.embedded.EmbeddedServers
 import com.sakura.encryptor.core.player.AudioTags
 import com.sakura.encryptor.core.player.CipherBlockSourceFactory
 import com.sakura.encryptor.core.player.DecryptedBytesReader
@@ -108,18 +108,14 @@ class AppContainer(private val appContext: Context) {
 
     /**
      * Optional OpenList running inside this process, so a user without a
-     * remote server still has somewhere to store files. Off unless something
-     * calls [LocalOpenListServer.start]; absent from builds that did not run
-     * `openlist-lib/build.ps1`.
+     * remote server still has somewhere to store files. Resolves to a disabled
+     * stand-in in builds that did not run `openlist-lib/build.ps1`.
      */
-    val localOpenList: LocalOpenListServer by lazy { LocalOpenListServer(appContext) }
-
-    /** Switch, account setup and storage provisioning for [localOpenList]. */
-    val localOpenListManager: LocalOpenListManager by lazy {
-        LocalOpenListManager(
+    val embeddedServer: EmbeddedServer by lazy {
+        EmbeddedServers.create(
+            context = appContext,
             settings = settings,
             keyStore = keyStore,
-            server = localOpenList,
             api = aListApi,
             session = remoteSession,
             profiles = profileRepository,
@@ -298,7 +294,7 @@ class AppContainer(private val appContext: Context) {
             vault.markRestoreFinished()
             // Sequenced after the profile restore so the embedded server's
             // login wins over a stored profile that now points nowhere.
-            localOpenListManager.restore()
+            embeddedServer.restore()
         }
 
         val invalidate = {

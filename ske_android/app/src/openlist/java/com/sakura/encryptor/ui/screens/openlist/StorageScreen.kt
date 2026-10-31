@@ -1,7 +1,9 @@
 package com.sakura.encryptor.ui.screens.openlist
 
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -9,18 +11,27 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.FolderOpen
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -32,18 +43,24 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.sakura.encryptor.core.alist.AListApi
-import com.sakura.encryptor.core.alist.StorageInfo
-import com.sakura.encryptor.core.openlist.LocalOpenListManager
+import com.sakura.encryptor.core.embedded.EmbeddedServer
+import com.sakura.encryptor.core.openlist.StorageInfo
+import com.sakura.encryptor.core.openlist.deleteStorage
+import com.sakura.encryptor.core.openlist.driverInfos
+import com.sakura.encryptor.core.openlist.setStorageEnabled
+import com.sakura.encryptor.core.openlist.storages
 import com.sakura.encryptor.ui.components.LoadingState
 import com.sakura.encryptor.ui.components.PrimaryButton
 import com.sakura.encryptor.ui.components.SakuraCard
 import com.sakura.encryptor.ui.components.SakuraTopBar
-import com.sakura.encryptor.ui.components.SectionHeader
 import com.sakura.encryptor.ui.components.StateMessage
 import com.sakura.encryptor.ui.rememberAppViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -63,7 +80,7 @@ data class StorageListState(
 
 class StorageListViewModel(
     private val api: AListApi,
-    private val localOpenList: LocalOpenListManager,
+    private val embeddedServer: EmbeddedServer,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(StorageListState())
@@ -72,7 +89,7 @@ class StorageListViewModel(
     fun refresh() = viewModelScope.launch {
         _state.value = _state.value.copy(loading = true, error = null)
         runCatching {
-            val (server, token) = localOpenList.requireSession()
+            val (server, token) = embeddedServer.requireSession()
             api.storages(server, token)
         }.onSuccess { list ->
             _state.value = _state.value.copy(loading = false, storages = list.sortedBy { it.order })
@@ -90,7 +107,7 @@ class StorageListViewModel(
         viewModelScope.launch {
             _state.value = _state.value.copy(busy = true, error = null)
             runCatching {
-                val (server, token) = localOpenList.requireSession()
+                val (server, token) = embeddedServer.requireSession()
                 api.driverInfos(server, token).keys.sorted()
             }.onSuccess { names ->
                 _state.value = _state.value.copy(busy = false, drivers = names)
@@ -107,7 +124,7 @@ class StorageListViewModel(
         if (_state.value.busy) return@launch
         _state.value = _state.value.copy(busy = true, error = null)
         runCatching {
-            val (server, token) = localOpenList.requireSession()
+            val (server, token) = embeddedServer.requireSession()
             api.setStorageEnabled(server, token, storage.id, enabled)
             api.storages(server, token).sortedBy { it.order }
         }.onSuccess { list ->
@@ -124,7 +141,7 @@ class StorageListViewModel(
         if (_state.value.busy) return@launch
         _state.value = _state.value.copy(busy = true, error = null)
         runCatching {
-            val (server, token) = localOpenList.requireSession()
+            val (server, token) = embeddedServer.requireSession()
             api.deleteStorage(server, token, storage.id)
             api.storages(server, token).sortedBy { it.order }
         }.onSuccess { list ->
@@ -145,7 +162,7 @@ fun StorageScreen(
     onEditStorage: (id: Int) -> Unit,
 ) {
     val viewModel = rememberAppViewModel { container ->
-        StorageListViewModel(container.aListApi, container.localOpenListManager)
+        StorageListViewModel(container.aListApi, container.embeddedServer)
     }
     val state by viewModel.state.collectAsStateWithLifecycle()
 
@@ -168,7 +185,26 @@ fun StorageScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp),
         ) {
-            SectionHeader("挂载")
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 6.dp, top = 4.dp, bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "挂载",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                )
+                if (state.storages.isNotEmpty()) {
+                    Text(
+                        text = "${state.storages.size} 个 · ${state.storages.count { !it.disabled }} 个已启用",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
 
             PrimaryButton(
                 text = "添加存储",
@@ -254,51 +290,164 @@ private fun StorageCard(
     onToggle: (Boolean) -> Unit,
     onDelete: () -> Unit,
 ) {
-    SakuraCard {
+    var menuOpen by remember { mutableStateOf(false) }
+    val enabled = !storage.disabled
+
+    SakuraCard(
+        onClick = onEdit,
+        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 14.dp),
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
+            StorageGlyph(enabled = enabled)
+            Spacer(Modifier.width(14.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(text = storage.mountPath, style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.height(2.dp))
                 Text(
-                    text = buildString {
-                        append(storage.driver)
-                        append(" · ")
-                        append(if (storage.disabled) "已停用" else "已启用")
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    text = storage.mountPath,
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
+                Spacer(Modifier.height(6.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    DriverTag(driver = storage.driver)
+                    Spacer(Modifier.width(8.dp))
+                    StatusDot(enabled = enabled)
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text = if (enabled) "已启用" else "已停用",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 if (storage.remark.isNotBlank()) {
-                    Spacer(Modifier.height(2.dp))
+                    Spacer(Modifier.height(6.dp))
                     Text(
                         text = storage.remark,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
-            Spacer(Modifier.width(12.dp))
+            Spacer(Modifier.width(4.dp))
             Switch(
-                checked = !storage.disabled,
+                checked = enabled,
                 onCheckedChange = onToggle,
                 enabled = !busy,
             )
-        }
-        HorizontalDivider(
-            color = MaterialTheme.colorScheme.outlineVariant,
-            modifier = Modifier.padding(vertical = 4.dp),
-        )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.End,
-        ) {
-            TextButton(onClick = onEdit) { Text("编辑") }
-            Spacer(Modifier.width(4.dp))
-            TextButton(onClick = onDelete, enabled = !busy) {
-                Text("删除", color = MaterialTheme.colorScheme.error)
+            Box {
+                IconButton(
+                    onClick = { menuOpen = true },
+                    enabled = !busy,
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.MoreVert,
+                        contentDescription = "更多操作",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                DropdownMenu(
+                    expanded = menuOpen,
+                    onDismissRequest = { menuOpen = false },
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("编辑") },
+                        leadingIcon = {
+                            Icon(Icons.Rounded.Edit, contentDescription = null)
+                        },
+                        onClick = {
+                            menuOpen = false
+                            onEdit()
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = {
+                            Text("删除", color = MaterialTheme.colorScheme.error)
+                        },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Rounded.DeleteOutline,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error,
+                            )
+                        },
+                        onClick = {
+                            menuOpen = false
+                            onDelete()
+                        },
+                    )
+                }
             }
         }
     }
+}
+
+/** Rounded tile with the mount's icon, tinted by the current accent. */
+@Composable
+private fun StorageGlyph(enabled: Boolean) {
+    val iconColor =
+        if (enabled) MaterialTheme.colorScheme.onPrimaryContainer
+        else MaterialTheme.colorScheme.onSurfaceVariant
+    val brush = if (enabled) {
+        Brush.linearGradient(
+            listOf(
+                MaterialTheme.colorScheme.primaryContainer,
+                MaterialTheme.colorScheme.secondaryContainer,
+            ),
+        )
+    } else {
+        Brush.linearGradient(
+            listOf(
+                MaterialTheme.colorScheme.surfaceVariant,
+                MaterialTheme.colorScheme.surfaceVariant,
+            ),
+        )
+    }
+    Box(
+        modifier = Modifier
+            .size(46.dp)
+            .clip(RoundedCornerShape(15.dp))
+            .background(brush),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = Icons.Rounded.FolderOpen,
+            contentDescription = null,
+            tint = iconColor,
+            modifier = Modifier.size(24.dp),
+        )
+    }
+}
+
+/** The driver name as a small tonal chip. */
+@Composable
+private fun DriverTag(driver: String) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = CircleShape,
+    ) {
+        Text(
+            text = driver.ifBlank { "未知驱动" },
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+        )
+    }
+}
+
+@Composable
+private fun StatusDot(enabled: Boolean) {
+    Box(
+        modifier = Modifier
+            .size(7.dp)
+            .clip(CircleShape)
+            .background(
+                if (enabled) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.outline,
+            ),
+    )
 }
 
 @Composable

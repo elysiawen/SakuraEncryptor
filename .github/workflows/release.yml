@@ -261,7 +261,7 @@ jobs:
           path: SakuraEncryptor-Extension.zip
 
   build-android:
-    name: Build Android APK
+    name: Build Android APKs
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -290,8 +290,28 @@ jobs:
           # `yes` keeps stdin fed, so sdkmanager never blocks on a prompt.
           # No `|| true` here: swallowing a licence failure would only push the
           # error into Gradle, where the message is far harder to read.
+          # The NDK is only needed by gomobile, which builds the embedded
+          # OpenList binding for the `openlist` flavor.
           yes | sdkmanager --licenses > /dev/null
-          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018"
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: false
+
+      # The AAR is a 28 MB binary and is never committed, so every run that
+      # ships the `openlist` APK has to reproduce it from the Go sources.
+      - name: Install gomobile
+        run: |
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          "$(go env GOPATH)/bin/gomobile" init
+
+      - name: Build embedded OpenList AAR
+        shell: pwsh
+        run: ./ske_android/openlist-lib/build.ps1
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -322,23 +342,28 @@ jobs:
         run: |
           # The wrapper is committed from Windows and has no execute bit.
           chmod +x gradlew
-          ./gradlew :app:testDebugUnitTest --no-daemon
+          # Tests are flavor-agnostic, so one variant is enough.
+          ./gradlew :app:testPlainDebugUnitTest --no-daemon
 
-      - name: Build release APK
+      - name: Build release APKs
         working-directory: ske_android
         run: ./gradlew :app:assembleRelease --no-daemon
 
-      - name: Collect APK
+      - name: Collect APKs
         run: |
           mkdir -p android-dist
-          cp ske_android/app/build/outputs/apk/release/app-release.apk \
+          # Both flavors ship: the plain one keeps working on devices that gain
+          # nothing from a 27 MB native server, and the openlist one carries it.
+          cp ske_android/app/build/outputs/apk/release/app-plain-release.apk \
              android-dist/SakuraEncryptor-Android.apk
+          cp ske_android/app/build/outputs/apk/release/app-openlist-release.apk \
+             android-dist/SakuraEncryptor-Android-OpenList.apk
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: SakuraEncryptor-Android
-          path: android-dist/SakuraEncryptor-Android.apk
+          path: android-dist/*.apk
 
       # The runner is discarded anyway, but the key should not linger in the
       # workspace longer than the build needs it.
@@ -489,6 +514,7 @@ jobs:
 
             ### 下载什么
             - `SakuraEncryptor-Android.apk` — 安卓客户端，已签名，可直接安装
+            - `SakuraEncryptor-Android-OpenList.apk` — 安卓客户端，内置 OpenList（无需远程服务器，仅 arm64）
             - `SakuraEncryptor-Desktop-Windows-x64.exe` — Electron 客户端，安装版
             - `SakuraEncryptor-Desktop-Windows-x64.zip` — Electron 客户端，绿色版（解压即用，不写注册表）
             - `SakuraEncryptor-Desktop-Linux-x86_64.AppImage` — Electron 客户端，免安装（`chmod +x` 后运行）
