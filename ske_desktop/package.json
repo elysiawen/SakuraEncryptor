@@ -64,6 +64,11 @@
         "role": "Viewer"
       }
     ],
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true
+    },
     "win": {
       "target": [
         "nsis",

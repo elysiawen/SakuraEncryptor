@@ -188,12 +188,19 @@ class AListApi(
         fileName: String,
         file: File,
         asTask: Boolean = false,
+        onProgress: ((bytesWritten: Long, contentLength: Long) -> Unit)? = null,
     ) {
         val remotePath = normalizeUploadPath(dirPath, fileName)
         withContext(Dispatchers.IO) {
+            val fileBody = file.asRequestBody("application/octet-stream".toMediaType())
+            val partBody = if (onProgress != null) {
+                ProgressRequestBody(fileBody, onProgress)
+            } else {
+                fileBody
+            }
             val body = MultipartBody.Builder()
                 .setType(MultipartBody.FORM)
-                .addFormDataPart("file", fileName, file.asRequestBody("application/octet-stream".toMediaType()))
+                .addFormDataPart("file", fileName, partBody)
                 .build()
             val request = Request.Builder()
                 .url(url(server, "/api/fs/form"))

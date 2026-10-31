@@ -27,9 +27,9 @@ object ThumbnailGenerator {
      * Return a JPEG preview of [src], or `null` when none is worth storing.
      *
      * @param mimeType the source's type as reported by the content provider,
-     *   when known. A SAF copy has no extension of its own, so `video/*` is the
-     *   most reliable signal; the extension is only a fallback for providers
-     *   that report `null` or a generic `application/octet-stream`.
+     *   when known. A SAF copy has no extension of its own, so a "video/" type
+     *   prefix is the most reliable signal; the extension is only a fallback for
+     *   providers that report `null` or a generic "application/octet-stream".
      */
     fun generate(src: File, mimeType: String? = null): ByteArray? {
         val sourceSize = src.length()

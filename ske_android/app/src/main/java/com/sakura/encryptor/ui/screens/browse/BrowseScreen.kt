@@ -19,9 +19,12 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.width
@@ -181,6 +184,7 @@ fun BrowseScreen(
     // Uploads: pick local documents first, then confirm (and choose whether to
     // encrypt) in a dialog, mirroring the web client's flow.
     var pendingUpload by remember { mutableStateOf<List<Uri>>(emptyList()) }
+    var pendingNames by remember { mutableStateOf<List<String>>(emptyList()) }
     var encryptUpload by remember { mutableStateOf(true) }
 
     val uploadPicker = rememberLauncherForActivityResult(
@@ -188,6 +192,7 @@ fun BrowseScreen(
     ) { uris ->
         if (uris.isNotEmpty()) {
             encryptUpload = true
+            pendingNames = viewModel.suggestedUploadNames(uris)
             pendingUpload = uris
         }
     }
@@ -547,13 +552,41 @@ fun BrowseScreen(
 
     if (pendingUpload.isNotEmpty()) {
         val folderLabel = breadcrumbs.lastOrNull()?.second ?: "/"
+        val namesReady = pendingUpload.indices.all {
+            pendingNames.getOrElse(it) { "" }.isNotBlank()
+        }
+        val clearPending = {
+            pendingUpload = emptyList()
+            pendingNames = emptyList()
+        }
         AlertDialog(
-            onDismissRequest = { pendingUpload = emptyList() },
+            onDismissRequest = clearPending,
             title = { Text("上传文件") },
             text = {
-                Column {
+                Column(
+                    Modifier
+                        .heightIn(max = 320.dp)
+                        .verticalScroll(rememberScrollState()),
+                ) {
                     Text("将 ${pendingUpload.size} 个文件上传到「$folderLabel」")
                     Spacer(Modifier.height(8.dp))
+                    pendingUpload.indices.forEach { index ->
+                        OutlinedTextField(
+                            value = pendingNames.getOrElse(index) { "" },
+                            onValueChange = { value ->
+                                pendingNames = pendingNames.toMutableList()
+                                    .also { it[index] = value }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = {
+                                Text(
+                                    if (pendingUpload.size == 1) "文件名" else "文件名 ${index + 1}",
+                                )
+                            },
+                            singleLine = true,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                    }
                     EncryptNameToggle(
                         checked = encryptUpload,
                         onCheckedChange = { encryptUpload = it },
@@ -564,13 +597,16 @@ fun BrowseScreen(
                 }
             },
             confirmButton = {
-                TextButton(onClick = {
-                    viewModel.upload(pendingUpload, encryptUpload)
-                    pendingUpload = emptyList()
-                }) { Text("上传") }
+                TextButton(
+                    enabled = namesReady,
+                    onClick = {
+                        viewModel.upload(pendingUpload, encryptUpload, pendingNames)
+                        clearPending()
+                    },
+                ) { Text("上传") }
             },
             dismissButton = {
-                TextButton(onClick = { pendingUpload = emptyList() }) { Text("取消") }
+                TextButton(onClick = clearPending) { Text("取消") }
             },
         )
     }
@@ -578,7 +614,7 @@ fun BrowseScreen(
     state.uploadProgress?.let { progress ->
         TaskProgressDialog(
             title = "正在上传",
-            detail = "${progress.fileName}  (${progress.index}/${progress.count})",
+            detail = "${progress.fileName}  (${progress.index}/${progress.count}) · ${progress.stage}",
             fraction = progress.fraction,
             onSendToBackground = viewModel::dismissUploadUi,
         )

@@ -64,7 +64,10 @@ class BrowseViewModel(
         val fileName: String,
         val index: Int,
         val count: Int,
+        /** Progress of the whole job, not just the current file. */
         val fraction: Float,
+        /** What the current file is doing right now, e.g. 加密中 / 上传中. */
+        val stage: String = "",
     )
 
     sealed interface Event {
@@ -356,14 +359,20 @@ class BrowseViewModel(
         clearSelection()
     }
 
+    /** Default remote names for [uris], prefilled in the upload dialog. */
+    fun suggestedUploadNames(uris: List<Uri>): List<String> =
+        uris.map { runner.displayNameOf(it) ?: "file_${System.currentTimeMillis()}" }
+
     /**
      * Upload picked local [uris] into the current directory.
      *
      * Mirrors the web client: with [encrypt] both the bytes and the file name are
      * converted into vault format (`.ske`), so the result is only readable inside
-     * the app; otherwise the file goes up as-is under its own name.
+     * the app; otherwise the file goes up as-is under its own name. [names] holds
+     * the user-edited name for each uri; blank or missing entries fall back to the
+     * picked document's own name.
      */
-    fun upload(uris: List<Uri>, encrypt: Boolean) {
+    fun upload(uris: List<Uri>, encrypt: Boolean, names: List<String> = emptyList()) {
         if (uris.isEmpty()) return
         if (_state.value.isUploading) {
             send(Event.Message("已有上传任务正在进行"))
@@ -387,18 +396,36 @@ class BrowseViewModel(
         viewModelScope.launch {
             val total = uris.size
             var uploaded = 0
+            // Progress callbacks fire once per buffer — thousands of times for a
+            // big file — so only publish when the rounded percentage or the stage
+            // changes. Otherwise every chunk would recompose the dialog.
+            var lastBucket = -1
+            var lastStage = ""
+            fun publish(fileName: String, position: Int, fileFraction: Float, stage: String) {
+                val overall = ((position - 1) + fileFraction.coerceIn(0f, 1f)) / total
+                val bucket = (overall * 100).toInt()
+                if (bucket == lastBucket && stage == lastStage) return
+                lastBucket = bucket
+                lastStage = stage
+                _state.update {
+                    it.copy(uploadProgress = UploadProgress(fileName, position, total, overall, stage))
+                }
+            }
+
             try {
                 uris.forEachIndexed { index, uri ->
-                    val name = runner.displayNameOf(uri) ?: "file_${System.currentTimeMillis()}"
-                    val position = index + 1
-                    _state.update {
-                        it.copy(uploadProgress = UploadProgress(name, position, total, 0f))
+                    val name = names.getOrNull(index)?.trim().orEmpty().ifEmpty {
+                        runner.displayNameOf(uri) ?: "file_${System.currentTimeMillis()}"
                     }
+                    val position = index + 1
+                    publish(name, position, 0f, "准备中")
 
                     val remoteName = if (encrypt) {
                         SkeCrypto.encryptName(name, nameKey()) + SkeFormat.SKE_EXT
                     } else {
-                        name
+                        // A separator typed into the name field would become a
+                        // sub-path instead of part of the file name.
+                        name.replace('/', '_').replace('\\', '_')
                     }
 
                     val payload = if (encrypt) {
@@ -408,11 +435,9 @@ class BrowseViewModel(
                             } else {
                                 (bytesDone.toFloat() / bytesTotal).coerceIn(0f, 1f)
                             }
-                            _state.update {
-                                it.copy(
-                                    uploadProgress = UploadProgress(name, position, total, fraction),
-                                )
-                            }
+                            // Encryption and upload both take real time, so each
+                            // file's slot is split between the two stages.
+                            publish(name, position, fraction * 0.5f, "加密中")
                         }
                     } else {
                         runner.copyToCache(uri)
@@ -421,11 +446,20 @@ class BrowseViewModel(
                     // The payload is always a cache temp file we own, so it goes
                     // away whether or not the request succeeded.
                     try {
-                        repository.upload(_state.value.path, remoteName, payload).getOrThrow()
+                        repository.upload(_state.value.path, remoteName, payload) { sent, length ->
+                            val fraction = if (length <= 0) {
+                                0f
+                            } else {
+                                (sent.toFloat() / length).coerceIn(0f, 1f)
+                            }
+                            val fileFraction = if (encrypt) 0.5f + fraction * 0.5f else fraction
+                            publish(name, position, fileFraction, "上传中")
+                        }.getOrThrow()
                     } finally {
                         payload.delete()
                     }
                     uploaded++
+                    publish(name, position, 1f, "已上传")
                 }
 
                 send(Event.Message("已上传 $uploaded 个文件"))

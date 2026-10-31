@@ -113,6 +113,7 @@ class AListRepository(
         parentPath: String,
         fileName: String,
         file: File,
+        onProgress: ((bytesWritten: Long, contentLength: Long) -> Unit)? = null,
     ): Result<Unit> = runCatching {
         api.upload(
             server = session.server,
@@ -120,6 +121,7 @@ class AListRepository(
             dirPath = session.absolutePath(parentPath),
             fileName = fileName,
             file = file,
+            onProgress = onProgress,
         )
     }
 
