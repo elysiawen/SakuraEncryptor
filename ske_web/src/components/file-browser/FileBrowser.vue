@@ -1,7 +1,7 @@
 <template>
   <div class="file-browser" @contextmenu.capture.prevent="handleBrowserContextMenu">
     <input
-      v-if="props.mode === 'alist'"
+      v-if="isRemote"
       ref="uploadInput"
       type="file"
       multiple
@@ -22,7 +22,7 @@
     />
 
     <button
-      v-if="props.mode === 'alist'"
+      v-if="isRemote"
       class="upload-fab"
       :style="uploadFabBottom"
       :disabled="upload.loading"
@@ -63,7 +63,7 @@
             <span>📁</span> 新建文件夹
           </div>
           <div
-            v-if="menu.item && !menu.item.is_dir && props.mode === 'alist'"
+            v-if="menu.item && !menu.item.is_dir && isRemote"
             class="ctx-item"
             @click="startDownload"
           >
@@ -163,7 +163,7 @@ import FileGrid from './FileGrid.vue'
 import { getNameKeyFromSession, getPasswordFromSession, decryptName, encryptName, encryptFileContent } from '../../composables/useCrypto.js'
 import { globalState } from '../../composables/useGlobalState.js'
 import { getFileType } from '../../composables/useFileDetection.js'
-import { renameItem, deleteItems, makeDir, getFileInfo, uploadFile as uploadAListFile } from '../../composables/useAList.js'
+import { renameItem, deleteItems, makeDir, getFileInfo, uploadFile as uploadRemoteFile } from '../../composables/useRemoteStorage.js'
 import { useFabManager, FAB_BASE_DESKTOP, FAB_BASE_MOBILE, FAB_SIZE, FAB_GAP } from '../../composables/useFabManager.js'
 import { useDownloadManager } from '../../composables/useDownloadManager.js'
 import { buildDecryptProxyUrl, isEncryptedFileName, toDownloadUrl } from '../../composables/useFileDownload.js'
@@ -173,6 +173,9 @@ const props = defineProps({
   listFn: { type: Function },
   localState: { type: Object },
 })
+
+/** Any non-local mode is a remote provider (AList or OpenList). */
+const isRemote = computed(() => props.mode !== 'local')
 
 const route = useRoute()
 const router = useRouter()
@@ -236,7 +239,7 @@ onMounted(() => {
   document.addEventListener('click', onDocClick)
   registerFab('refresh', 0)
   registerFab('view', 1)
-  if (props.mode === 'alist') registerFab('upload', 2)
+  if (isRemote.value) registerFab('upload', 2)
 })
 onUnmounted(() => {
   document.removeEventListener('click', onDocClick)
@@ -263,7 +266,7 @@ async function doMkdir() {
     const nameKey = await getNameKeyFromSession()
     const path = getRoutePath()
 
-    if (props.mode === 'alist') {
+    if (isRemote.value) {
       const targetName = (mkdir.encrypt && nameKey)
         ? await encryptName(folderName, nameKey)
         : folderName
@@ -321,7 +324,8 @@ async function doUpload() {
 
     for (let i = 0; i < upload.files.length; i++) {
       const sourceFile = upload.files[i]
-      upload.progressText = `正在上传 ${i + 1}/${upload.files.length}: ${sourceFile.name}`
+      const label = `正在上传 ${i + 1}/${upload.files.length}: ${sourceFile.name}`
+      upload.progressText = label
 
       let targetName = sourceFile.name
       let fileToUpload = sourceFile
@@ -335,7 +339,11 @@ async function doUpload() {
         })
       }
 
-      await uploadAListFile(joinPath(path, targetName), fileToUpload)
+      await uploadRemoteFile(joinPath(path, targetName), fileToUpload, false, {
+        onProgress: (ratio) => {
+          upload.progressText = `${label} (${Math.round(ratio * 100)}%)`
+        },
+      })
     }
 
     resetUpload(true)
@@ -363,7 +371,7 @@ async function doRename() {
     const nameKey = await getNameKeyFromSession()
     const path = getRoutePath()
 
-    if (props.mode === 'alist' && nameKey) {
+    if (isRemote.value && nameKey) {
       const encNew = await encryptName(rename.newName.trim(), nameKey)
       const hasSke = menu.item.encName.endsWith('.ske')
       const finalName = hasSke ? encNew + '.ske' : encNew
@@ -393,7 +401,7 @@ async function doDelete() {
   del.loading = true
   try {
     const path = getRoutePath()
-    if (props.mode === 'alist') {
+    if (isRemote.value) {
       await deleteItems(path, [del.item.encName])
     }
     del.show = false
@@ -470,7 +478,7 @@ async function loadCurrentPath(_, refresh = false) {
 
     let content = []
 
-    if (props.mode === 'alist') {
+    if (isRemote.value) {
       const data = await props.listFn(path, refresh)
       content = (data.content || []).map((entry) => ({
         encName: entry.name,
@@ -563,7 +571,7 @@ function handleClick(item) {
   const path = getRoutePath()
 
   if (item.is_dir) {
-    if (props.mode === 'alist') {
+    if (isRemote.value) {
       const encPath = path === '/' ? '/' + item.encName : path + '/' + item.encName
       router.push('/browse' + encPath)
     } else {
@@ -571,12 +579,12 @@ function handleClick(item) {
       router.push('/local/' + newPath.split('/').map(encodeURIComponent).join('/'))
     }
   } else {
-    const filePath = props.mode === 'alist'
+    const filePath = isRemote.value
       ? (path === '/' ? '/' + item.encName : path + '/' + item.encName)
       : item.path
 
     const type = getFileType(item.decName)
-    if (props.mode === 'alist') {
+    if (isRemote.value) {
       if (type === 'video') router.push('/play' + filePath)
       else if (type === 'audio') router.push('/listen' + filePath)
       else if (type === 'image') router.push('/view' + filePath)

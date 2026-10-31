@@ -2,7 +2,7 @@
   <AppDialog
     :visible="visible"
     :title="profile ? '编辑配置' : '新建配置'"
-    description="每个配置是一套 AList 账号加一套独立的加密密码。"
+    description="每个配置是一套 AList / OpenList 账号加一套独立的加密密码。"
     :width="460"
     :busy="busy"
     :error="error"
@@ -15,22 +15,35 @@
     </div>
 
     <div class="field">
+      <label>服务端类型</label>
+      <select v-model="form.provider">
+        <option value="alist">AList</option>
+        <option value="openlist">OpenList</option>
+      </select>
+      <!-- 2FA codes are asked for on every login, because a one-time code
+           cannot be stored. Both backends support it. -->
+      <span class="meta">
+        账号若开启了两步验证，连接时会提示输入动态验证码。
+      </span>
+    </div>
+
+    <div class="field">
       <label>服务器地址</label>
-      <input v-model="form.server" placeholder="https://alist.example.com" />
+      <input v-model="form.server" :placeholder="serverPlaceholder" />
     </div>
 
     <div class="field">
       <label>用户名</label>
-      <input v-model="form.username" placeholder="AList 用户名" autocomplete="off" />
+      <input v-model="form.username" :placeholder="`${providerLabel} 用户名`" autocomplete="off" />
     </div>
 
     <div class="field">
-      <label>AList 密码</label>
+      <label>{{ providerLabel }} 密码</label>
       <input
         v-model="form.password"
         type="password"
         autocomplete="new-password"
-        :placeholder="profile?.hasPassword ? '已保存，留空则不修改' : 'AList 登录密码'"
+        :placeholder="profile?.hasPassword ? '已保存，留空则不修改' : `${providerLabel} 登录密码`"
       />
       <span class="meta">使用系统钥匙串加密保存，不会明文落盘。</span>
     </div>
@@ -65,7 +78,7 @@
 </template>
 
 <script setup>
-import { reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import AppDialog from './AppDialog.vue'
 import { saveProfile } from '../state/session.js'
 
@@ -81,6 +94,7 @@ const error = ref('')
 
 const form = reactive({
   name: '',
+  provider: 'alist',
   server: '',
   username: '',
   password: '',
@@ -89,12 +103,18 @@ const form = reactive({
   remember: true,
 })
 
+const providerLabel = computed(() => (form.provider === 'openlist' ? 'OpenList' : 'AList'))
+const serverPlaceholder = computed(() =>
+  form.provider === 'openlist' ? 'https://openlist.example.com' : 'https://alist.example.com',
+)
+
 watch(
   () => [props.visible, props.profile],
   () => {
     if (!props.visible) return
     error.value = ''
     form.name = props.profile?.name || ''
+    form.provider = props.profile?.provider === 'openlist' ? 'openlist' : 'alist'
     form.server = props.profile?.server || ''
     form.username = props.profile?.username || ''
     form.basePath = props.profile?.basePath || ''
@@ -120,6 +140,7 @@ async function submit() {
     await saveProfile({
       id: props.profile?.id,
       name: form.name,
+      provider: form.provider,
       server: form.server,
       username: form.username,
       password: form.password,

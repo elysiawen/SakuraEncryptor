@@ -2,12 +2,12 @@ package com.sakura.encryptor.core.subtitle
 
 import android.content.Context
 import android.net.Uri
-import com.sakura.encryptor.core.alist.AListRepository
 import com.sakura.encryptor.core.crypto.SkeCrypto
 import com.sakura.encryptor.core.crypto.SkeFormat
 import com.sakura.encryptor.core.local.LocalSkeStore
 import com.sakura.encryptor.core.player.CipherBlockSourceFactory
 import com.sakura.encryptor.core.player.DecryptedBytesReader
+import com.sakura.encryptor.core.remote.RemoteRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -22,7 +22,7 @@ import java.io.File
  */
 class SubtitleRepository(
     private val context: Context,
-    private val aListRepository: AListRepository,
+    private val remoteRepository: RemoteRepository,
     private val localSkeStore: LocalSkeStore,
     private val cipherBlockSourceFactory: CipherBlockSourceFactory,
     private val bytesReader: DecryptedBytesReader,
@@ -34,7 +34,7 @@ class SubtitleRepository(
         videoDisplayName: String,
         nameKey: ByteArray,
     ): List<SubtitleTrack> = runCatching {
-        val entries = aListRepository.list(dirPath, nameKey, refresh = false)
+        val entries = remoteRepository.list(dirPath, nameKey, refresh = false)
         val candidates = entries
             .filter { !it.isDir }
             .map { it.raw.name to it.displayName }
@@ -87,7 +87,7 @@ class SubtitleRepository(
 
     private suspend fun resolveUri(track: SubtitleTrack): Uri? = if (track.fromCloud) {
         val remotePath = "${track.location.trimEnd('/')}/${track.fileName}"
-        val (url, size) = aListRepository.resolveRemote(remotePath)
+        val (url, size) = remoteRepository.resolveRemote(remotePath)
         cipherBlockSourceFactory.rememberSize(url, size)
         Uri.parse(url)
     } else {

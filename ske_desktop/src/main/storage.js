@@ -108,6 +108,7 @@ function publicProfile(profile) {
   return {
     id: profile.id,
     name: profile.name,
+    provider: profile.provider === 'openlist' ? 'openlist' : 'alist',
     server: profile.server || '',
     username: profile.username || '',
     basePath: profile.basePath || '',
@@ -196,6 +197,8 @@ export class Storage {
     }
 
     profile.name = name
+    // Older profiles have no provider: they were all AList.
+    profile.provider = input.provider === 'openlist' ? 'openlist' : 'alist'
     profile.server = server
     profile.username = String(input.username || '')
     profile.basePath = String(input.basePath || '')

@@ -3,7 +3,7 @@
     <div class="page-head">
       <div>
         <h2>云端配置</h2>
-        <p>每个配置是一套 AList 账号加一套独立的加密密码，可随时切换。</p>
+        <p>每个配置是一套 AList 或 OpenList 账号加一套独立的加密密码，可随时切换。</p>
       </div>
       <button class="primary" type="button" @click="openNew">新建配置</button>
     </div>
@@ -12,7 +12,7 @@
       v-if="!session.profiles.length"
       icon="☁"
       title="还没有云端配置"
-      description="添加 AList 服务器地址与账号后，就能浏览加密目录并直接播放。密码会通过系统钥匙串加密保存。"
+      description="添加 AList 或 OpenList 服务器地址与账号后，就能浏览加密目录并直接播放。密码会通过系统钥匙串加密保存。"
       action-text="添加第一个配置"
       @action="openNew"
     />
@@ -39,6 +39,10 @@
         <!-- Facts as pills rather than one run-on sentence: which secrets are
              stored is the thing worth scanning for, so each gets its own mark. -->
         <div class="facts">
+          <span class="fact">
+            <span class="k">服务端</span>
+            <span class="v">{{ profile.provider === 'openlist' ? 'OpenList' : 'AList' }}</span>
+          </span>
           <span class="fact">
             <span class="k">用户</span>
             <span class="v">{{ profile.username || '未填写' }}</span>

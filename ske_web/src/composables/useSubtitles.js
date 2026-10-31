@@ -15,7 +15,7 @@
  * Both AList (remote) and LocalFile playback are supported.
  */
 import { ref } from 'vue'
-import { listDir, getFileInfo, getServer } from './useAList.js'
+import { listDir, getFileInfo, getServer } from './useRemoteStorage.js'
 import { getNameKeyFromSession, decryptName } from './useCrypto.js'
 import { isSubtitle, getExt } from './useFileDetection.js'
 import { buildDecryptProxyUrl } from './useDecryptProxy.js'

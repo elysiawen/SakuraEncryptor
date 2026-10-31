@@ -6,7 +6,7 @@
  */
 import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { listDir } from './useAList.js'
+import { listDir } from './useRemoteStorage.js'
 import { getNameKeyFromSession, decryptName } from './useCrypto.js'
 import { isAudio, isVideo, isImage } from './useFileDetection.js'
 

@@ -2,8 +2,9 @@ package com.sakura.encryptor
 
 import android.content.Context
 import com.sakura.encryptor.core.alist.AListApi
-import com.sakura.encryptor.core.alist.AListRepository
-import com.sakura.encryptor.core.alist.AListSession
+import com.sakura.encryptor.core.openlist.OpenListApi
+import com.sakura.encryptor.core.remote.RemoteRepository
+import com.sakura.encryptor.core.remote.RemoteSession
 import com.sakura.encryptor.core.cache.DerivedKeyCache
 import com.sakura.encryptor.core.cache.PlaintextBlockCache
 import com.sakura.encryptor.core.cache.ThumbnailDiskCache
@@ -87,9 +88,21 @@ class AppContainer(private val appContext: Context) {
     val database: SakuraDatabase by lazy { SakuraDatabase.get(appContext) }
 
     // ---- cloud --------------------------------------------------------------
-    val aListApi: AListApi by lazy { AListApi(okHttpClient, json) }
-    val aListSession: AListSession by lazy { AListSession() }
-    val aListRepository: AListRepository by lazy { AListRepository(aListApi, aListSession) }
+    // Each backend owns its client but they share one session, because only
+    // one account can be signed in at a time. [remoteRepository] is the only
+    // entry point the rest of the app uses, so the active provider is decided
+    // once (by the signed-in profile) instead of at every call site.
+    private val aListApi: AListApi by lazy { AListApi(okHttpClient, json) }
+    private val openListApi: OpenListApi by lazy { OpenListApi(okHttpClient, json) }
+    private val remoteSession: RemoteSession by lazy { RemoteSession() }
+
+    val remoteRepository: RemoteRepository by lazy {
+        RemoteRepository(
+            session = remoteSession,
+            aListApi = aListApi,
+            openListApi = openListApi,
+        )
+    }
 
     /**
      * Password of the currently active cloud profile.
@@ -109,8 +122,7 @@ class AppContainer(private val appContext: Context) {
             settings = settings,
             keyStore = keyStore,
             cloudVault = vault,
-            aListSession = aListSession,
-            aListRepository = aListRepository,
+            remoteRepository = remoteRepository,
         )
     }
 
@@ -132,7 +144,7 @@ class AppContainer(private val appContext: Context) {
     val subtitleRepository: SubtitleRepository by lazy {
         SubtitleRepository(
             context = appContext,
-            aListRepository = aListRepository,
+            remoteRepository = remoteRepository,
             localSkeStore = localSkeStore,
             cipherBlockSourceFactory = cipherBlockSourceFactory,
             bytesReader = decryptedBytesReader,
@@ -142,7 +154,7 @@ class AppContainer(private val appContext: Context) {
     /** Builds the "play the rest of this folder" queue for every player. */
     val playlistRepository: PlaylistRepository by lazy {
         PlaylistRepository(
-            aListRepository = aListRepository,
+            remoteRepository = remoteRepository,
             localSkeStore = localSkeStore,
             cipherBlockSourceFactory = cipherBlockSourceFactory,
         )
@@ -196,7 +208,7 @@ class AppContainer(private val appContext: Context) {
      * art from. One cache means a track is never resolved twice.
      */
     val queueUriResolver: QueueUriResolver by lazy {
-        QueueUriResolver(aListRepository, cipherBlockSourceFactory)
+        QueueUriResolver(remoteRepository, cipherBlockSourceFactory)
     }
 
     // ---- local jobs ---------------------------------------------------------
@@ -205,7 +217,7 @@ class AppContainer(private val appContext: Context) {
     val localSkeStore: LocalSkeStore by lazy { LocalSkeStore(appContext) }
 
     val downloadManager: DownloadManager by lazy {
-        DownloadManager(appContext, database, aListApi, aListSession, vault, okHttpClient)
+        DownloadManager(appContext, database, remoteRepository, vault, okHttpClient)
     }
 
     /**
@@ -215,7 +227,7 @@ class AppContainer(private val appContext: Context) {
      * read grant dies with the activity, so a restored job could only fail.
      */
     val uploadManager: UploadManager by lazy {
-        UploadManager(aListRepository, vault, cryptoTaskRunner)
+        UploadManager(remoteRepository, vault, cryptoTaskRunner)
     }
 
     init {

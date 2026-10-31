@@ -45,7 +45,7 @@
  * IntersectionObserver resolves only the pages within ~800 px of the viewport.
  */
 import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
-import { getFileInfo } from '../../composables/useAList.js'
+import { getFileInfo } from '../../composables/useRemoteStorage.js'
 import { buildDecryptProxyUrl } from '../../composables/useDecryptProxy.js'
 import { getPasswordFromSession } from '../../composables/useCrypto.js'
 import { useUpstreamAlerts } from '../../composables/useUpstreamAlerts.js'

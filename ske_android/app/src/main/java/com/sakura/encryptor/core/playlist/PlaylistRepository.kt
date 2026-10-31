@@ -1,13 +1,13 @@
 package com.sakura.encryptor.core.playlist
 
 import android.net.Uri
-import com.sakura.encryptor.core.alist.AListRepository
 import com.sakura.encryptor.core.crypto.SkeCrypto
 import com.sakura.encryptor.core.crypto.SkeFormat
 import com.sakura.encryptor.core.local.LocalSkeStore
 import com.sakura.encryptor.core.player.CipherBlockSourceFactory
 import com.sakura.encryptor.core.player.MediaKind
 import com.sakura.encryptor.core.player.MediaTypes
+import com.sakura.encryptor.core.remote.RemoteRepository
 import com.sakura.encryptor.core.util.DisplayNameOrder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -33,7 +33,7 @@ data class PlaylistItem(
  * for local folders, which is a first-class scenario on Android.
  */
 class PlaylistRepository(
-    private val aListRepository: AListRepository,
+    private val remoteRepository: RemoteRepository,
     private val localSkeStore: LocalSkeStore,
     private val cipherBlockSourceFactory: CipherBlockSourceFactory,
 ) {
@@ -79,7 +79,7 @@ class PlaylistRepository(
         val entries = withContext(Dispatchers.IO) {
             runCatching {
                 if (fromCloud) {
-                    aListRepository.list(directory, nameKey)
+                    remoteRepository.list(directory, nameKey)
                         .filterNot { it.isDir }
                         .map { entry ->
                             PlaylistItem(
@@ -132,7 +132,7 @@ class PlaylistRepository(
             return locator
         }
         return runCatching {
-            val (url, size) = aListRepository.resolveRemote(locator)
+            val (url, size) = remoteRepository.resolveRemote(locator)
             cipherBlockSourceFactory.rememberSize(url, size)
             url
         }.getOrNull()

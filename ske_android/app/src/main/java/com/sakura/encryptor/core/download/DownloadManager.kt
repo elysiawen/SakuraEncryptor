@@ -9,11 +9,10 @@ import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import androidx.core.content.ContextCompat
-import com.sakura.encryptor.core.alist.AListApi
-import com.sakura.encryptor.core.alist.AListSession
 import com.sakura.encryptor.core.alist.DecryptedEntry
 import com.sakura.encryptor.core.crypto.SkeFileCipher
 import com.sakura.encryptor.core.crypto.SkeFormat
+import com.sakura.encryptor.core.remote.RemoteRepository
 import com.sakura.encryptor.core.session.VaultSession
 import com.sakura.encryptor.data.db.DownloadStatus
 import com.sakura.encryptor.data.db.DownloadTaskEntity
@@ -48,8 +47,7 @@ import java.util.concurrent.ConcurrentHashMap
 class DownloadManager(
     private val context: Context,
     private val database: SakuraDatabase,
-    private val api: AListApi,
-    private val session: AListSession,
+    private val repository: RemoteRepository,
     private val vault: VaultSession,
     private val client: OkHttpClient,
 ) {
@@ -69,7 +67,7 @@ class DownloadManager(
                 id = id,
                 displayName = entry.displayName,
                 remotePath = remotePath,
-                server = session.server,
+                server = repository.server,
                 totalBytes = entry.size,
                 downloadedBytes = 0,
                 status = DownloadStatus.PENDING.name,
@@ -338,7 +336,7 @@ class DownloadManager(
             error = null,
         )
 
-        val (url, remoteSize) = api.resolveRawUrl(task.server, session.token, task.remotePath)
+        val (url, remoteSize) = repository.resolveRemote(task.remotePath)
         val total = remoteSize.takeIf { it > 0 } ?: task.totalBytes
 
         if (total <= 0 || alreadyDownloaded < total) {

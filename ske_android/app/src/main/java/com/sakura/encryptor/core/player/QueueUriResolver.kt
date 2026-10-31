@@ -3,7 +3,7 @@ package com.sakura.encryptor.core.player
 import android.net.Uri
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.ResolvingDataSource
-import com.sakura.encryptor.core.alist.AListRepository
+import com.sakura.encryptor.core.remote.RemoteRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
@@ -40,7 +40,7 @@ fun queueUriFor(locator: String): Uri = Uri.Builder()
  * requests.
  */
 class QueueUriResolver(
-    private val aListRepository: AListRepository,
+    private val remoteRepository: RemoteRepository,
     private val cipherBlockSourceFactory: CipherBlockSourceFactory,
 ) : ResolvingDataSource.Resolver {
 
@@ -50,7 +50,7 @@ class QueueUriResolver(
     suspend fun resolve(locator: String): Uri? = withContext(Dispatchers.IO) {
         cache[locator]?.let { return@withContext it }
         runCatching {
-            val (url, size) = aListRepository.resolveRemote(locator)
+            val (url, size) = remoteRepository.resolveRemote(locator)
             // Seed the size so the reader can skip range probing.
             cipherBlockSourceFactory.rememberSize(url, size)
             Uri.parse(url).also { cache[locator] = it }

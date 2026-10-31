@@ -12,35 +12,54 @@
       <div class="login-card glass-card">
         <!-- Tab Switcher -->
         <div class="tab-switcher">
-          <button class="tab-btn" :class="{ active: currentTab === 'alist' }" @click="currentTab = 'alist'">
+          <button class="tab-btn" :class="{ active: currentTab === 'alist' }" @click="selectTab('alist')">
             AList 云端
           </button>
-          <button class="tab-btn" :class="{ active: currentTab === 'local' }" @click="currentTab = 'local'">
+          <button class="tab-btn" :class="{ active: currentTab === 'openlist' }" @click="selectTab('openlist')">
+            OpenList 云端
+          </button>
+          <button class="tab-btn" :class="{ active: currentTab === 'local' }" @click="selectTab('local')">
             本地库
           </button>
         </div>
 
         <form @submit.prevent="handleUnifiedSubmit" class="login-form">
-          <!-- AList Tab -->
-          <div v-if="currentTab === 'alist'" class="tab-content transition-fade">
-            <div class="section-label">AList 连接配置</div>
+          <!-- AList / OpenList Tab -->
+          <div v-if="isCloud" class="tab-content transition-fade">
+            <div class="section-label">{{ providerLabel }} 连接配置</div>
             <div class="form-group">
-              <label for="alist-server">服务器地址</label>
-              <n-input id="alist-server" v-model:value="alistServer" placeholder="https://alist.example.com" :input-props="{ name: 'alist-server', 'data-bw-fieldname': 'alist-server' }" />
+              <label for="cloud-server">服务器地址</label>
+              <n-input
+                id="cloud-server"
+                v-model:value="cloudServer"
+                :placeholder="serverPlaceholder"
+                :input-props="{ name: 'cloud-server', 'data-bw-fieldname': 'cloud-server' }"
+              />
             </div>
             <div class="form-row">
               <div class="form-group">
-                <label for="alist-user">用户名</label>
-                <n-input id="alist-user" v-model:value="alistUser" placeholder="admin" />
+                <label for="cloud-user">用户名</label>
+                <n-input id="cloud-user" v-model:value="cloudUser" placeholder="admin" />
               </div>
               <div class="form-group">
-                <label for="alist-pass">密码</label>
-                <n-input id="alist-pass" v-model:value="alistPass" type="password" show-password-on="click" placeholder="••••••" />
+                <label for="cloud-pass">密码</label>
+                <n-input id="cloud-pass" v-model:value="cloudPass" type="password" show-password-on="click" placeholder="••••••" />
               </div>
             </div>
             <div class="form-group">
-              <label for="alist-root">AList 根目录 (可选)</label>
-              <n-input id="alist-root" v-model:value="alistRootPath" placeholder="/" :input-props="{ name: 'alist-root', 'data-bw-fieldname': 'alist-root' }" />
+              <label for="cloud-root">{{ providerLabel }} 根目录 (可选)</label>
+              <n-input id="cloud-root" v-model:value="cloudRootPath" placeholder="/" :input-props="{ name: 'cloud-root', 'data-bw-fieldname': 'cloud-root' }" />
+            </div>
+            <!-- AList and OpenList both answer 402 when 2FA is enabled. -->
+            <div v-if="isCloud && otpRequired" class="form-group">
+              <label for="cloud-otp">两步验证码</label>
+              <n-input
+                id="cloud-otp"
+                v-model:value="otpCode"
+                placeholder="6 位动态验证码"
+                maxlength="6"
+                :input-props="{ autocomplete: 'one-time-code' }"
+              />
             </div>
           </div>
 
@@ -89,7 +108,7 @@
             :loading="loading"
             style="margin-top: 8px; height: 44px; font-size: 15px;"
           >
-            {{ currentTab === 'alist' ? '🔓 登录' : '🚀 浏览本地库' }}
+            {{ isCloud ? '🔓 登录' : '🚀 浏览本地库' }}
           </n-button>
         </form>
       </div>
@@ -98,10 +117,10 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { storeAndPostKey } from '../composables/useCrypto.js'
-import { login as alistLogin } from '../composables/useAList.js'
+import { login as remoteLogin, getProvider, savedServer, rememberServer, PROVIDER_LABELS } from '../composables/useRemoteStorage.js'
 import { useLocalFiles } from '../composables/useLocalFiles.js'
 import { pickLocalDirectory, supportsDirectoryHandles } from '../composables/useLocalDirectory.js'
 
@@ -109,22 +128,35 @@ const router = useRouter()
 const { registerFiles, state: localState } = useLocalFiles()
 
 const currentTab = ref('alist')
+const isCloud = computed(() => currentTab.value !== 'local')
+const providerLabel = computed(() => PROVIDER_LABELS[currentTab.value] || '')
+const serverPlaceholder = computed(() =>
+  currentTab.value === 'openlist' ? 'https://openlist.example.com' : 'https://alist.example.com',
+)
 const folderInput = ref(null)
 const localFileCount = ref(0)
 const localDirName = ref('')
 const selectedFiles = ref([])
 
-const alistServer = ref('')
-const alistUser = ref('')
-const alistPass = ref('')
-const alistRootPath = ref('')
+const cloudServer = ref('')
+const cloudUser = ref('')
+const cloudPass = ref('')
+const cloudRootPath = ref('')
+const otpCode = ref('')
+const otpRequired = ref(false)
 const masterPassword = ref('')
 const loading = ref(false)
 const error = ref('')
 
+function selectTab(tab) {
+  currentTab.value = tab
+  otpRequired.value = false
+  otpCode.value = ''
+  if (tab !== 'local') cloudServer.value = savedServer(tab)
+}
+
 onMounted(() => {
-  const savedServer = localStorage.getItem('ske_alist_server')
-  if (savedServer) alistServer.value = savedServer
+  selectTab(getProvider())
   localStorage.removeItem('ske_alist_user')
   localStorage.removeItem('ske_alist_pass')
   localStorage.removeItem('ske_alist_root')
@@ -165,9 +197,9 @@ async function handleUnifiedSubmit() {
       await storeAndPostKey(masterPassword.value)
     }
 
-    if (currentTab.value === 'alist') {
-      await alistLogin(alistServer.value, alistUser.value, alistPass.value, alistRootPath.value)
-      localStorage.setItem('ske_alist_server', alistServer.value)
+    if (isCloud.value) {
+      await remoteLogin(currentTab.value, cloudServer.value, cloudUser.value, cloudPass.value, cloudRootPath.value, otpCode.value)
+      rememberServer(currentTab.value, cloudServer.value)
       router.push('/browse/')
     } else {
       // showDirectoryPicker already scanned and registered the folder; the
@@ -179,6 +211,8 @@ async function handleUnifiedSubmit() {
       router.push('/local/')
     }
   } catch (err) {
+    // OpenList 2FA: keep the form open and ask for the one-time code.
+    if (err?.needsOtp) otpRequired.value = true
     error.value = err.message || '连接失败，请检查配置'
   } finally {
     loading.value = false
@@ -255,6 +289,7 @@ async function handleUnifiedSubmit() {
   color: var(--text-muted);
   font-size: 14px;
   font-weight: 600;
+  white-space: nowrap;
   cursor: pointer;
   border-radius: var(--radius-md);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -397,6 +432,10 @@ async function handleUnifiedSubmit() {
 @media (max-width: 600px) {
   .login-card {
     padding: 28px 20px;
+  }
+  .tab-btn {
+    font-size: 12px;
+    padding: 8px 4px;
   }
   .login-header h1 {
     font-size: 28px;

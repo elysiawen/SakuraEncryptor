@@ -27,7 +27,7 @@
  * Callers load lazily (IntersectionObserver), requests run through small
  * concurrency queues, and results are cached for the session.
  */
-import { getFileInfo } from './useAList.js'
+import { getFileInfo } from './useRemoteStorage.js'
 import { buildDecryptProxyUrl } from './useDecryptProxy.js'
 import { getFileType } from './useFileDetection.js'
 

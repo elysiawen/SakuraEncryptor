@@ -105,8 +105,7 @@ fun BrowseScreen(
     val container = appContainer()
     val viewModel = rememberAppViewModel { c ->
         BrowseViewModel(
-            repository = c.aListRepository,
-            session = c.aListSession,
+            repository = c.remoteRepository,
             vault = c.vault,
             downloadManager = c.downloadManager,
             runner = c.cryptoTaskRunner,
@@ -124,7 +123,7 @@ fun BrowseScreen(
     val rememberDefault by viewModel.rememberDefault.collectAsStateWithLifecycle()
     val unlocked by container.vault.isUnlockedFlow.collectAsStateWithLifecycle()
     val restoreFinished by container.vault.restoreFinished.collectAsStateWithLifecycle()
-    val loggedIn by container.aListSession.isLoggedInFlow.collectAsStateWithLifecycle()
+    val loggedIn by container.remoteRepository.isLoggedInFlow.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
 
@@ -149,6 +148,11 @@ fun BrowseScreen(
     // Deleting cloud files is permanent and there is no undo, so the toolbar icon
     // only stages the selection; the actual delete waits for this dialog.
     var deleteTargets by remember { mutableStateOf<List<DecryptedEntry>>(emptyList()) }
+
+    // OpenList accounts protected by two-factor login ask for a one-time code
+    // before the session can be established.
+    var showOtpDialog by remember { mutableStateOf(false) }
+    var otpCode by remember { mutableStateOf("") }
 
     // Downloads land in the shared Downloads folder (Download/SakuraEncryptor/).
     // Android 10+ writes through MediaStore and needs no permission; Android 9
@@ -209,6 +213,11 @@ fun BrowseScreen(
 
                 is BrowseViewModel.Event.Message ->
                     Toast.makeText(context, event.text, Toast.LENGTH_SHORT).show()
+
+                is BrowseViewModel.Event.NeedOtp -> {
+                    otpCode = ""
+                    showOtpDialog = true
+                }
             }
         }
     }
@@ -294,7 +303,7 @@ fun BrowseScreen(
             activeProfile == null -> StateMessage(
                 icon = Icons.Rounded.Add,
                 title = if (profiles.isEmpty()) "还没有云端配置" else "未选择云端配置",
-                message = "添加一个 AList 配置后即可浏览云端加密文件；只想播放本地文件可以跳过。",
+                message = "添加一个 AList / OpenList 配置后即可浏览云端加密文件；只想播放本地文件可以跳过。",
                 actionLabel = "管理配置",
                 onAction = onManageProfiles,
             )
@@ -314,9 +323,9 @@ fun BrowseScreen(
                 icon = Icons.Rounded.CloudOff,
                 title = "「${activeProfile.name}」尚未连接",
                 message = if (activeProfile.canAutoLogin) {
-                    "点击连接，使用已保存的账号信息登录 AList。"
+                    "点击连接，使用已保存的账号信息登录 ${activeProfile.remoteProvider.label}。"
                 } else {
-                    "该配置还没有保存 AList 密码，请先在配置中填写。"
+                    "该配置还没有保存登录密码，请先在配置中填写。"
                 },
                 actionLabel = "连接",
                 onAction = { viewModel.connectActive() },
@@ -611,6 +620,41 @@ fun BrowseScreen(
             },
             dismissButton = {
                 TextButton(onClick = clearPending) { Text("取消") }
+            },
+        )
+    }
+
+    if (showOtpDialog) {
+        AlertDialog(
+            onDismissRequest = { showOtpDialog = false },
+            title = { Text("两步验证") },
+            text = {
+                Column {
+                    Text("该账号已开启两步验证，请输入身份验证器中的 6 位动态码。")
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = otpCode,
+                        onValueChange = { value ->
+                            otpCode = value.filter { it.isDigit() }.take(6)
+                        },
+                        label = { Text("动态验证码") },
+                        singleLine = true,
+                        shape = MaterialTheme.shapes.medium,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = otpCode.length >= 6,
+                    onClick = {
+                        showOtpDialog = false
+                        viewModel.connectActive(otpCode)
+                    },
+                ) { Text("验证并连接") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showOtpDialog = false }) { Text("取消") }
             },
         )
     }

@@ -1,10 +1,10 @@
 package com.sakura.encryptor.core.upload
 
 import android.net.Uri
-import com.sakura.encryptor.core.alist.AListRepository
 import com.sakura.encryptor.core.crypto.SkeCrypto
 import com.sakura.encryptor.core.crypto.SkeFormat
 import com.sakura.encryptor.core.local.CryptoTaskRunner
+import com.sakura.encryptor.core.remote.RemoteRepository
 import com.sakura.encryptor.core.session.VaultSession
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -73,7 +73,7 @@ data class UploadTask(
  * progress is pushed, and cancelling a running job aborts its HTTP call.
  */
 class UploadManager(
-    private val repository: AListRepository,
+    private val repository: RemoteRepository,
     private val vault: VaultSession,
     private val runner: CryptoTaskRunner,
     maxConcurrent: Int = DEFAULT_CONCURRENT,

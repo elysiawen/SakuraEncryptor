@@ -16,6 +16,8 @@ export const cloud = reactive({
   path: '/',
   entries: [],
   error: '',
+  // OpenList-only: the account uses 2FA and the last attempt had no code.
+  needsOtp: false,
 })
 
 function reset() {
@@ -25,10 +27,17 @@ function reset() {
   cloud.path = '/'
   cloud.entries = []
   cloud.error = ''
+  cloud.needsOtp = false
 }
 
-/** Connect to the active profile, reusing the session when it already matches. */
-export async function ensureConnected({ force = false } = {}) {
+/**
+ * Connect to the active profile, reusing the session when it already matches.
+ *
+ * `otpCode` is the retry path for an OpenList account with 2FA: the first
+ * attempt fails with `needsOtp`, the view asks for the code, and the retry
+ * carries it.
+ */
+export async function ensureConnected({ force = false, otpCode = '' } = {}) {
   const profile = activeProfile.value
   if (!profile) {
     reset()
@@ -43,8 +52,11 @@ export async function ensureConnected({ force = false } = {}) {
 
   cloud.connecting = true
   try {
-    const res = await window.ske.cloud.connect(profile.id)
-    if (!res?.ok) throw new Error(res?.error || '连接失败')
+    const res = await window.ske.cloud.connect(profile.id, otpCode)
+    if (!res?.ok) {
+      cloud.needsOtp = !!res?.needsOtp
+      throw new Error(res?.error || '连接失败')
+    }
 
     cloud.sessionId = res.session.sessionId
     cloud.profileId = profile.id

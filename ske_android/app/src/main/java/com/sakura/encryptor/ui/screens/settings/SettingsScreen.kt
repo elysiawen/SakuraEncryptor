@@ -65,7 +65,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.sakura.encryptor.BuildConfig
-import com.sakura.encryptor.core.alist.AListSession
+import com.sakura.encryptor.core.remote.RemoteRepository
 import com.sakura.encryptor.core.cache.DerivedKeyCache
 import com.sakura.encryptor.core.cache.PlaintextBlockCache
 import com.sakura.encryptor.core.cache.ThumbnailDiskCache
@@ -116,7 +116,7 @@ class SettingsViewModel(
     private val settings: SettingsStore,
     private val localVault: VaultSession,
     private val cloudVault: VaultSession,
-    private val session: AListSession,
+    private val remoteRepository: RemoteRepository,
     private val database: SakuraDatabase,
     private val keyStore: KeyStoreManager,
     private val appLockManager: AppLockManager,
@@ -165,7 +165,7 @@ class SettingsViewModel(
 
     val cloudUnlocked: StateFlow<Boolean> = cloudVault.isUnlockedFlow
 
-    val isLoggedIn: StateFlow<Boolean> = session.isLoggedInFlow
+    val isLoggedIn: StateFlow<Boolean> = remoteRepository.isLoggedInFlow
 
     val activeProfileName: StateFlow<String?> =
         combine(profileRepository.observeProfiles(), profileRepository.activeProfileId) { list, id ->
@@ -321,7 +321,7 @@ fun SettingsScreen(
             settings = container.settings,
             localVault = container.localVault,
             cloudVault = container.vault,
-            session = container.aListSession,
+            remoteRepository = container.remoteRepository,
             database = container.database,
             keyStore = container.keyStore,
             appLockManager = container.appLockManager,

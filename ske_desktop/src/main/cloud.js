@@ -2,7 +2,8 @@
  * Cloud browsing service.
  *
  * Everything that touches credentials lives here, in the main process:
- * the AList token, the derived name key, and the media password. The renderer
+ * the backend token (AList or OpenList), the derived name key, and the media
+ * password. The renderer
  * only ever receives plaintext file names and ready-to-use stream URLs, so a
  * compromised renderer cannot read a password out of `window`.
  *
@@ -11,6 +12,7 @@
  */
 import crypto from 'node:crypto'
 import { AListClient } from './alist.js'
+import { OpenListClient } from './openlist.js'
 import {
   checkName,
   decryptStoredName,
@@ -87,18 +89,27 @@ export class CloudService {
 
   /**
    * Log in and open a browsing session.
-   * @param {{ profile: object, password: string, skePassword: string }} input
+   *
+   * The backend comes from the profile, so the renderer never has to say which
+   * one to talk to. `otpCode` only matters for accounts with 2FA — both AList
+   * and OpenList support it; a missing code surfaces as an error carrying
+   * `needsOtp`.
+   *
+   * @param {{ profile: object, password: string, skePassword: string, otpCode?: string }} input
    */
-  async login({ profile, password, skePassword }) {
+  async login({ profile, password, skePassword, otpCode = '' }) {
     if (!profile?.server) throw new Error('配置缺少服务器地址')
     if (!skePassword) {
       throw new Error('该配置还没有媒体加密密码，请先在配置里填写')
     }
 
-    const client = new AListClient({
+    const provider = profile.provider === 'openlist' ? 'openlist' : 'alist'
+    const Client = provider === 'openlist' ? OpenListClient : AListClient
+    const client = new Client({
       server: profile.server,
       username: profile.username,
       password,
+      otpCode,
     })
     await client.login()
 
@@ -106,6 +117,7 @@ export class CloudService {
       id: crypto.randomBytes(8).toString('base64url'),
       profileId: profile.id,
       profileName: profile.name,
+      provider,
       server: profile.server,
       basePath: profile.basePath || '',
       client,
@@ -131,7 +143,12 @@ export class CloudService {
     }
 
     this.sessions.set(session.id, session)
-    return { sessionId: session.id, server: session.server, basePath: session.basePath }
+    return {
+      sessionId: session.id,
+      provider: session.provider,
+      server: session.server,
+      basePath: session.basePath,
+    }
   }
 
   get(sessionId) {
@@ -148,6 +165,7 @@ export class CloudService {
       sessionId: session.id,
       profileId: session.profileId,
       profileName: session.profileName,
+      provider: session.provider,
       server: session.server,
       basePath: session.basePath,
     }

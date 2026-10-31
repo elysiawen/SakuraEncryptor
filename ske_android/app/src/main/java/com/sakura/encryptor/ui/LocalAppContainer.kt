@@ -21,7 +21,7 @@ fun appContainer(): AppContainer = LocalAppContainer.current
  * Builds a [ViewModel] wired to the container without a DI framework.
  *
  * ```kotlin
- * val vm = rememberAppViewModel { BrowseViewModel(it.aListRepository) }
+ * val vm = rememberAppViewModel { BrowseViewModel(it.remoteRepository) }
  * ```
  */
 @Composable

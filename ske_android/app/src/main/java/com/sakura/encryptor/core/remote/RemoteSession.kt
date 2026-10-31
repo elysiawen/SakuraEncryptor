@@ -1,24 +1,23 @@
-package com.sakura.encryptor.core.alist
+package com.sakura.encryptor.core.remote
 
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import com.sakura.encryptor.core.alist.FileEntry
 import java.util.concurrent.CopyOnWriteArrayList
 
 /**
- * The active AList session — optional.
+ * The active cloud account — optional.
  *
  * Connecting to a server is a feature, not a prerequisite: the app boots
  * straight into the main UI and this session simply stays empty until the user
  * chooses to sign in.
  *
+ * Only one backend is signed in at a time, so a single session serves both.
  * Reproduces the path rules of `useAList.js`:
  *  - a *manually* configured base path is prepended to every request path;
  *  - an *auto-detected* base path is **not** prepended, because for
- *    sub-accounts AList already scopes the API to that root, so a virtual
- *    root is rebuilt from the permissions list instead.
+ *    sub-accounts the API is already scoped to that root, so a virtual root is
+ *    rebuilt from the permissions list instead.
  */
-class AListSession {
+class RemoteSession {
 
     @Volatile
     var server: String = ""
@@ -42,18 +41,7 @@ class AListSession {
     var detectedBasePath: String = ""
         private set
 
-    private val _permissionPaths = CopyOnWriteArrayList<String>()
-    val permissionPaths: List<String> get() = _permissionPaths.toList()
-
-    private val _isLoggedIn = MutableStateFlow(false)
-
-    /** Observable login state for the UI. */
-    val isLoggedInFlow: StateFlow<Boolean> = _isLoggedIn.asStateFlow()
-
-    private val _serverFlow = MutableStateFlow("")
-
-    /** Observable server address, so the UI can label the account. */
-    val serverFlow: StateFlow<String> = _serverFlow.asStateFlow()
+    private val permissionPaths = CopyOnWriteArrayList<String>()
 
     val isLoggedIn: Boolean get() = server.isNotEmpty() && token.isNotEmpty()
 
@@ -70,11 +58,8 @@ class AListSession {
         this.token = token
         this.manualBasePath = normalizeBase(manualBasePath)
         this.detectedBasePath = normalizeBase(detectedBasePath)
-        _permissionPaths.clear()
-        _permissionPaths.addAll(permissionPaths.filter { it.isNotEmpty() && it != "/" })
-
-        _serverFlow.value = this.server
-        _isLoggedIn.value = true
+        this.permissionPaths.clear()
+        this.permissionPaths.addAll(permissionPaths.filter { it.isNotEmpty() && it != "/" })
     }
 
     fun clear() {
@@ -83,9 +68,7 @@ class AListSession {
         username = ""
         manualBasePath = ""
         detectedBasePath = ""
-        _permissionPaths.clear()
-        _serverFlow.value = ""
-        _isLoggedIn.value = false
+        permissionPaths.clear()
     }
 
     private fun normalizeBase(raw: String): String {
@@ -104,13 +87,13 @@ class AListSession {
 
     /** True when [path] must be served from the synthesized permission listing. */
     fun isVirtualRoot(path: String): Boolean =
-        path == "/" && manualBasePath.isEmpty() && detectedBasePath.isNotEmpty() && _permissionPaths.isNotEmpty()
+        path == "/" && manualBasePath.isEmpty() && detectedBasePath.isNotEmpty() && permissionPaths.isNotEmpty()
 
     /** Build the virtual root listing (deduplicated top-level folder names). */
     fun virtualRootEntries(): List<FileEntry> {
         val seen = LinkedHashSet<String>()
         val result = ArrayList<FileEntry>()
-        for (permissionPath in _permissionPaths) {
+        for (permissionPath in permissionPaths) {
             val name = permissionPath.trimStart('/').split('/').firstOrNull() ?: continue
             if (name.isEmpty() || !seen.add(name)) continue
             result.add(FileEntry(name = name, size = 0, isDir = true, modified = ""))

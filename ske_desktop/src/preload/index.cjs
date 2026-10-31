@@ -74,7 +74,8 @@ contextBridge.exposeInMainWorld('ske', {
   },
 
   cloud: {
-    connect: (profileId) => invoke('cloud:connect', profileId),
+    /** `otpCode` is only needed when the profile has 2FA (OpenList answer 402). */
+    connect: (profileId, otpCode = '') => invoke('cloud:connect', profileId, otpCode),
     status: (sessionId) => invoke('cloud:status', sessionId),
     disconnect: (sessionId) => invoke('cloud:disconnect', sessionId),
     /** `refresh` forces AList to bypass its directory cache (manual refresh). */

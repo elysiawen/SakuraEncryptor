@@ -1,12 +1,14 @@
 package com.sakura.encryptor.data.db
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import com.sakura.encryptor.core.remote.RemoteProvider
 
 /**
  * A saved cloud profile.
  *
- * Each profile carries its own AList account *and* its own encryption master
+ * Each profile carries its own cloud account *and* its own encryption master
  * password — different passwords can therefore drive different encrypted
  * trees, and switching profiles switches everything at once.
  *
@@ -19,7 +21,10 @@ data class ProfileEntity(
     val server: String = "",
     val username: String = "",
     val basePath: String = "",
-    /** Sealed AList login password; null means "ask on connect". */
+    /** Which backend this account belongs to; see [RemoteProvider]. */
+    @ColumnInfo(defaultValue = "alist")
+    val provider: String = RemoteProvider.ALIST.storageKey,
+    /** Sealed cloud login password; null means "ask on connect". */
     val sealedAlistPassword: String? = null,
     /** Sealed encryption master password; null means "ask on switch". */
     val sealedMasterPassword: String? = null,
@@ -27,7 +32,10 @@ data class ProfileEntity(
 ) {
     val hasServer: Boolean get() = server.isNotBlank()
 
-    /** True when the AList session can be restored without prompting. */
+    /** The backend this profile talks to; unknown values fall back to AList. */
+    val remoteProvider: RemoteProvider get() = RemoteProvider.fromStorage(provider)
+
+    /** True when the cloud session can be restored without prompting. */
     val canAutoLogin: Boolean get() = hasServer && !sealedAlistPassword.isNullOrEmpty()
 
     /** True when the encryption password is stored and can unlock automatically. */

@@ -266,7 +266,7 @@ fun VideoPlayerScreen(
                     key = currentUri,
                     displayName = currentName,
                     remotePath = currentUri,
-                    server = container.aListSession.server,
+                    server = container.remoteRepository.server,
                     positionMs = position,
                     durationMs = if (duration > 0) duration else 0L,
                 )
@@ -413,7 +413,7 @@ fun VideoPlayerScreen(
                     key = currentUri,
                     displayName = currentName,
                     remotePath = currentUri,
-                    server = container.aListSession.server,
+                    server = container.remoteRepository.server,
                     positionMs = position,
                     durationMs = duration,
                 )

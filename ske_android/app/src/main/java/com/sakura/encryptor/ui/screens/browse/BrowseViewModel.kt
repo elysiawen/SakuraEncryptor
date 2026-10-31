@@ -5,8 +5,6 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
-import com.sakura.encryptor.core.alist.AListRepository
-import com.sakura.encryptor.core.alist.AListSession
 import com.sakura.encryptor.core.alist.DecryptedEntry
 import com.sakura.encryptor.core.crypto.SkeCrypto
 import com.sakura.encryptor.core.crypto.SkeFormat
@@ -17,6 +15,8 @@ import com.sakura.encryptor.core.player.CipherBlockSourceFactory
 import com.sakura.encryptor.core.player.MediaKind
 import com.sakura.encryptor.core.player.MediaTypes
 import com.sakura.encryptor.core.profile.ProfileRepository
+import com.sakura.encryptor.core.remote.RemoteException
+import com.sakura.encryptor.core.remote.RemoteRepository
 import com.sakura.encryptor.core.session.NameKeyCache
 import com.sakura.encryptor.core.session.VaultSession
 import com.sakura.encryptor.core.upload.UploadManager
@@ -34,8 +34,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 class BrowseViewModel(
-    private val repository: AListRepository,
-    private val session: AListSession,
+    private val repository: RemoteRepository,
     private val vault: VaultSession,
     private val downloadManager: DownloadManager,
     private val runner: CryptoTaskRunner,
@@ -61,6 +60,9 @@ class BrowseViewModel(
     sealed interface Event {
         data class OpenPlayer(val uri: String, val name: String, val source: PlaybackSource) : Event
         data class Message(val text: String) : Event
+
+        /** The account asked for a one-time password before it will sign in. */
+        data object NeedOtp : Event
     }
 
     private val _state = MutableStateFlow(UiState())
@@ -140,11 +142,24 @@ class BrowseViewModel(
     suspend fun unlockActive(password: String, remember: Boolean) =
         profileRepository.unlockActive(password, remember)
 
-    /** Reconnect the active profile using its stored AList credentials. */
-    fun connectActive() {
+    /**
+     * Reconnect the active profile using its stored credentials.
+     *
+     * AList and OpenList accounts with two-factor login reject the first attempt
+     * and surface a need for the one-time code, which the screen then collects
+     * and passes back here.
+     */
+    fun connectActive(otpCode: String = "") {
         viewModelScope.launch {
-            profileRepository.connectActive()
-                .onFailure { send(Event.Message(it.message ?: "连接失败")) }
+            profileRepository.connectActive(otpCode)
+                .onFailure { throwable ->
+                    val needsOtp = (throwable as? RemoteException)?.needsOtp == true
+                    if (needsOtp) {
+                        _events.send(Event.NeedOtp)
+                    } else {
+                        send(Event.Message(throwable.message ?: "连接失败"))
+                    }
+                }
         }
     }
 
@@ -185,7 +200,7 @@ class BrowseViewModel(
      * Called from the UI so the screen reflects "locked" and "not connected".
      */
     fun syncSession() {
-        if (!vault.isUnlocked || !session.isLoggedIn) {
+        if (!vault.isUnlocked || !repository.isLoggedIn) {
             _state.update {
                 it.copy(
                     entries = emptyList(),
@@ -213,7 +228,7 @@ class BrowseViewModel(
 
     fun load(path: String, refresh: Boolean = false, initial: Boolean = false) {
         // Nothing can be listed without both an unlocked vault and a session.
-        if (!vault.isUnlocked || !session.isLoggedIn) {
+        if (!vault.isUnlocked || !repository.isLoggedIn) {
             _state.update {
                 it.copy(
                     path = path,
@@ -369,9 +384,9 @@ class BrowseViewModel(
     fun upload(uris: List<Uri>, encrypt: Boolean, names: List<String> = emptyList()) {
         if (uris.isEmpty()) return
 
-        // The AList form API cannot address a drive root, and a sub-account's
+        // The form API cannot address a drive root, and a sub-account's
         // virtual root is not a real directory either.
-        val target = session.absolutePath(_state.value.path)
+        val target = repository.absolutePath(_state.value.path)
         if (target.isBlank() || target == "/") {
             send(Event.Message("请先进入一个具体目录再上传"))
             return

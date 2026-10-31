@@ -5,7 +5,7 @@
  */
 import { ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { getFileInfo } from './useAList.js'
+import { getFileInfo } from './useRemoteStorage.js'
 import { getNameKeyFromSession, decryptName } from './useCrypto.js'
 import { buildDecryptProxyUrl } from './useDecryptProxy.js'
 

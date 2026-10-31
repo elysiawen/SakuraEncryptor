@@ -17,7 +17,10 @@ function handle(channel, fn) {
       const result = await fn(event, ...args)
       return { ok: true, ...(result ?? {}) }
     } catch (err) {
-      return { ok: false, error: err?.message || String(err) }
+      // `needsOtp` is the only machine-readable flag the UI acts on: AList and
+      // OpenList both answer 402 when an account wants a one-time code, and the
+      // renderer has to prompt for it rather than show a dead-end error.
+      return { ok: false, error: err?.message || String(err), ...(err?.needsOtp ? { needsOtp: true } : {}) }
     }
   })
 }
@@ -312,7 +315,7 @@ export function registerIpc({
 
   // --- cloud ---------------------------------------------------------------
 
-  handle('cloud:connect', async (_e, profileId) => {
+  handle('cloud:connect', async (_e, profileId, otpCode = '') => {
     if (security.isEnabled() && !security.unlocked) throw new Error('应用已锁定')
 
     const { profiles } = storage.listProfiles()
@@ -320,12 +323,14 @@ export function registerIpc({
     if (!profile) throw new Error('配置不存在')
 
     // Secrets are unsealed here and handed straight to CloudService; they never
-    // travel back through IPC.
+    // travel back through IPC. `otpCode` comes from the renderer because a
+    // one-time code cannot be stored: OpenList asks for it on every login.
     const secrets = storage.getSecrets(profileId) || {}
     const result = await cloud.login({
       profile,
       password: secrets.password,
       skePassword: secrets.skePassword,
+      otpCode: typeof otpCode === 'string' ? otpCode.trim() : '',
     })
     return { session: result }
   })

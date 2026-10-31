@@ -184,11 +184,17 @@ export class UploadQueue {
       job.phase = 'uploading'
       this.#scheduleEmit()
 
-      // No byte-level progress here: the body is a Blob handed to the runtime,
-      // which does not report how much of it has been sent. The bar holds at the
-      // halfway mark and fills in when the server answers.
+      // A form upload hands a Blob to the runtime, which reports no byte-level
+      // progress, so the bar holds at the halfway mark. OpenList's chunked
+      // upload does report it; the callback is ignored by clients without it.
+      const half = Math.round(stat.size * 0.5)
       await target.client.upload(joinStoredPath(target.dir, uploadName), sourcePath, {
         signal: controller.signal,
+        onProgress: (ratio) => {
+          const safe = Math.min(1, Math.max(0, Number(ratio) || 0))
+          job.doneBytes = half + Math.round(half * safe)
+          this.#scheduleEmit()
+        },
       })
 
       if (controller.signal.aborted) throw new Error('已取消')

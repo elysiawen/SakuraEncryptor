@@ -7,11 +7,27 @@
     @dragleave="onDragLeave"
     @drop.prevent="onDrop"
   >
+    <!-- OpenList 2FA: the server refuses the login until the current code is
+         supplied. It lives outside the branch below on purpose — the failure
+         state is where the "输入验证码" button appears, and a dialog nested in
+         the success branch would never be rendered there. -->
+    <PromptDialog
+      :visible="otp.show"
+      title="两步验证"
+      description="该账号已开启两步验证，请输入身份验证器中的动态验证码。"
+      placeholder="动态验证码"
+      confirm-text="验证并连接"
+      :busy="otp.busy"
+      :error="otp.error"
+      @cancel="otp.show = false"
+      @submit="submitOtp"
+    />
+
     <EmptyState
       v-if="!activeProfile"
       icon="☁"
       title="尚未选择云端配置"
-      description="云端库通过 AList 读取加密目录。添加一套账号后即可在应用内浏览并直接播放，密码不会离开本机。"
+      description="云端库通过 AList / OpenList 读取加密目录。添加一套账号后即可在应用内浏览并直接播放，密码不会离开本机。"
       action-text="前往配置"
       @action="$router.push('/profiles')"
     />
@@ -26,8 +42,8 @@
       icon="⚠"
       title="无法连接云端"
       :description="cloud.error"
-      action-text="重试"
-      @action="reconnect"
+      :action-text="cloud.needsOtp ? '输入验证码' : '重试'"
+      @action="cloud.needsOtp ? openOtp() : reconnect()"
     />
 
     <template v-else>
@@ -369,12 +385,44 @@ async function reconnect() {
   await ensureConnected({ force: true })
 }
 
+// ── OpenList two-factor login ──
+// The first attempt never carries a code, so a 2FA account answers 402 and
+// `cloud.needsOtp` opens this prompt; the retry passes the code through.
+const otp = reactive({ show: false, busy: false, error: '' })
+
+watch(
+  () => cloud.needsOtp,
+  (needed) => {
+    if (!needed) return
+    otp.error = ''
+    otp.show = true
+  },
+)
+
+function openOtp() {
+  otp.error = ''
+  otp.show = true
+}
+
+async function submitOtp({ text }) {
+  if (otp.busy) return
+  otp.busy = true
+  otp.error = ''
+  try {
+    const connected = await ensureConnected({ force: true, otpCode: text })
+    if (connected) otp.show = false
+    else otp.error = cloud.error || '验证码无效，请重试'
+  } finally {
+    otp.busy = false
+  }
+}
+
 async function go(path) {
   if (path === cloud.path) return
   await load(path)
 }
 
-// Manual refresh, same semantics as the web client: force AList to re-scan the
+// Manual refresh, same semantics as the web client: force the server to re-scan the
 // folder instead of answering from its cache. Navigating keeps using the cache.
 async function reload() {
   await load(cloud.path, { refresh: true })

@@ -44,7 +44,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
-import com.sakura.encryptor.core.alist.AListSession
 import com.sakura.encryptor.core.profile.ProfileRepository
 import com.sakura.encryptor.data.db.ProfileEntity
 import com.sakura.encryptor.ui.components.PrimaryButton
@@ -58,7 +57,6 @@ import kotlinx.coroutines.launch
 
 class ProfilesViewModel(
     private val profileRepository: ProfileRepository,
-    private val session: AListSession,
 ) : ViewModel() {
 
     val profiles: StateFlow<List<ProfileEntity>> = profileRepository.observeProfiles()
@@ -82,7 +80,7 @@ fun ProfilesScreen(
     onBack: () -> Unit,
 ) {
     val viewModel = rememberAppViewModel { container ->
-        ProfilesViewModel(container.profileRepository, container.aListSession)
+        ProfilesViewModel(container.profileRepository)
     }
 
     val profiles by viewModel.profiles.collectAsStateWithLifecycle()
@@ -110,7 +108,7 @@ fun ProfilesScreen(
             StateMessage(
                 icon = Icons.Rounded.Cloud,
                 title = "还没有云端配置",
-                message = "一个配置 = 一套 AList 账号 + 一套加密密码。可以添加多个并随时切换；只用本地文件则无需配置。",
+                message = "一个配置 = 一套 AList / OpenList 账号 + 一套加密密码。可以添加多个并随时切换；只用本地文件则无需配置。",
             )
             Box(
                 modifier = Modifier
@@ -261,6 +259,10 @@ private fun ProfileCard(
                     if (isActive) {
                         MiniBadge(text = "使用中", highlighted = true)
                     }
+                    MiniBadge(
+                        text = profile.remoteProvider.label,
+                        icon = Icons.Rounded.Cloud,
+                    )
                     MiniBadge(
                         text = if (profile.canAutoUnlock) "已记住密码" else "切换时需输密码",
                         icon = Icons.Rounded.LockOpen,

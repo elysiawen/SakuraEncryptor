@@ -1,7 +1,7 @@
 package com.sakura.encryptor.core.profile
 
-import com.sakura.encryptor.core.alist.AListRepository
-import com.sakura.encryptor.core.alist.AListSession
+import com.sakura.encryptor.core.remote.RemoteProvider
+import com.sakura.encryptor.core.remote.RemoteRepository
 import com.sakura.encryptor.core.security.KeyStoreManager
 import com.sakura.encryptor.core.session.VaultSession
 import com.sakura.encryptor.data.db.ProfileDao
@@ -13,17 +13,18 @@ import kotlinx.coroutines.flow.first
 /**
  * Manages cloud profiles and the switch between them.
  *
- * A profile bundles an AList account with its own encryption password. Both
- * secrets are stored only as Keystore-sealed blobs, and switching a profile
- * swaps the active [VaultSession] password and the AList session together.
+ * A profile bundles a cloud account (AList or OpenList) with its own encryption
+ * password. Both secrets are stored only as Keystore-sealed blobs, and switching
+ * a profile swaps the active [VaultSession] password and the backend session
+ * together. The backend itself is chosen by [RemoteRepository], so nothing here
+ * has to know which API is in use.
  */
 class ProfileRepository(
     private val dao: ProfileDao,
     private val settings: SettingsStore,
     private val keyStore: KeyStoreManager,
     private val cloudVault: VaultSession,
-    private val aListSession: AListSession,
-    private val aListRepository: AListRepository,
+    private val remoteRepository: RemoteRepository,
 ) {
 
     fun observeProfiles(): Flow<List<ProfileEntity>> = dao.observeAll()
@@ -42,6 +43,7 @@ class ProfileRepository(
         server: String,
         username: String,
         basePath: String,
+        provider: RemoteProvider,
         alistPassword: String?,
         masterPassword: String?,
     ): Long {
@@ -52,6 +54,7 @@ class ProfileRepository(
             server = server.trim().trimEnd('/'),
             username = username.trim(),
             basePath = basePath.trim(),
+            provider = provider.storageKey,
             sealedAlistPassword = alistPassword?.let { keyStore.seal(it) }
                 ?: existing?.sealedAlistPassword,
             sealedMasterPassword = masterPassword?.let { keyStore.seal(it) }
@@ -63,7 +66,7 @@ class ProfileRepository(
     }
 
     /**
-     * Forget a profile. If it was active, the vault is locked and the AList
+     * Forget a profile. If it was active, the vault is locked and the cloud
      * session dropped so nothing stale keeps running.
      */
     suspend fun delete(id: Long) {
@@ -71,7 +74,7 @@ class ProfileRepository(
         if (settings.activeProfileId.first() == id) {
             settings.setActiveProfileId(null)
             cloudVault.lock()
-            aListSession.clear()
+            remoteRepository.clear()
         }
     }
 
@@ -85,7 +88,7 @@ class ProfileRepository(
 
         settings.setActiveProfileId(id)
         dao.touch(id, System.currentTimeMillis())
-        aListSession.clear()
+        remoteRepository.clear()
 
         val master = profile.sealedMasterPassword?.let { keyStore.open(it) }
         if (!master.isNullOrEmpty()) {
@@ -99,7 +102,13 @@ class ProfileRepository(
             runCatching {
                 val password = keyStore.open(profile.sealedAlistPassword!!)
                 if (!password.isNullOrEmpty()) {
-                    aListRepository.login(profile.server, profile.username, password, profile.basePath)
+                    remoteRepository.login(
+                        provider = profile.remoteProvider,
+                        server = profile.server,
+                        username = profile.username,
+                        password = password,
+                        manualBasePath = profile.basePath,
+                    ).getOrThrow()
                 }
             }
         }
@@ -118,27 +127,40 @@ class ProfileRepository(
         )
     }
 
-    /** Connect the active profile's AList account using its stored password. */
-    suspend fun connectActive(): Result<Unit> {
+    /**
+     * Connect the active profile's cloud account using its stored password.
+     *
+     * OpenList and AList accounts with two-factor login fail with an exception
+     * carrying `needsOtp = true`; the caller then collects the one-time code
+     * and retries through [otpCode].
+     */
+    suspend fun connectActive(otpCode: String = ""): Result<Unit> {
         val profile = activeProfile()
             ?: return Result.failure(IllegalStateException("还没有选择云端配置"))
         if (!profile.hasServer) {
             return Result.failure(IllegalStateException("该配置没有填写服务器地址"))
         }
         val password = profile.sealedAlistPassword?.let { keyStore.open(it) }
-            ?: return Result.failure(IllegalStateException("请先在配置中填写 AList 密码"))
+            ?: return Result.failure(IllegalStateException("请先在配置中填写登录密码"))
 
-        return aListRepository.login(profile.server, profile.username, password, profile.basePath)
+        return remoteRepository.login(
+            provider = profile.remoteProvider,
+            server = profile.server,
+            username = profile.username,
+            password = password,
+            manualBasePath = profile.basePath,
+            otpCode = otpCode,
+        )
     }
 
     /** Drop the active session without deleting the profile. */
     fun disconnect() {
-        aListSession.clear()
+        remoteRepository.clear()
     }
 
     /** Drop all in-memory secrets. */
     fun lockAll() {
         cloudVault.lock()
-        aListSession.clear()
+        remoteRepository.clear()
     }
 }

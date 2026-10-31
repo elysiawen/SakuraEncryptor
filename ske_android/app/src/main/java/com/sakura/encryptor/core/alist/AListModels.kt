@@ -12,7 +12,12 @@ data class AListEnvelope<T>(
 )
 
 @Serializable
-data class LoginRequest(val username: String, val password: String)
+data class LoginRequest(
+    val username: String,
+    val password: String,
+    // Sent only when the account uses TOTP; null keeps the field out of the body.
+    @SerialName("otp_code") val otpCode: String? = null,
+)
 
 @Serializable
 data class LoginData(val token: String)

@@ -1,6 +1,7 @@
 package com.sakura.encryptor.ui.screens.profiles
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -25,6 +26,7 @@ import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -48,6 +50,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.sakura.encryptor.core.profile.ProfileRepository
+import com.sakura.encryptor.core.remote.RemoteProvider
 import com.sakura.encryptor.data.prefs.SettingsStore
 import com.sakura.encryptor.ui.components.PrimaryButton
 import com.sakura.encryptor.ui.components.SakuraCard
@@ -69,6 +72,7 @@ class ProfileEditViewModel(
     data class UiState(
         val isNew: Boolean = true,
         val name: String = "",
+        val provider: RemoteProvider = RemoteProvider.ALIST,
         val server: String = "",
         val username: String = "",
         val alistPassword: String = "",
@@ -106,6 +110,7 @@ class ProfileEditViewModel(
                         it.copy(
                             isNew = false,
                             name = profile.name,
+                            provider = profile.remoteProvider,
                             server = profile.server,
                             username = profile.username,
                             basePath = profile.basePath,
@@ -119,6 +124,8 @@ class ProfileEditViewModel(
     }
 
     fun onNameChange(value: String) = _state.update { it.copy(name = value, error = null) }
+    fun onProviderChange(value: RemoteProvider) =
+        _state.update { it.copy(provider = value, error = null) }
     fun onServerChange(value: String) = _state.update { it.copy(server = value, error = null) }
     fun onUsernameChange(value: String) = _state.update { it.copy(username = value, error = null) }
     fun onAlistPasswordChange(value: String) =
@@ -143,6 +150,7 @@ class ProfileEditViewModel(
                     server = current.server,
                     username = current.username,
                     basePath = current.basePath,
+                    provider = current.provider,
                     // Empty means "keep the stored secret".
                     alistPassword = current.alistPassword.takeIf { it.isNotEmpty() },
                     masterPassword = current.masterPassword.takeIf { it.isNotEmpty() },
@@ -200,7 +208,7 @@ fun ProfileEditScreen(
     ) {
         SakuraTopBar(
             title = if (state.isNew) "新增配置" else "编辑配置",
-            subtitle = "一套 AList 账号 + 一套加密密码",
+            subtitle = "一套 AList / OpenList 账号 + 一套加密密码",
             onBack = onBack,
             actions = {
                 if (!state.isNew) {
@@ -219,6 +227,22 @@ fun ProfileEditScreen(
                 .padding(horizontal = 16.dp),
         ) {
             SakuraCard(contentPadding = androidx.compose.foundation.layout.PaddingValues(18.dp)) {
+                Text(
+                    text = "服务端类型",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(6.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    RemoteProvider.entries.forEach { provider ->
+                        FilterChip(
+                            selected = state.provider == provider,
+                            onClick = { viewModel.onProviderChange(provider) },
+                            label = { Text(provider.label) },
+                        )
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
                 SakuraField(
                     value = state.name,
                     onValueChange = viewModel::onNameChange,
@@ -230,7 +254,7 @@ fun ProfileEditScreen(
                 SakuraField(
                     value = state.server,
                     onValueChange = viewModel::onServerChange,
-                    label = "AList 服务器地址",
+                    label = "${state.provider.label} 服务器地址",
                     placeholder = "https://alist.example.com",
                     leading = Icons.Rounded.Cloud,
                     keyboardType = KeyboardType.Uri,
@@ -247,9 +271,9 @@ fun ProfileEditScreen(
                     value = state.alistPassword,
                     onValueChange = viewModel::onAlistPasswordChange,
                     label = if (state.hasStoredAlistPassword) {
-                        "AList 密码（已保存，留空则不变）"
+                        "${state.provider.label} 密码（已保存，留空则不变）"
                     } else {
-                        "AList 密码"
+                        "${state.provider.label} 密码"
                     },
                     leading = Icons.Rounded.Key,
                     isPassword = true,
