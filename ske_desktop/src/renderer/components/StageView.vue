@@ -11,6 +11,44 @@
         <div class="sub-slot" />
 
         <button
+          v-if="player.kind === 'image' && player.url"
+          class="icon"
+          :class="{ active: comicMode }"
+          type="button"
+          :title="comicMode ? '退出漫画模式' : '漫画模式（连续阅读）'"
+          @click="toggleComicMode"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+            <rect x="5" y="4" width="14" height="16" rx="1.6" />
+            <path d="M5 9.3h14M5 14.6h14" />
+          </svg>
+        </button>
+
+        <button
+          v-if="comicMode && player.kind === 'image'"
+          class="icon"
+          type="button"
+          :title="comicLayout === 'strip' ? '切换为双页跨页' : '切换为竖向连续'"
+          @click="toggleComicLayout"
+        >
+          <svg
+            v-if="comicLayout === 'strip'"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.6"
+            stroke-linecap="round"
+          >
+            <rect x="4" y="4" width="7" height="16" rx="1.4" />
+            <rect x="13" y="4" width="7" height="16" rx="1.4" />
+          </svg>
+          <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+            <rect x="5" y="4" width="14" height="16" rx="1.6" />
+            <path d="M5 9.3h14M5 14.6h14" />
+          </svg>
+        </button>
+
+        <button
           v-if="player.url"
           class="icon"
           :class="{ active: linkState === 'copied' }"
@@ -79,7 +117,7 @@
       />
 
       <ImageStage
-        v-else-if="player.kind === 'image' && player.url"
+        v-else-if="player.kind === 'image' && player.url && !comicMode"
         :src="player.url"
         :alt="player.name"
         :can-prev="player.index > 0"
@@ -87,6 +125,15 @@
         @prev="prev"
         @next="next"
         @error="onMediaError"
+      />
+
+      <!-- Whole folder as one vertical strip, matching the Android comic mode. -->
+      <ComicStage
+        v-else-if="player.kind === 'image' && player.url && comicMode"
+        ref="comicRef"
+        :items="player.playlist"
+        :start-index="player.index"
+        :layout="comicLayout"
       />
 
       <div v-else class="centre">
@@ -122,11 +169,12 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import VideoStage from './VideoStage.vue'
 import ImageStage from './ImageStage.vue'
+import ComicStage from './ComicStage.vue'
 import MusicStage from './MusicStage.vue'
-import { close, next, player, playAt, playEntry, prev, sameEntry } from '../state/player.js'
+import { close, next, player, playAt, playEntry, prefetchEntry, prev, sameEntry } from '../state/player.js'
 import { session, toast } from '../state/session.js'
 import { copyText } from '../utils/clipboard.js'
 
@@ -138,6 +186,48 @@ const localError = ref('')
 const stageKind = ref('')
 const stagePayload = ref(null)
 const autoPlayNext = computed(() => session.settings?.playback?.autoPlayNext !== false)
+
+/** Continuous vertical reader for a folder of pictures, like the Android viewer. */
+const comicMode = ref(false)
+const comicRef = ref(null)
+/** 'strip' = one centred column, 'spread' = two pages side by side. */
+const comicLayout = ref('strip')
+
+function toggleComicLayout() {
+  comicLayout.value = comicLayout.value === 'strip' ? 'spread' : 'strip'
+}
+
+function toggleComicMode() {
+  if (player.kind !== 'image' || !player.url) return
+  if (!comicMode.value) {
+    comicMode.value = true
+    return
+  }
+
+  // Leave the strip on the page currently at its top edge, mirroring Android.
+  const index = comicRef.value?.topIndex?.()
+  comicMode.value = false
+  if (Number.isInteger(index) && index >= 0 && index !== player.index) {
+    playAt(index).catch((err) => toast(err.message, 'error'))
+  }
+}
+
+/**
+ * With a picture on screen, warm the next one so paging does not open a fresh
+ * decrypt session and stall on "正在解密". Only images: video owns an open-ended
+ * range stream and audio lives in the shell.
+ */
+watch(
+  () => [player.kind, player.url, player.index, player.playlist.length],
+  () => {
+    // The strip opens its own page sessions; warming the next single-page
+    // picture would only compete for the same decrypt work.
+    if (comicMode.value || player.kind !== 'image' || !player.url) return
+    const nextItem = player.playlist[player.index + 1]
+    if (nextItem?.kind === 'image') prefetchEntry(nextItem)
+  },
+  { immediate: true },
+)
 
 let offLoad = null
 
@@ -164,6 +254,8 @@ async function load(payload) {
 
   localError.value = ''
   listOpen.value = false
+  // A fresh file always starts in the single-page view.
+  comicMode.value = false
   document.title = `${payload.item.name || '播放'} — Sakura Encryptor`
 
   stageKind.value = payload.item.kind || 'video'

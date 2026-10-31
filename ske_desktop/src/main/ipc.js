@@ -5,7 +5,7 @@
  * instead of throwing: Electron wraps thrown errors in a message that hides the
  * real cause, and the UI needs to show the cause verbatim.
  */
-import { BrowserWindow, app, clipboard, dialog, ipcMain, shell } from 'electron'
+import { BrowserWindow, app, clipboard, dialog, ipcMain, screen, shell } from 'electron'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 import { listPlayers, playExternal } from './external-player.js'
@@ -745,6 +745,41 @@ export function registerIpc({
     if (!win) throw new Error('窗口已关闭')
     win.setFullScreen(!win.isFullScreen())
     return { fullScreen: win.isFullScreen() }
+  })
+
+  /**
+   * Shape the window around comic spreads: the pages then fill it instead of
+   * sitting in black letterbox bars. `aspect` is the width/height ratio of the
+   * page area, `chrome` the height of the in-window bar that is not page area.
+   *
+   * Only the width is kept; height follows the ratio, clamped to the display's
+   * work area so the window cannot grow off-screen. A window the user owns
+   * (maximised or full screen) is left alone.
+   */
+  handle('window:fitAspect', (event, aspect, chrome = 0) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win) throw new Error('窗口已关闭')
+    const ratio = Number(aspect)
+    if (!Number.isFinite(ratio) || ratio <= 0) return { resized: false }
+    if (win.isMaximized() || win.isFullScreen()) return { resized: false }
+
+    const area = screen.getDisplayMatching(win.getBounds()).workArea
+    const extra = Math.max(0, Math.round(Number(chrome) || 0))
+    const [currentWidth] = win.getContentSize()
+    let width = Math.min(currentWidth, area.width)
+    let height = Math.round(width / ratio) + extra
+    if (height > area.height) {
+      height = area.height
+      width = Math.max(320, Math.round((height - extra) * ratio))
+    }
+
+    win.setContentSize(width, height)
+    const bounds = win.getBounds()
+    win.setPosition(
+      Math.min(Math.max(bounds.x, area.x), area.x + area.width - bounds.width),
+      Math.min(Math.max(bounds.y, area.y), area.y + area.height - bounds.height),
+    )
+    return { resized: true, width, height }
   })
 
   // --- player window -------------------------------------------------------

@@ -80,6 +80,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import com.sakura.encryptor.core.alist.DecryptedEntry
+import com.sakura.encryptor.core.media.PreviewCache
 import com.sakura.encryptor.core.player.MediaKind
 import com.sakura.encryptor.core.player.MediaTypes
 import com.sakura.encryptor.ui.appContainer
@@ -361,7 +362,10 @@ fun BrowseScreen(
                                     icon = iconFor(entry, kind),
                                     // Unlock state is part of the key so the
                                     // tile retries once the password is known.
-                                    cacheKey = "remote:${state.path}/${entry.raw.name}:$unlocked",
+                                    cacheKey = PreviewCache.key(
+                                        identity = "${state.path.trimEnd('/')}/${entry.raw.name}",
+                                        unlocked = unlocked && entry.isSke,
+                                    ),
                                     loadPreview = { viewModel.previewOf(entry) },
                                     isSelected = entry.raw.name in state.selected,
                                     onOpen = {

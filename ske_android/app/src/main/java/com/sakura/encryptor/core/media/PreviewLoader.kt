@@ -33,6 +33,16 @@ object PreviewCache {
 
     private const val MAX_ENTRIES = 64
 
+    /**
+     * Identity of one tile.
+     *
+     * The lock state is part of the key: unlocking must not keep a null hit.
+     * Both the loader and the tile must use this exact string, or the tile's
+     * `peek` never matches and every recomposition re-runs the loader.
+     */
+    fun key(identity: String, unlocked: Boolean): String =
+        "$identity|${if (unlocked) "unlocked" else "locked"}"
+
     private val cache = object : LinkedHashMap<String, Bitmap>(MAX_ENTRIES, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Bitmap>): Boolean =
             size > MAX_ENTRIES
@@ -89,8 +99,7 @@ class PreviewLoader(
         remoteThumbUrl: String? = null,
         resolveUri: suspend () -> Uri?,
     ): Bitmap? {
-        // The key carries the lock state: unlocking must not keep a null hit.
-        val key = "$identity|${if (password.isNullOrEmpty()) "locked" else "unlocked"}"
+        val key = PreviewCache.key(identity, !password.isNullOrEmpty())
         return PreviewCache.load(key) {
             build(key, displayName, password, remoteThumbUrl, resolveUri)
         }

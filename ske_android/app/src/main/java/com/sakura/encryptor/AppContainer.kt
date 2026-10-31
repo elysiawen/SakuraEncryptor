@@ -14,9 +14,11 @@ import com.sakura.encryptor.core.local.CryptoTaskRunner
 import com.sakura.encryptor.core.local.LocalSkeStore
 import com.sakura.encryptor.core.media.PreviewCache
 import com.sakura.encryptor.core.media.PreviewLoader
+import com.sakura.encryptor.core.media.ReaderPageCache
 import com.sakura.encryptor.core.player.AudioTags
 import com.sakura.encryptor.core.player.CipherBlockSourceFactory
 import com.sakura.encryptor.core.player.DecryptedBytesReader
+import com.sakura.encryptor.core.player.ImageBytesCache
 import com.sakura.encryptor.core.player.LyricLine
 import com.sakura.encryptor.core.player.QueueUriResolver
 import com.sakura.encryptor.core.player.SiblingLyricsLoader
@@ -264,6 +266,9 @@ class AppContainer(private val appContext: Context) {
             NameKeyCache.clear()
             // Previews are decrypted bitmaps of the vault's contents.
             PreviewCache.clear()
+            // Same for the pages the continuous reader has decrypted.
+            ReaderPageCache.clear()
+            ImageBytesCache.clear()
             // …and the disk caches hold decrypted media: a locked vault must not
             // leave readable plaintext behind.
             ThumbnailDiskCache.clear()

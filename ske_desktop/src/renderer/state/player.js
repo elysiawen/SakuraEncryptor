@@ -48,7 +48,146 @@ export function hasMedia() {
   return !!player.id
 }
 
+/**
+ * Sessions opened ahead of time for the next picture.
+ *
+ * Opening one costs a PBKDF2 derivation and the first range reads, which is the
+ * "正在解密…" pause between pages. Warming the next entry while the current one
+ * is on screen makes the switch a cache hit instead.
+ */
+const prefetched = new Map() // entry key -> { id, url, mime, size, name }
+/** Entries whose warmed session is still being opened, so two watcher ticks
+ * cannot open (and leak) a second one for the same picture. */
+const opening = new Set()
+
+/**
+ * The prefetched image kept referenced while it is on screen, so Chromium holds
+ * on to its decoded bitmap instead of freeing it between frames.
+ */
+let heldWarmedImage = null
+
+function entryKey(item) {
+  if (!item) return ''
+  return `${item.mode || ''}|${item.sessionId || ''}|${item.path || item.name || ''}`
+}
+
+function takePrefetch(item) {
+  const key = entryKey(item)
+  const warmed = prefetched.get(key)
+  if (!warmed) return null
+  prefetched.delete(key)
+  return warmed
+}
+
+function closePrefetch(key) {
+  const warmed = prefetched.get(key)
+  if (!warmed) return
+  prefetched.delete(key)
+  window.ske?.media?.close(warmed.id).catch(() => {})
+}
+
+/** Close every idle warmed session; the stage window and lock both land here. */
+function clearPrefetches() {
+  const ids = [...prefetched.values()].map((entry) => entry.id)
+  prefetched.clear()
+  for (const id of ids) window.ske?.media?.close(id).catch(() => {})
+}
+
+/**
+ * Decrypt the next picture in the background while the current one is read.
+ *
+ * Only one idle session is kept: warming a second entry would just hold a
+ * decrypted cache for a picture nobody asked for yet. The URL is also fed to an
+ * `Image` so Chromium's private image cache holds the bytes under the exact
+ * URL the stage will use when it adopts this session.
+ */
+export async function prefetchEntry(item) {
+  if (!item || (player.url && sameEntry(item, player.item))) return
+
+  const key = entryKey(item)
+  if (prefetched.has(key) || opening.has(key)) return
+  opening.add(key)
+  for (const idleKey of [...prefetched.keys()]) {
+    if (idleKey !== key) closePrefetch(idleKey)
+  }
+
+  try {
+    const res =
+      item.mode === 'local'
+        ? await window.ske.local.play({ path: item.path, name: item.name })
+        : await window.ske.media.openCloud({
+            sessionId: item.sessionId,
+            path: item.path,
+            name: item.name,
+          })
+    if (!res?.ok || !res.url) return
+
+    // The user may have moved on while this was opening: nothing left to warm.
+    if (player.url && sameEntry(item, player.item)) {
+      window.ske?.media?.close(res.id).catch(() => {})
+      return
+    }
+
+    // Keeping the decoded image alive (rather than a fire-and-forget loader)
+    // stops it being collected before the fetch finishes, and hands the stage
+    // a ready bitmap when the page is adopted.
+    const image = new Image()
+    image.decoding = 'async'
+    image.src = res.url
+    // Decode now, while the user is still looking at the previous picture: the
+    // `<img>` that adopts this URL then finds a decoded bitmap, not just bytes.
+    image.decode?.().catch(() => {})
+
+    prefetched.set(key, {
+      id: res.id,
+      url: res.url,
+      mime: res.mime || '',
+      size: res.size || 0,
+      name: res.name || item.name || '',
+      image,
+    })
+  } catch {
+    // A failed prefetch stays invisible: the normal open path retries it.
+  } finally {
+    opening.delete(key)
+  }
+}
+
+/**
+ * Open the stream behind one page of the continuous comic strip.
+ *
+ * The caller owns the returned session and closes it once the page scrolls far
+ * enough away. The page currently open in the single-page view is shared rather
+ * than opened twice, and a warmed prefetch is adopted when it matches — the
+ * strip should not pay for a decrypt the prefetcher already did.
+ */
+export async function openStripSession(item) {
+  if (player.url && sameEntry(item, player.item)) {
+    return { id: player.id, url: player.url, shared: true }
+  }
+
+  const warmed = takePrefetch(item)
+  if (warmed) return { id: warmed.id, url: warmed.url }
+
+  const res =
+    item.mode === 'local'
+      ? await window.ske.local.play({ path: item.path, name: item.name })
+      : await window.ske.media.openCloud({
+          sessionId: item.sessionId,
+          path: item.path,
+          name: item.name,
+        })
+  if (!res?.ok || !res.url) throw new Error(res?.error || '无法打开文件')
+  return { id: res.id, url: res.url }
+}
+
 async function openEntry(item) {
+  // Take the warmed session before any await. Closing the previous session
+  // suspends, and the stage's watcher runs during that gap: it would warm the
+  // *following* entry and, in doing so, discard the very session this open is
+  // about to adopt.
+  const warmed = takePrefetch(item)
+
   if (player.id) {
     const previous = player.id
     player.id = ''
@@ -61,6 +200,23 @@ async function openEntry(item) {
   player.currentTime = 0
   player.duration = 0
   player.item = item
+
+  // Already decrypted: adopting the warmed session skips PBKDF2 and the first
+  // range read, so the new picture paints without another spinner.
+  if (warmed) {
+    heldWarmedImage = warmed.image || null
+    player.id = warmed.id
+    player.url = warmed.url
+    player.mime = warmed.mime
+    player.size = warmed.size
+    player.name = item.name || warmed.name
+    player.kind = item.kind || kindFromMime(warmed.mime)
+    player.playing = true
+    player.loading = false
+    return
+  }
+
+  heldWarmedImage = null
 
   try {
     const res =
@@ -231,6 +387,8 @@ export async function close() {
     player.id = ''
     await window.ske.media.close(previous).catch(() => {})
   }
+  clearPrefetches()
+  heldWarmedImage = null
   player.url = ''
   player.name = ''
   player.playing = false

@@ -193,6 +193,8 @@ contextBridge.exposeInMainWorld('ske', {
     state: () => invoke('window:state'),
     minimize: () => invoke('window:minimize'),
     toggleMaximize: () => invoke('window:toggleMaximize'),
+    /** Shape the window around the pages' combined ratio (comic spreads). */
+    fitAspect: (aspect, chrome) => invoke('window:fitAspect', aspect, chrome),
     setAlwaysOnTop: (flag) => invoke('window:alwaysOnTop', !!flag),
     toggleFullScreen: () => invoke('window:toggleFullScreen'),
   },

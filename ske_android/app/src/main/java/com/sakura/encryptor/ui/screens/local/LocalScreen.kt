@@ -59,6 +59,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import com.sakura.encryptor.core.local.LocalSkeStore
+import com.sakura.encryptor.core.media.PreviewCache
 import com.sakura.encryptor.core.player.MediaKind
 import com.sakura.encryptor.core.player.MediaTypes
 import com.sakura.encryptor.ui.appContainer
@@ -270,7 +271,10 @@ fun LocalScreen(
                             icon = iconFor(entry, name, nameIsLocked),
                             // The key carries the lock state, so unlocking
                             // re-runs the loader instead of reusing a miss.
-                            cacheKey = "local:${entry.uri}:$unlocked",
+                            cacheKey = PreviewCache.key(
+                                identity = entry.uri.toString(),
+                                unlocked = unlocked,
+                            ),
                             loadPreview = { viewModel.previewOf(entry) },
                             onOpen = { openEntry(entry) },
                             onLongPress = {

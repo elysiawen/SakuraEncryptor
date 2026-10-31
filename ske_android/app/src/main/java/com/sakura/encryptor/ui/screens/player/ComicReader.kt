@@ -31,11 +31,22 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
+import com.sakura.encryptor.core.media.ReaderPageCache
 import com.sakura.encryptor.core.player.ImageDecryptor
 import com.sakura.encryptor.core.playlist.PlaylistItem
 import com.sakura.encryptor.ui.appContainer
 import com.sakura.encryptor.ui.components.StateMessage
 import com.sakura.encryptor.ui.components.describeFailure
+
+/**
+ * Pixel budget for one strip page.
+ *
+ * Pages are drawn at screen width and never zoomed, so decoding at the source
+ * resolution wastes memory: a 4000×3000 photo becomes a 48 MB bitmap that the
+ * reader shows at ~1080 px wide. 6 MP keeps normal 1080-wide strips untouched
+ * while bringing such photos down to ~12 MB, so many more fit in the cache.
+ */
+private const val COMIC_PAGE_PIXELS = 6_000_000
 
 /**
  * Vertical continuous ("webtoon") reading mode.
@@ -48,7 +59,10 @@ import com.sakura.encryptor.ui.components.describeFailure
  *
  * Cloud pages are traded for a direct url right before decryption, mirroring
  * [PlaylistRepository.resolvePlayable]; the resolved urls and sizes are cached
- * by the repository and the block source factory, so scrolling back is cheap.
+ * by the repository and the block source factory. Decrypted bitmaps additionally
+ * live in [ReaderPageCache], because the LazyColumn destroys the state of any
+ * page that scrolls out of the viewport — without that cache, scrolling back
+ * would decrypt the page again.
  */
 @Composable
 internal fun ComicReader(
@@ -89,20 +103,37 @@ private fun ComicPage(
     onTap: () -> Unit,
 ) {
     val container = appContainer()
-    var bitmap by remember(item.locator) { mutableStateOf<Bitmap?>(null) }
+    // The "strip" variant keeps screen-sized pages apart from the single-page
+    // viewer's full-resolution bitmaps; sharing them would hand a zoomed view
+    // a bitmap decoded at screen width.
+    val cacheKey = remember(item.locator, password) {
+        ReaderPageCache.key(item.locator, password, variant = "strip")
+    }
+    // Re-entering a page that is still cached shows it at once; the effect below
+    // then finds the entry and skips the decryption altogether.
+    var bitmap by remember(cacheKey) { mutableStateOf(ReaderPageCache.peek(cacheKey)) }
     var error by remember(item.locator) { mutableStateOf<String?>(null) }
     var attempt by remember(item.locator) { mutableIntStateOf(0) }
 
-    LaunchedEffect(item.locator, attempt) {
+    LaunchedEffect(cacheKey, attempt) {
+        ReaderPageCache.peek(cacheKey)?.let {
+            bitmap = it
+            error = null
+            return@LaunchedEffect
+        }
+
         bitmap = null
         error = null
         runCatching {
             val locator = container.playlistRepository
                 .resolvePlayable(item.locator, fromCloud)
                 ?: error("无法获取文件链接")
-            decryptor.decrypt(Uri.parse(locator), password)
+            decryptor.decrypt(Uri.parse(locator), password, maxPixels = COMIC_PAGE_PIXELS)
         }
-            .onSuccess { bitmap = it }
+            .onSuccess {
+                ReaderPageCache.put(cacheKey, it)
+                bitmap = it
+            }
             .onFailure { error = describeFailure(it) }
     }
 
