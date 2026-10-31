@@ -354,9 +354,10 @@ jobs:
           mkdir -p android-dist
           # Both flavors ship: the plain one keeps working on devices that gain
           # nothing from a 27 MB native server, and the openlist one carries it.
-          cp ske_android/app/build/outputs/apk/release/app-plain-release.apk \
+          # APKs land under outputs/apk/<flavor>/<buildType>/, not outputs/apk/release/.
+          cp ske_android/app/build/outputs/apk/plain/release/app-plain-release.apk \
              android-dist/SakuraEncryptor-Android.apk
-          cp ske_android/app/build/outputs/apk/release/app-openlist-release.apk \
+          cp ske_android/app/build/outputs/apk/openlist/release/app-openlist-release.apk \
              android-dist/SakuraEncryptor-Android-OpenList.apk
 
       - name: Upload Artifact
