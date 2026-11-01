@@ -1,5 +1,8 @@
 package com.sakura.encryptor.ui.screens.local
 
+import com.sakura.encryptor.R
+import com.sakura.encryptor.ui.i18n.t
+
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
@@ -146,7 +149,7 @@ fun LocalScreen(
         val resolved = state.displayNames[target.uri.toString()] ?: return@LaunchedEffect
         pendingPlay = null
         if (MediaTypes.kindOf(resolved) == MediaKind.OTHER) {
-            Toast.makeText(context, "「$resolved」不是可播放的媒体文件", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, t(R.string.browse_playable_media_file, resolved), Toast.LENGTH_SHORT).show()
         } else {
             onOpenPlayer(
                 target.uri.toString(),
@@ -171,7 +174,7 @@ fun LocalScreen(
     fun openEntry(entry: LocalSkeStore.LocalEntry) {
         if (!entry.isSke) {
             if (MediaTypes.kindOf(entry.name) == MediaKind.OTHER) {
-                Toast.makeText(context, "「${entry.name}」不是可播放的媒体文件", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, t(R.string.browse_playable_media_file, entry.name), Toast.LENGTH_SHORT).show()
             } else {
                 onOpenPlayer(entry.uri.toString(), entry.name, PlaybackSource.LOCAL, state.treeUri.orEmpty())
             }
@@ -181,7 +184,7 @@ fun LocalScreen(
         if (unlocked) {
             val resolved = viewModel.displayNameOf(entry)
             if (MediaTypes.kindOf(resolved) == MediaKind.OTHER) {
-                Toast.makeText(context, "「$resolved」不是可播放的媒体文件", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, t(R.string.browse_playable_media_file, resolved), Toast.LENGTH_SHORT).show()
             } else {
                 onOpenPlayer(entry.uri.toString(), resolved, PlaybackSource.LOCAL, state.treeUri.orEmpty())
             }
@@ -201,8 +204,8 @@ fun LocalScreen(
             .statusBarsPadding(),
     ) {
         SakuraTopBar(
-            title = "本地文件",
-            subtitle = treeLabel ?: "尚未选择目录",
+            title = t(R.string.local_local_files),
+            subtitle = treeLabel ?: t(R.string.local_folder_chosen),
             onMenu = onOpenDrawer,
             actions = {
                 if (state.entries.isNotEmpty()) {
@@ -213,11 +216,11 @@ fun LocalScreen(
                 }
                 if (state.treeUri != null) {
                     IconButton(onClick = viewModel::refresh) {
-                        Icon(Icons.Rounded.Refresh, contentDescription = "刷新")
+                        Icon(Icons.Rounded.Refresh, contentDescription = t(R.string.browse_refresh))
                     }
                 }
                 IconButton(onClick = { treePicker.launch(null) }) {
-                    Icon(Icons.Rounded.FolderOpen, contentDescription = "选择目录")
+                    Icon(Icons.Rounded.FolderOpen, contentDescription = t(R.string.local_choose_folder2))
                 }
             },
         )
@@ -225,26 +228,26 @@ fun LocalScreen(
         when {
             state.treeUri == null -> StateMessage(
                 icon = Icons.Rounded.FolderOpen,
-                title = "选择一个目录",
-                message = "授权一个文件夹后即可播放其中的媒体：.ske 需要密码，普通文件直接播放。需要加密新文件请到「加密」页。",
-                actionLabel = "选择目录",
+                title = t(R.string.local_choose_folder),
+                message = t(R.string.local_grant_folder_play_media_ske_needs),
+                actionLabel = t(R.string.local_choose_folder2),
                 onAction = { treePicker.launch(null) },
             )
 
-            state.isLoading -> LoadingState("正在扫描目录…")
+            state.isLoading -> LoadingState(t(R.string.local_scanning_folder))
 
             state.error != null -> StateMessage(
                 icon = Icons.Rounded.FolderOpen,
-                title = "无法读取目录",
+                title = t(R.string.local_cannot_read_folder),
                 message = state.error,
-                actionLabel = "重新选择",
+                actionLabel = t(R.string.local_choose_again),
                 onAction = { treePicker.launch(null) },
             )
 
             state.entries.isEmpty() -> StateMessage(
                 icon = Icons.Rounded.InsertDriveFile,
-                title = "目录是空的",
-                message = "这里还没有文件。要加密新文件，请到「加密」页。",
+                title = t(R.string.local_folder_empty),
+                message = t(R.string.local_files_here_yet_encrypt_new_files),
             )
 
             else -> if (grid) {
@@ -264,7 +267,7 @@ fun LocalScreen(
 
                     gridItems(items = state.entries, key = { it.uri.toString() }) { entry ->
                         val nameIsLocked = !unlocked && entry.isSke
-                        val name = if (nameIsLocked) "加密文件" else viewModel.displayNameOf(entry)
+                        val name = if (nameIsLocked) t(R.string.local_encrypted_file) else viewModel.displayNameOf(entry)
 
                         MediaTile(
                             name = name,
@@ -303,7 +306,7 @@ fun LocalScreen(
                     LocalFileRow(
                         entry = entry,
                         displayName = if (nameIsLocked) {
-                            "加密文件"
+                            t(R.string.local_encrypted_file)
                         } else {
                             viewModel.displayNameOf(entry)
                         },
@@ -345,11 +348,11 @@ fun LocalScreen(
     val progress = state.progress
     if (state.busy) {
         TaskProgressDialog(
-            title = progress?.title ?: "正在处理",
+            title = progress?.title ?: t(R.string.local_processing),
             detail = if (progress != null) {
                 "${progress.fileName}  (${progress.index}/${progress.count})"
             } else {
-                "准备中…"
+                t(R.string.encrypt_preparing)
             },
             fraction = progress?.fraction ?: 0f,
             onSendToBackground = viewModel::cancelProgressUi,
@@ -359,21 +362,21 @@ fun LocalScreen(
     decryptTarget?.let { entry ->
         AlertDialog(
             onDismissRequest = { decryptTarget = null },
-            title = { Text("解密导出") },
+            title = { Text(t(R.string.local_decrypt_export)) },
             text = {
                 Text(
-                    "将「${viewModel.displayNameOf(entry)}」解密并保存到当前目录。\n" +
-                        "注意：解密后的明文文件不再受保护。"
+                    t(R.string.local_decrypt_save_current_folder_n, viewModel.displayNameOf(entry)) +
+                        t(R.string.local_note_decrypted_files_longer_protected)
                 )
             },
             confirmButton = {
                 TextButton(onClick = {
                     viewModel.decrypt(listOf(entry.uri))
                     decryptTarget = null
-                }) { Text("解密") }
+                }) { Text(t(R.string.encrypt_decrypt)) }
             },
             dismissButton = {
-                TextButton(onClick = { decryptTarget = null }) { Text("取消") }
+                TextButton(onClick = { decryptTarget = null }) { Text(t(R.string.security_cancel)) }
             },
         )
     }
@@ -402,17 +405,17 @@ private fun UnlockHintCard(onUnlock: () -> Unit) {
             Spacer(Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "尚未输入本地密码",
+                    text = t(R.string.local_local_password_entered),
                     style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.onPrimaryContainer,
                 )
                 Text(
-                    text = "输入后即可显示文件名并播放，密码可记住",
+                    text = t(R.string.local_enter_reveal_filenames_play_password_remembered),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onPrimaryContainer,
                 )
             }
-            TextButton(onClick = onUnlock) { Text("输入密码") }
+            TextButton(onClick = onUnlock) { Text(t(R.string.local_enter_password)) }
         }
     }
 }
@@ -459,10 +462,10 @@ private fun LocalFileRow(
             Spacer(Modifier.height(2.dp))
             Text(
                 text = when {
-                    entry.isSke && nameIsLocked -> "加密文件 · ${formatBytes(entry.size)} · 需解锁"
-                    entry.isSke -> "加密文件 · ${formatBytes(entry.size)}"
+                    entry.isSke && nameIsLocked -> t(R.string.local_encrypted_file_unlock_required, formatBytes(entry.size))
+                    entry.isSke -> t(R.string.local_encrypted_file2, formatBytes(entry.size))
                     entry.size > 0 -> "${MediaTypes.labelOf(displayName)} · ${formatBytes(entry.size)}"
-                    else -> "未加密"
+                    else -> t(R.string.local_encrypted2)
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -473,7 +476,7 @@ private fun LocalFileRow(
         if (entry.isSke) {
             Icon(
                 imageVector = Icons.Rounded.Lock,
-                contentDescription = "已加密",
+                contentDescription = t(R.string.local_encrypted),
                 tint = if (nameIsLocked) {
                     MaterialTheme.colorScheme.onSurfaceVariant
                 } else {

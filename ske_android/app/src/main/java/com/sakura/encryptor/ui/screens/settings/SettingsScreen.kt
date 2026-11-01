@@ -1,5 +1,8 @@
 package com.sakura.encryptor.ui.screens.settings
 
+import com.sakura.encryptor.R
+import com.sakura.encryptor.ui.i18n.t
+
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -26,6 +29,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.ArrowDropDown
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.DarkMode
@@ -35,6 +39,8 @@ import androidx.compose.material.icons.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.LightMode
 import androidx.compose.material.icons.rounded.PhoneAndroid
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -82,6 +88,7 @@ import com.sakura.encryptor.core.security.KeyStoreManager
 import com.sakura.encryptor.core.security.Totp
 import com.sakura.encryptor.core.session.VaultSession
 import com.sakura.encryptor.data.db.SakuraDatabase
+import com.sakura.encryptor.data.prefs.AppLanguage
 import com.sakura.encryptor.data.prefs.SettingsStore
 import com.sakura.encryptor.data.prefs.ThemeMode
 import com.sakura.encryptor.ui.components.CheckboxRow
@@ -130,6 +137,9 @@ class SettingsViewModel(
 
     val themeMode: StateFlow<ThemeMode> = settings.themeMode
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ThemeMode.System)
+
+    val language: StateFlow<AppLanguage> = settings.language
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AppLanguage.SYSTEM)
 
     val cacheBlocks: StateFlow<Int> = settings.cacheBlocks
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsStore.DEFAULT_CACHE_BLOCKS)
@@ -230,6 +240,8 @@ class SettingsViewModel(
     fun setAccent(theme: AccentTheme) = viewModelScope.launch { settings.setAccent(theme) }
 
     fun setThemeMode(mode: ThemeMode) = viewModelScope.launch { settings.setThemeMode(mode) }
+
+    fun setLanguage(language: AppLanguage) = viewModelScope.launch { settings.setLanguage(language) }
 
     fun setCacheBlocks(blocks: Int) = viewModelScope.launch { settings.setCacheBlocks(blocks) }
 
@@ -344,7 +356,7 @@ class SettingsViewModel(
         } else {
             runCatching { embeddedServer.disable() }
         }
-        result.onFailure { _localOpenListError.value = it.message ?: "内置服务器切换失败" }
+        result.onFailure { _localOpenListError.value = it.message ?: t(R.string.settings_failed_switch_built_server) }
         _localOpenListBusy.value = false
     }
 
@@ -378,6 +390,7 @@ fun SettingsScreen(
 
     val accent by viewModel.accent.collectAsStateWithLifecycle()
     val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
+    val language by viewModel.language.collectAsStateWithLifecycle()
     val cacheBlocks by viewModel.cacheBlocks.collectAsStateWithLifecycle()
     val localRememberPassword by viewModel.localRememberPassword.collectAsStateWithLifecycle()
     val localUnlocked by viewModel.localUnlocked.collectAsStateWithLifecycle()
@@ -426,7 +439,7 @@ fun SettingsScreen(
             .fillMaxSize()
             .statusBarsPadding(),
     ) {
-        SakuraTopBar(title = "设置", onMenu = onOpenDrawer)
+        SakuraTopBar(title = t(R.string.app_settings), onMenu = onOpenDrawer)
 
         Column(
             modifier = Modifier
@@ -435,30 +448,34 @@ fun SettingsScreen(
                 .padding(horizontal = 16.dp),
         ) {
             // ---- appearance --------------------------------------------------
-            SectionHeader("外观")
+            SectionHeader(t(R.string.settings_appearance))
 
             SakuraCard {
-                SettingRow(title = "强调色", subtitle = accent.label)
+                SettingRow(title = t(R.string.settings_accent_colour), subtitle = accent.label)
                 Spacer(Modifier.height(6.dp))
                 AccentPicker(selected = accent, onSelect = viewModel::setAccent)
                 Spacer(Modifier.height(10.dp))
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 Spacer(Modifier.height(18.dp))
                 ThemeModePicker(selected = themeMode, onSelect = viewModel::setThemeMode)
+                Spacer(Modifier.height(10.dp))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                Spacer(Modifier.height(18.dp))
+                LanguagePicker(selected = language, onSelect = viewModel::setLanguage)
             }
 
             Spacer(Modifier.height(22.dp))
 
             // ---- cloud profiles ----------------------------------------------
-            SectionHeader("云端配置")
+            SectionHeader(t(R.string.profiles_cloud_profiles))
 
             SakuraCard {
                 SettingRow(
-                    title = "管理云端配置",
+                    title = t(R.string.settings_manage_cloud_profiles),
                     subtitle = when {
-                        activeProfileName == null -> "尚未添加配置，点击添加"
-                        !isLoggedIn -> "当前：$activeProfileName（未连接）"
-                        else -> "当前：$activeProfileName"
+                        activeProfileName == null -> t(R.string.settings_profile_yet_tap_add_one)
+                        !isLoggedIn -> t(R.string.settings_active_connected, activeProfileName)
+                        else -> t(R.string.settings_active, activeProfileName)
                     },
                     onClick = onManageProfiles,
                     trailing = {
@@ -471,11 +488,11 @@ fun SettingsScreen(
                 )
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 SettingRow(
-                    title = "当前配置的密码",
+                    title = t(R.string.settings_active_profile_s_password),
                     subtitle = if (cloudUnlocked) {
-                        "已解锁（仅存于内存）"
+                        t(R.string.settings_unlocked_memory_only)
                     } else {
-                        "未解锁，切换到该配置时会提示输入"
+                        t(R.string.settings_locked_asked_when_switching)
                     },
                 )
             }
@@ -487,17 +504,17 @@ fun SettingsScreen(
             // never be turned on.
             if (viewModel.localOpenListBundled) {
                 // ---- built-in server -----------------------------------------
-                SectionHeader("内置服务器")
+                SectionHeader(t(R.string.settings_built_server))
 
                 SakuraCard {
                     SwitchRow(
-                        title = "在本机运行 OpenList",
+                        title = t(R.string.settings_run_open_list_device),
                         subtitle = when {
                             !viewModel.localOpenListSupported ->
-                                "内置服务器不可用，可能是当前设备架构不受支持"
-                            localOpenListBusy -> "正在启动，请稍候…"
-                            localOpenListEnabled -> "运行中 · http://127.0.0.1:$localOpenListPort"
-                            else -> "无需远程服务器，文件保存在应用私有目录"
+                                t(R.string.settings_built_server_unavailable_device_s_architecture)
+                            localOpenListBusy -> t(R.string.settings_starting_please_wait)
+                            localOpenListEnabled -> t(R.string.settings_running_http127001, localOpenListPort)
+                            else -> t(R.string.settings_remote_server_needed_files_stay_app)
                         },
                         checked = localOpenListEnabled,
                         enabled = viewModel.localOpenListSupported && !localOpenListBusy,
@@ -513,8 +530,8 @@ fun SettingsScreen(
                     }
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     SettingRow(
-                        title = "服务器设置",
-                        subtitle = "修改端口、管理员用户名与密码",
+                        title = t(R.string.settings_server_settings),
+                        subtitle = t(R.string.settings_change_port_admin_username_password),
                         onClick = onOpenServerSettings,
                         trailing = {
                             Icon(
@@ -526,11 +543,11 @@ fun SettingsScreen(
                     )
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     SettingRow(
-                        title = "管理内置存储",
+                        title = t(R.string.settings_manage_built_storage),
                         subtitle = if (localOpenListEnabled) {
-                            "添加 WebDAV、S3 等存储，或调整已有挂载"
+                            t(R.string.settings_add_web_davs3_other_storage_adjust)
                         } else {
-                            "开启内置服务器后可添加和管理存储"
+                            t(R.string.settings_enable_built_server_add_manage_storage)
                         },
                         onClick = if (localOpenListEnabled) onManageLocalStorage else null,
                         trailing = {
@@ -543,8 +560,8 @@ fun SettingsScreen(
                     )
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     Text(
-                        text = "开启后会切换到「内置服务器」这套云端配置，加密密码照常在浏览页输入；" +
-                            "文件写入应用私有目录，卸载应用时会一并删除。关闭后回到之前使用的云端配置。",
+                        text = t(R.string.settings_when_enabled_app_switches_built_server) +
+                            t(R.string.settings_files_go_app_private_storage_removed),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp),
@@ -555,29 +572,29 @@ fun SettingsScreen(
             }
 
             // ---- local -------------------------------------------------------
-            SectionHeader("本地")
+            SectionHeader(t(R.string.app_local))
 
             SakuraCard {
                 SettingRow(
-                    title = "本地密码",
+                    title = t(R.string.components_local_password),
                     subtitle = if (localUnlocked) {
-                        "已解锁（仅存于内存，点击可锁定）"
+                        t(R.string.settings_unlocked_memory_tap_lock)
                     } else {
-                        "未解锁，在本地页面输入"
+                        t(R.string.settings_locked_enter_local_page)
                     },
                     onClick = { if (localUnlocked) viewModel.lockLocal() },
                 )
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 SwitchRow(
-                    title = "记住本地密码",
-                    subtitle = "使用系统密钥库加密保存，下次启动自动解锁",
+                    title = t(R.string.settings_remember_local_password),
+                    subtitle = t(R.string.settings_sealed_android_keystore_unlocks_automatically_next),
                     checked = localRememberPassword,
                     onCheckedChange = viewModel::setLocalRememberPassword,
                 )
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 SettingRow(
-                    title = "清除播放记录",
-                    subtitle = "删除本地保存的播放进度",
+                    title = t(R.string.settings_clear_playback_history),
+                    subtitle = t(R.string.settings_remove_saved_playback_positions),
                     onClick = {
                         viewModel.clearHistory()
                         showHistoryCleared = true
@@ -588,15 +605,15 @@ fun SettingsScreen(
             Spacer(Modifier.height(22.dp))
 
             // ---- security ----------------------------------------------------
-            SectionHeader("安全")
+            SectionHeader(t(R.string.settings_security))
 
             SakuraCard {
                 SwitchRow(
-                    title = "启动密码",
+                    title = t(R.string.lock_launch_password),
                     subtitle = if (appLockEnabled) {
-                        "已开启，可勾选密码、指纹等验证方式"
+                        t(R.string.settings_tick_password_fingerprint_other_verification_methods)
                     } else {
-                        "未设置，打开应用即可直接使用"
+                        t(R.string.settings_set_app_opens_directly)
                     },
                     checked = appLockEnabled,
                     onCheckedChange = { enabled ->
@@ -610,7 +627,7 @@ fun SettingsScreen(
                 if (appLockEnabled) {
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     Text(
-                        text = "验证方式（可多选，勾选的都通过才能进入）",
+                        text = t(R.string.settings_verification_methods_multi_select_all_ticked),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 14.dp),
@@ -626,12 +643,12 @@ fun SettingsScreen(
                             title = factor.title,
                             subtitle = when {
                                 factor == AppLockFactor.BIOMETRIC && !usable ->
-                                    "此设备尚未录入指纹或面容"
+                                    t(R.string.settings_fingerprint_face_enrolled_device)
                                 factor == AppLockFactor.TOTP && !usable ->
-                                    "先在下方「TOTP 身份验证器」中绑定"
-                                factor == AppLockFactor.PASSWORD -> "打开应用时输入启动密码"
-                                factor == AppLockFactor.TOTP -> "打开应用时输入验证器中的 6 位验证码"
-                                else -> "打开应用时验证指纹或面容"
+                                    t(R.string.settings_bind_one_under_totp_authenticator_below)
+                                factor == AppLockFactor.PASSWORD -> t(R.string.settings_enter_launch_password_when_opening_app)
+                                factor == AppLockFactor.TOTP -> t(R.string.settings_enter6_digit_authenticator_code_when)
+                                else -> t(R.string.settings_verify_fingerprint_face_when_opening_app)
                             },
                             checked = checked,
                             // Never let the last remaining factor be unticked, and
@@ -642,11 +659,11 @@ fun SettingsScreen(
                     }
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     SettingRow(
-                        title = "TOTP 身份验证器",
+                        title = t(R.string.settings_totp_authenticator),
                         subtitle = if (totpBound) {
-                            "已绑定，可勾选为验证方式"
+                            t(R.string.settings_bound_tick_verification_method)
                         } else {
-                            "未绑定，点击生成密钥并添加到一个验证器应用"
+                            t(R.string.settings_bound_tap_generate_secret_authenticator_app)
                         },
                         onClick = { showTotpDialog = true },
                         trailing = {
@@ -660,11 +677,11 @@ fun SettingsScreen(
                     if (appLockFactors.size > 1) {
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                         SwitchRow(
-                            title = "任一方式通过即可",
+                            title = t(R.string.settings_any_verified_method_opens_app),
                             subtitle = if (appLockMatch == AppLockMatch.ANY) {
-                                "勾选的方式中任意一个通过就能进入应用"
+                                t(R.string.settings_any_one_ticked_methods_opens_app)
                             } else {
-                                "勾选的方式必须全部通过才能进入应用"
+                                t(R.string.settings_every_ticked_method_must_pass_enter)
                             },
                             checked = appLockMatch == AppLockMatch.ANY,
                             onCheckedChange = { any ->
@@ -676,8 +693,8 @@ fun SettingsScreen(
                     }
                     if (appLockFactors == setOf(AppLockFactor.BIOMETRIC)) {
                         Text(
-                            text = "已关闭密码验证。若指纹不可用（例如在系统中删除指纹），" +
-                                "将无法进入应用。",
+                            text = t(R.string.settings_password_verification_off_fingerprint_becomes_unavailable) +
+                                t(R.string.settings_able_enter_app),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.error,
                             modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp),
@@ -685,14 +702,14 @@ fun SettingsScreen(
                     }
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     SettingRow(
-                        title = "修改启动密码",
-                        subtitle = "需要先验证当前密码",
+                        title = t(R.string.settings_change_launch_password),
+                        subtitle = t(R.string.settings_current_password_must_verified_first),
                         onClick = { appLockDialog = AppLockDialogKind.CHANGE },
                     )
                 }
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 Text(
-                    text = "启动密码只保存在本机，且以 PBKDF2 哈希形式存储，不保存明文。",
+                    text = t(R.string.settings_launch_password_stays_device_pbkdf2_hash),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp),
@@ -702,12 +719,12 @@ fun SettingsScreen(
             Spacer(Modifier.height(22.dp))
 
             // ---- playback ----------------------------------------------------
-            SectionHeader("播放")
+            SectionHeader(t(R.string.components_playback))
 
             SakuraCard {
                 SettingRow(
-                    title = "解密缓存块数",
-                    subtitle = "当前 $cacheBlocks 块（约 ${cacheBlocks} MB 内存）",
+                    title = t(R.string.settings_decrypted_chunk_cache_size),
+                    subtitle = t(R.string.settings_chunks_about_mb_memory, cacheBlocks, cacheBlocks),
                 )
                 Slider(
                     value = cacheBlocks.toFloat(),
@@ -718,7 +735,7 @@ fun SettingsScreen(
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Text(
-                    text = "缓存已解密的块可以显著减少拖动进度时的流量，但会占用更多内存。",
+                    text = t(R.string.settings_caching_decrypted_chunks_cuts_network_traffic),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 4.dp),
@@ -728,12 +745,12 @@ fun SettingsScreen(
             Spacer(Modifier.height(22.dp))
 
             // ---- caches ------------------------------------------------------
-            SectionHeader("缓存")
+            SectionHeader(t(R.string.settings_cache2))
 
             SakuraCard {
                 SwitchRow(
-                    title = "缓存缩略图",
-                    subtitle = "已占用 ${formatBytes(cacheUsage.thumbnails)}",
+                    title = t(R.string.settings_cache_thumbnails),
+                    subtitle = t(R.string.settings_used, formatBytes(cacheUsage.thumbnails)),
                     checked = cacheThumbnails,
                     onCheckedChange = viewModel::setCacheThumbnails,
                 )
@@ -744,11 +761,11 @@ fun SettingsScreen(
                     onSelect = { viewModel.setCacheThumbnailLimitMb(it) },
                 )
                 SettingRow(
-                    title = "清理缩略图缓存",
+                    title = t(R.string.settings_clear_thumbnail_cache),
                     subtitle = if (cacheUsage.thumbnails > 0) {
-                        "点击释放 ${formatBytes(cacheUsage.thumbnails)}"
+                        t(R.string.settings_tap_free, formatBytes(cacheUsage.thumbnails))
                     } else {
-                        "暂无缓存"
+                        t(R.string.settings_cache)
                     },
                     onClick = if (cacheUsage.thumbnails > 0) {
                         { viewModel.clearThumbnailCache() }
@@ -758,8 +775,8 @@ fun SettingsScreen(
                 )
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 SwitchRow(
-                    title = "缓存文件",
-                    subtitle = "已占用 ${formatBytes(cacheUsage.files)}",
+                    title = t(R.string.settings_cache_files),
+                    subtitle = t(R.string.settings_used, formatBytes(cacheUsage.files)),
                     checked = cacheFiles,
                     onCheckedChange = viewModel::setCacheFiles,
                 )
@@ -770,11 +787,11 @@ fun SettingsScreen(
                     onSelect = { viewModel.setCacheFileLimitMb(it) },
                 )
                 SettingRow(
-                    title = "清理文件缓存",
+                    title = t(R.string.settings_clear_file_cache),
                     subtitle = if (cacheUsage.files > 0) {
-                        "点击释放 ${formatBytes(cacheUsage.files)}"
+                        t(R.string.settings_tap_free, formatBytes(cacheUsage.files))
                     } else {
-                        "暂无缓存"
+                        t(R.string.settings_cache)
                     },
                     onClick = if (cacheUsage.files > 0) {
                         { viewModel.clearFileCache() }
@@ -784,16 +801,16 @@ fun SettingsScreen(
                 )
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 SwitchRow(
-                    title = "缓存派生密钥",
-                    subtitle = "内存中记住 ${cacheUsage.keys} 个文件的密钥，不占用存储",
+                    title = t(R.string.settings_cache_derived_keys),
+                    subtitle = t(R.string.settings_keys_file_memoised_memory_storage_used, cacheUsage.keys),
                     checked = cacheDerivedKeys,
                     onCheckedChange = viewModel::setCacheDerivedKeys,
                 )
                 Spacer(Modifier.height(10.dp))
                 Text(
-                    text = "上限由你决定：缩略图缓存保存解密后的预览图，文件缓存保存播放、查看时解密出来的内容，" +
-                        "再次访问无需下载。超出上限时自动淘汰最久未使用的内容。两者都在应用私有目录，" +
-                        "锁定密码或退出配置时会自动清空。",
+                    text = t(R.string.settings_limits_yours_set_thumbnail_cache_keeps) +
+                        t(R.string.settings_revisiting_needs_download_least_recently_used) +
+                        t(R.string.settings_cleared_automatically_when_lock_password_leave),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 4.dp),
@@ -803,7 +820,7 @@ fun SettingsScreen(
             Spacer(Modifier.height(22.dp))
 
             // ---- about -------------------------------------------------------
-            SectionHeader("关于")
+            SectionHeader(t(R.string.settings_about))
 
             SakuraCard {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -825,7 +842,7 @@ fun SettingsScreen(
                     Column {
                         Text("Sakura Encryptor", style = MaterialTheme.typography.titleMedium)
                         Text(
-                            text = "版本 ${BuildConfig.VERSION_NAME} · 安卓客户端",
+                            text = t(R.string.settings_version_android_client, BuildConfig.VERSION_NAME),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -833,8 +850,8 @@ fun SettingsScreen(
                 }
                 Spacer(Modifier.height(12.dp))
                 Text(
-                    text = "与 CLI / Web 端共用 .ske 版本 001 格式：AES-256-GCM 分块加密 + PBKDF2 " +
-                        "(100,000 次迭代)。密码仅存在于设备内存，服务器只接触密文。",
+                    text = t(R.string.settings_shares_ske_format_version001_cli) +
+                        t(R.string.settings_100000_iterations_password_only_exists),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -848,7 +865,7 @@ fun SettingsScreen(
                     )
                     Spacer(Modifier.width(6.dp))
                     Text(
-                        text = "本地密码与云端配置互相独立；一个云端配置 = 一套 AList 账号 + 一套加密密码。",
+                        text = t(R.string.settings_local_password_cloud_profiles_independent_one),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -862,10 +879,10 @@ fun SettingsScreen(
     if (showHistoryCleared) {
         AlertDialog(
             onDismissRequest = { showHistoryCleared = false },
-            title = { Text("已清除") },
-            text = { Text("播放记录已删除。") },
+            title = { Text(t(R.string.settings_cleared)) },
+            text = { Text(t(R.string.settings_playback_history_deleted)) },
             confirmButton = {
-                TextButton(onClick = { showHistoryCleared = false }) { Text("好") }
+                TextButton(onClick = { showHistoryCleared = false }) { Text(t(R.string.settings_ok)) }
             },
         )
     }
@@ -898,10 +915,18 @@ fun SettingsScreen(
 }
 
 /** Which launch-password action the settings dialog is performing. */
-private enum class AppLockDialogKind(val title: String) {
-    ENABLE("设置启动密码"),
-    CHANGE("修改启动密码"),
-    DISABLE("关闭启动密码");
+private enum class AppLockDialogKind {
+    ENABLE,
+    CHANGE,
+    DISABLE;
+
+    /** Dialog titles follow the interface language, so they are read live. */
+    val title: String
+        get() = when (this) {
+            ENABLE -> t(R.string.settings_set_launch_password)
+            CHANGE -> t(R.string.settings_change_launch_password)
+            DISABLE -> t(R.string.settings_disable_launch_password)
+        }
 
     /** Disabling only removes the credential, so it needs no replacement. */
     val needsNewPassword: Boolean get() = this != DISABLE
@@ -940,18 +965,18 @@ private fun AppPasswordDialog(
         scope.launch {
             if (kind.needsCurrentPassword && !verifyCurrent(current)) {
                 busy = false
-                error = "当前密码不正确"
+                error = t(R.string.settings_current_password_incorrect)
                 return@launch
             }
             if (kind.needsNewPassword) {
                 if (next.length < AppLockManager.MIN_LENGTH) {
                     busy = false
-                    error = "新密码至少 ${AppLockManager.MIN_LENGTH} 位"
+                    error = t(R.string.settings_new_password_needs_least_characters, AppLockManager.MIN_LENGTH)
                     return@launch
                 }
                 if (next != repeated) {
                     busy = false
-                    error = "两次输入的新密码不一致"
+                    error = t(R.string.settings_new_passwords_match)
                     return@launch
                 }
             }
@@ -963,7 +988,7 @@ private fun AppPasswordDialog(
                 }
                 .onFailure {
                     busy = false
-                    error = it.message ?: "操作失败"
+                    error = it.message ?: t(R.string.components_operation_failed)
                 }
         }
     }
@@ -980,7 +1005,7 @@ private fun AppPasswordDialog(
                             current = it
                             error = null
                         },
-                        label = { Text("当前密码") },
+                        label = { Text(t(R.string.settings_current_password)) },
                         singleLine = true,
                         visualTransformation = PasswordVisualTransformation(),
                         modifier = Modifier.fillMaxWidth(),
@@ -995,7 +1020,7 @@ private fun AppPasswordDialog(
                             next = it
                             error = null
                         },
-                        label = { Text("新密码") },
+                        label = { Text(t(R.string.settings_new_password)) },
                         singleLine = true,
                         visualTransformation = PasswordVisualTransformation(),
                         modifier = Modifier.fillMaxWidth(),
@@ -1007,7 +1032,7 @@ private fun AppPasswordDialog(
                             repeated = it
                             error = null
                         },
-                        label = { Text("确认新密码") },
+                        label = { Text(t(R.string.settings_confirm_new_password)) },
                         singleLine = true,
                         visualTransformation = PasswordVisualTransformation(),
                         modifier = Modifier.fillMaxWidth(),
@@ -1031,11 +1056,11 @@ private fun AppPasswordDialog(
                     (!kind.needsCurrentPassword || current.isNotEmpty()) &&
                     (!kind.needsNewPassword || (next.isNotEmpty() && repeated.isNotEmpty())),
             ) {
-                Text(if (busy) "处理中…" else "确定")
+                Text(if (busy) t(R.string.settings_working) else t(R.string.settings_ok2))
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss, enabled = !busy) { Text("取消") }
+            TextButton(onClick = onDismiss, enabled = !busy) { Text(t(R.string.security_cancel)) }
         },
     )
 }
@@ -1058,9 +1083,9 @@ private fun TotpDialog(
     if (bound) {
         AlertDialog(
             onDismissRequest = onDismiss,
-            title = { Text("TOTP 身份验证器") },
+            title = { Text(t(R.string.settings_totp_authenticator)) },
             text = {
-                Text("已绑定。解绑后该验证方式会同时取消勾选，否则门禁会要求一个再也无法通过的验证。")
+                Text(t(R.string.settings_bound_unbinding_also_unticks_method_otherwise))
             },
             confirmButton = {
                 TextButton(
@@ -1068,9 +1093,9 @@ private fun TotpDialog(
                         onUnbind()
                         onDismiss()
                     }
-                ) { Text("解绑") }
+                ) { Text(t(R.string.settings_unbind)) }
             },
-            dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+            dismissButton = { TextButton(onClick = onDismiss) { Text(t(R.string.security_cancel)) } },
         )
     } else {
         TotpSetupDialog(onBind = onBind, onDismiss = onDismiss)
@@ -1102,7 +1127,7 @@ private fun TotpSetupDialog(
 
         val secret = if (manual) pastedSecret else generated
         if (secret == null) {
-            error = "密钥格式不正确，应为 Base32 字符串或 otpauth 链接"
+            error = t(R.string.settings_invalid_secret_use_base32_string_otpauth)
             return
         }
 
@@ -1113,24 +1138,24 @@ private fun TotpSetupDialog(
             if (!Totp.verify(secret, code, System.currentTimeMillis())) {
                 busy = false
                 code = ""
-                error = "验证码不正确或已过期，请按验证器上当前的数字重新输入"
+                error = t(R.string.settings_code_incorrect_expired_enter_current_digits)
                 return@launch
             }
 
             val saved = runCatching { onBind(secret) }.getOrDefault(false)
             busy = false
-            if (saved) onDismiss() else error = "无法保存密钥，请重试"
+            if (saved) onDismiss() else error = t(R.string.settings_could_save_secret_try_again)
         }
     }
 
     AlertDialog(
         onDismissRequest = { if (!busy) onDismiss() },
-        title = { Text("绑定 TOTP 身份验证器") },
+        title = { Text(t(R.string.settings_bind_totp_authenticator)) },
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 Text(
-                    text = "在身份验证器应用（Google Authenticator、Aegis、1Password 等）" +
-                        "中添加账号，密钥填下面这一串，再输入它生成的 6 位验证码。",
+                    text = t(R.string.settings_authenticator_app_google_authenticator_aegis1_password) +
+                        t(R.string.settings_fill_secret_below_enter6_digit),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -1143,7 +1168,7 @@ private fun TotpSetupDialog(
                             pasted = it
                             error = null
                         },
-                        label = { Text("密钥或 otpauth 链接") },
+                        label = { Text(t(R.string.settings_secret_otpauth_link)) },
                         minLines = 2,
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -1162,10 +1187,10 @@ private fun TotpSetupDialog(
                     }
                     Row {
                         TextButton(onClick = { context.copyText(generatedText) }) {
-                            Text("复制密钥")
+                            Text(t(R.string.settings_copy_secret))
                         }
                         TextButton(onClick = { context.copyText(Totp.otpauthUri(generatedText)) }) {
-                            Text("复制链接")
+                            Text(t(R.string.settings_copy_link))
                         }
                     }
                 }
@@ -1176,7 +1201,7 @@ private fun TotpSetupDialog(
                         error = null
                     }
                 ) {
-                    Text(if (manual) "改为自动生成密钥" else "改为使用已有密钥")
+                    Text(if (manual) t(R.string.settings_generate_secret_instead) else t(R.string.settings_use_existing_secret))
                 }
 
                 OutlinedTextField(
@@ -1185,7 +1210,7 @@ private fun TotpSetupDialog(
                         code = it.filter { char -> char.isDigit() }.take(Totp.DIGITS)
                         error = null
                     },
-                    label = { Text("验证器中的 6 位验证码") },
+                    label = { Text(t(R.string.settings_6_digit_authenticator_code)) },
                     placeholder = { Text("000000") },
                     singleLine = true,
                     isError = error != null,
@@ -1209,11 +1234,11 @@ private fun TotpSetupDialog(
         },
         confirmButton = {
             TextButton(onClick = { submit() }, enabled = !busy && code.length == Totp.DIGITS) {
-                Text(if (busy) "处理中…" else "绑定")
+                Text(if (busy) t(R.string.settings_working) else t(R.string.settings_bind))
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss, enabled = !busy) { Text("取消") }
+            TextButton(onClick = onDismiss, enabled = !busy) { Text(t(R.string.security_cancel)) }
         },
     )
 }
@@ -1367,6 +1392,58 @@ private fun ThemeModePicker(
 }
 
 /**
+ * Language as a drop-down rather than a segmented control: the list is only
+ * going to grow, and a row of equally weighted segments runs out of room long
+ * before the translations do.
+ */
+@Composable
+private fun LanguagePicker(
+    selected: AppLanguage,
+    onSelect: (AppLanguage) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        SettingRow(
+            title = t(R.string.settings_language),
+            subtitle = selected.label,
+            onClick = { expanded = true },
+            trailing = {
+                Icon(
+                    imageVector = Icons.Rounded.ArrowDropDown,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            },
+        )
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+        ) {
+            AppLanguage.entries.forEach { language ->
+                DropdownMenuItem(
+                    text = { Text(language.label) },
+                    trailingIcon = if (language == selected) {
+                        {
+                            Icon(
+                                imageVector = Icons.Rounded.Check,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                    } else {
+                        null
+                    },
+                    onClick = {
+                        expanded = false
+                        onSelect(language)
+                    },
+                )
+            }
+        }
+    }
+}
+
+/**
  * Preset budget picker for one cache.
  *
  * A handful of presets beats a 30-step slider: every stop is a size people
@@ -1383,7 +1460,7 @@ private fun CacheLimitChips(
 ) {
     Column(modifier = Modifier.padding(horizontal = 16.dp)) {
         Text(
-            text = "缓存上限",
+            text = t(R.string.settings_cache_limit),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -1423,7 +1500,7 @@ private fun CacheLimitChips(
 
 /** `128 MB` / `5 GB` / `无上限`. */
 private fun cacheLimitLabel(mb: Int): String = when {
-    mb <= SettingsStore.UNLIMITED_CACHE_MB -> "无上限"
+    mb <= SettingsStore.UNLIMITED_CACHE_MB -> t(R.string.settings_limit)
     mb >= 1024 -> "${mb / 1024} GB"
     else -> "$mb MB"
 }

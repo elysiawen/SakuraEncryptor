@@ -1,5 +1,8 @@
 package com.sakura.encryptor.ui.screens.profiles
 
+import com.sakura.encryptor.R
+import com.sakura.encryptor.ui.i18n.t
+
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
@@ -162,7 +165,7 @@ class ProfileEditViewModel(
                 _state.update { it.copy(isLoading = false, saved = true) }
             }.onFailure { throwable ->
                 _state.update {
-                    it.copy(isLoading = false, error = throwable.message ?: "保存失败")
+                    it.copy(isLoading = false, error = throwable.message ?: t(R.string.profiles_save_failed))
                 }
             }
         }
@@ -174,7 +177,7 @@ class ProfileEditViewModel(
             runCatching { profileRepository.delete(id) }
                 .onSuccess { _state.update { it.copy(deleted = true) } }
                 .onFailure { throwable ->
-                    _state.update { it.copy(error = throwable.message ?: "删除失败") }
+                    _state.update { it.copy(error = throwable.message ?: t(R.string.browse_delete_failed)) }
                 }
         }
     }
@@ -207,13 +210,13 @@ fun ProfileEditScreen(
             .statusBarsPadding(),
     ) {
         SakuraTopBar(
-            title = if (state.isNew) "新增配置" else "编辑配置",
-            subtitle = "一套 AList / OpenList 账号 + 一套加密密码",
+            title = if (state.isNew) t(R.string.profiles_add_profile) else t(R.string.profiles_edit_profile),
+            subtitle = t(R.string.profiles_one_a_list_open_list_account_one_encryption),
             onBack = onBack,
             actions = {
                 if (!state.isNew) {
                     IconButton(onClick = { showDeleteDialog = true }) {
-                        Icon(Icons.Rounded.Delete, contentDescription = "删除配置")
+                        Icon(Icons.Rounded.Delete, contentDescription = t(R.string.profiles_delete_profile))
                     }
                 }
             },
@@ -228,7 +231,7 @@ fun ProfileEditScreen(
         ) {
             SakuraCard(contentPadding = androidx.compose.foundation.layout.PaddingValues(18.dp)) {
                 Text(
-                    text = "服务端类型",
+                    text = t(R.string.profiles_server_type),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -246,15 +249,15 @@ fun ProfileEditScreen(
                 SakuraField(
                     value = state.name,
                     onValueChange = viewModel::onNameChange,
-                    label = "配置名称",
-                    placeholder = "例如：家庭云盘",
+                    label = t(R.string.profiles_profile_name),
+                    placeholder = t(R.string.profiles_e_g_home_nas),
                     leading = Icons.Rounded.Badge,
                 )
                 Spacer(Modifier.height(12.dp))
                 SakuraField(
                     value = state.server,
                     onValueChange = viewModel::onServerChange,
-                    label = "${state.provider.label} 服务器地址",
+                    label = t(R.string.profiles_server_address, state.provider.label),
                     placeholder = "https://alist.example.com",
                     leading = Icons.Rounded.Cloud,
                     keyboardType = KeyboardType.Uri,
@@ -263,7 +266,7 @@ fun ProfileEditScreen(
                 SakuraField(
                     value = state.username,
                     onValueChange = viewModel::onUsernameChange,
-                    label = "用户名",
+                    label = t(R.string.profiles_username),
                     leading = Icons.Rounded.Person,
                 )
                 Spacer(Modifier.height(12.dp))
@@ -271,9 +274,9 @@ fun ProfileEditScreen(
                     value = state.alistPassword,
                     onValueChange = viewModel::onAlistPasswordChange,
                     label = if (state.hasStoredAlistPassword) {
-                        "${state.provider.label} 密码（已保存，留空则不变）"
+                        t(R.string.profiles_password_saved_leave_blank_keep, state.provider.label)
                     } else {
-                        "${state.provider.label} 密码"
+                        t(R.string.profiles_password, state.provider.label)
                     },
                     leading = Icons.Rounded.Key,
                     isPassword = true,
@@ -285,9 +288,9 @@ fun ProfileEditScreen(
                     value = state.masterPassword,
                     onValueChange = viewModel::onMasterPasswordChange,
                     label = if (state.hasStoredMasterPassword) {
-                        "加密主密码（已保存，留空则不变）"
+                        t(R.string.profiles_master_password_saved_leave_blank_keep)
                     } else {
-                        "加密主密码"
+                        t(R.string.components_master_password)
                     },
                     leading = Icons.Rounded.Lock,
                     isPassword = true,
@@ -307,14 +310,14 @@ fun ProfileEditScreen(
                         modifier = Modifier.size(16.dp),
                     )
                     Spacer(Modifier.width(6.dp))
-                    Text(if (state.showAdvanced) "收起高级选项" else "高级选项")
+                    Text(if (state.showAdvanced) t(R.string.profiles_hide_advanced_options) else t(R.string.profiles_advanced_options))
                 }
 
                 if (state.showAdvanced) {
                     SakuraField(
                         value = state.basePath,
                         onValueChange = viewModel::onBasePathChange,
-                        label = "基础路径（可选）",
+                        label = t(R.string.profiles_base_path_optional),
                         placeholder = "/media",
                         leading = Icons.Rounded.FolderOpen,
                     )
@@ -323,8 +326,8 @@ fun ProfileEditScreen(
 
             Spacer(Modifier.height(14.dp))
             Text(
-                text = "两个密码都会使用系统密钥库（Android Keystore）加密保存，仅在连接与解密时于内存中使用。" +
-                    "加密主密码决定能看到哪些文件——不同配置使用不同密码时，各自对应不同的加密目录树。",
+                text = t(R.string.profiles_both_passwords_sealed_android_keystore_only) +
+                    t(R.string.profiles_master_password_determines_which_files_see),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 4.dp),
@@ -342,7 +345,7 @@ fun ProfileEditScreen(
 
             Spacer(Modifier.height(20.dp))
             PrimaryButton(
-                text = if (state.isNew) "保存并启用" else "保存",
+                text = if (state.isNew) t(R.string.profiles_save_enable) else t(R.string.profiles_save),
                 onClick = viewModel::save,
                 enabled = state.canSave,
                 loading = state.isLoading,
@@ -354,16 +357,16 @@ fun ProfileEditScreen(
     if (showDeleteDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
-            title = { Text("删除配置？") },
-            text = { Text("将删除该配置及其保存的密码，云端文件不受影响。") },
+            title = { Text(t(R.string.profiles_delete_profile2)) },
+            text = { Text(t(R.string.profiles_deletes_profile_saved_password_cloud_files)) },
             confirmButton = {
                 TextButton(onClick = {
                     viewModel.delete()
                     showDeleteDialog = false
-                }) { Text("删除") }
+                }) { Text(t(R.string.browse_delete)) }
             },
             dismissButton = {
-                TextButton(onClick = { showDeleteDialog = false }) { Text("取消") }
+                TextButton(onClick = { showDeleteDialog = false }) { Text(t(R.string.security_cancel)) }
             },
         )
     }
@@ -395,7 +398,7 @@ private fun SakuraField(
                 IconButton(onClick = onToggleVisibility) {
                     Icon(
                         imageVector = if (visible) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
-                        contentDescription = if (visible) "隐藏密码" else "显示密码",
+                        contentDescription = if (visible) t(R.string.components_hide_password) else t(R.string.components_show_password),
                         modifier = Modifier.size(19.dp),
                     )
                 }

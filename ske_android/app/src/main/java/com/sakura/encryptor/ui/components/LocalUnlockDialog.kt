@@ -1,5 +1,8 @@
 package com.sakura.encryptor.ui.components
 
+import com.sakura.encryptor.R
+import com.sakura.encryptor.ui.i18n.t
+
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -45,10 +48,10 @@ fun LocalUnlockDialog(
     onDismiss: () -> Unit,
     onSubmit: suspend (password: String, remember: Boolean) -> Unit,
     onUnlocked: () -> Unit,
-    title: String = "输入本地密码",
-    message: String = "本地 .ske 使用独立的本地密码，与云端配置互不影响。",
+    title: String = t(R.string.components_enter_local_password),
+    message: String = t(R.string.components_local_ske_files_use_their_own),
     /** Label of the confirm action, e.g. "解锁" when browsing or "加密" when encrypting. */
-    confirmLabel: String = "解锁",
+    confirmLabel: String = t(R.string.components_unlock),
 ) {
     val scope = rememberCoroutineScope()
 
@@ -75,7 +78,7 @@ fun LocalUnlockDialog(
                         password = it
                         error = null
                     },
-                    label = { Text("本地密码") },
+                    label = { Text(t(R.string.components_local_password)) },
                     singleLine = true,
                     trailingIcon = {
                         IconButton(onClick = { showPassword = !showPassword }) {
@@ -85,7 +88,7 @@ fun LocalUnlockDialog(
                                 } else {
                                     Icons.Rounded.Visibility
                                 },
-                                contentDescription = if (showPassword) "隐藏密码" else "显示密码",
+                                contentDescription = if (showPassword) t(R.string.components_hide_password) else t(R.string.components_show_password),
                                 modifier = Modifier.size(19.dp),
                             )
                         }
@@ -108,9 +111,9 @@ fun LocalUnlockDialog(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("记住密码", style = MaterialTheme.typography.bodyMedium)
+                        Text(t(R.string.components_remember_password), style = MaterialTheme.typography.bodyMedium)
                         Text(
-                            text = "使用系统密钥库加密保存",
+                            text = t(R.string.components_sealed_android_keystore),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -131,7 +134,7 @@ fun LocalUnlockDialog(
             TextButton(
                 onClick = {
                     if (password.isEmpty()) {
-                        error = "请输入密码"
+                        error = t(R.string.components_enter_password)
                         return@TextButton
                     }
                     busy = true
@@ -143,16 +146,16 @@ fun LocalUnlockDialog(
                             }
                             .onFailure {
                                 busy = false
-                                error = it.message ?: "解锁失败"
+                                error = it.message ?: t(R.string.components_unlock_failed)
                             }
                     }
                 }
             ) {
-                Text(if (busy) "${confirmLabel}中…" else confirmLabel)
+                Text(if (busy) t(R.string.components_text, confirmLabel) else confirmLabel)
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("取消") }
+            TextButton(onClick = onDismiss) { Text(t(R.string.security_cancel)) }
         },
     )
 }

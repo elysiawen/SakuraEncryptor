@@ -1,5 +1,8 @@
 package com.sakura.encryptor.ui.components
 
+import com.sakura.encryptor.R
+import com.sakura.encryptor.ui.i18n.t
+
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -65,7 +68,7 @@ fun PlaylistSheet(
                     .padding(horizontal = 24.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(text = "播放列表", style = MaterialTheme.typography.titleMedium)
+                Text(text = t(R.string.components_playlist), style = MaterialTheme.typography.titleMedium)
                 Text(
                     text = "${items.size} $unit",
                     style = MaterialTheme.typography.bodySmall,
@@ -116,7 +119,7 @@ fun PlaylistSheet(
                         if (active) {
                             Icon(
                                 imageVector = Icons.Rounded.GraphicEq,
-                                contentDescription = "正在播放",
+                                contentDescription = t(R.string.components_now_playing),
                                 tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier
                                     .padding(start = 10.dp)

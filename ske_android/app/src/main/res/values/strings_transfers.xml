@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <string name="transfers_active_tasks">No active tasks</string>
+    <string name="transfers_cancel_download">Cancel download</string>
+    <string name="transfers_cancel_download2">Cancel download?</string>
+    <string name="transfers_cancelled">Cancelled</string>
+    <string name="transfers_cancels_discards_downloaded_part_n">This cancels \"%1$s\" and discards the downloaded part.\n</string>
+    <string name="transfers_clear_finished">Clear finished</string>
+    <string name="transfers_continue">Continue</string>
+    <string name="transfers_continue_later_use_pause_instead">To continue later, use Pause instead.</string>
+    <string name="transfers_download_failed">Download failed</string>
+    <string name="transfers_downloaded">Downloaded</string>
+    <string name="transfers_downloading">Downloading</string>
+    <string name="transfers_downloads_progress">No downloads in progress</string>
+    <string name="transfers_encrypting">Encrypting</string>
+    <string name="transfers_encrypting_device">Encrypting on this device…</string>
+    <string name="transfers_failed">Failed</string>
+    <string name="transfers_finished_tasks_yet">No finished tasks yet</string>
+    <string name="transfers_paused">Paused</string>
+    <string name="transfers_paused2">Paused · %1$s / %2$s</string>
+    <string name="transfers_progress">%1$s in progress</string>
+    <string name="transfers_queued">Queued</string>
+    <string name="transfers_resume_download">Resume download</string>
+    <string name="transfers_saved">Saved to %1$s</string>
+    <string name="transfers_saved_device">Saved on this device · %1$s</string>
+    <string name="transfers_tasks">No tasks</string>
+    <string name="transfers_transfers">No transfers</string>
+    <string name="transfers_upload_files_cloud_folder_download_encrypted">Upload files to a cloud folder or download encrypted files, and the tasks appear here. Encryption and decryption run on this device and continue when you leave the page.</string>
+    <string name="transfers_uploaded">Uploaded</string>
+    <string name="transfers_uploading">Uploading</string>
+    <string name="transfers_uploads_progress">No uploads in progress</string>
+    <string name="transfers_waiting">Waiting…</string>
+    <string name="transfers_waiting_start">Waiting to start</string>
+</resources>

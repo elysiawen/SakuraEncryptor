@@ -1,6 +1,8 @@
 package com.sakura.encryptor.ui.theme
 
 import androidx.compose.ui.graphics.Color
+import com.sakura.encryptor.R
+import com.sakura.encryptor.ui.i18n.t
 
 /**
  * Neutral surfaces shared by every accent. Kept deliberately quiet so the
@@ -40,15 +42,28 @@ object Neutral {
  * Ordered around the colour wheel with the neutral grey last, so the picker
  * reads like a palette rather than an arbitrary list.
  */
-enum class AccentTheme(val label: String) {
-    Indigo("靛青"),
-    Ocean("海蓝"),
-    Teal("青碧"),
-    Moss("苔绿"),
-    Amber("琥珀"),
-    Sakura("樱粉"),
-    Violet("紫藤"),
-    Graphite("石墨");
+enum class AccentTheme {
+    Indigo,
+    Ocean,
+    Teal,
+    Moss,
+    Amber,
+    Sakura,
+    Violet,
+    Graphite;
+
+    /** Displayed in the accent picker, so it follows the interface language. */
+    val label: String
+        get() = when (this) {
+            Indigo -> t(R.string.theme_indigo)
+            Ocean -> t(R.string.theme_ocean)
+            Teal -> t(R.string.theme_teal)
+            Moss -> t(R.string.theme_moss)
+            Amber -> t(R.string.theme_amber)
+            Sakura -> t(R.string.theme_sakura)
+            Violet -> t(R.string.theme_violet)
+            Graphite -> t(R.string.theme_graphite)
+        }
 
     companion object {
         fun fromId(id: String?): AccentTheme =

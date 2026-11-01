@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <string name="lock_any_opens_app">以下任一方式通过即可：%1$s</string>
+    <string name="lock_code_incorrect_expired">验证码不正确或已过期</string>
+    <string name="lock_enter6_digit_code_authenticator_app">请输入令牌应用中的 6 位验证码</string>
+    <string name="lock_enter_launch_password">请输入启动密码</string>
+    <string name="lock_entering_app">正在进入应用</string>
+    <string name="lock_fingerprint_face_unavailable_re_enrol_system">此设备的指纹或面容不可用，请先在系统设置中重新录入。</string>
+    <string name="lock_fingerprint_verified">指纹已验证</string>
+    <string name="lock_incorrect_password">密码不正确</string>
+    <string name="lock_launch_password">启动密码</string>
+    <string name="lock_needs_all_pass">需要%1$s都通过</string>
+    <string name="lock_open_system_settings">打开系统设置</string>
+    <string name="lock_passed_still_needs">已通过%1$s，还需要%2$s</string>
+    <string name="lock_ticked_totp_method_token_bound_skipped">已勾选的 TOTP 尚未绑定令牌，本次已跳过。解锁后请到「设置 → 安全」</string>
+    <string name="lock_totp_code">TOTP 验证码</string>
+    <string name="lock_untick_method">中绑定，或取消勾选该方式。</string>
+    <string name="lock_verify_fingerprint">验证指纹</string>
+    <string name="lock_verify_fingerprint_face">请验证指纹或面容</string>
+    <string name="lock_verify_password">验证密码</string>
+    <string name="lock_verify_token">验证令牌</string>
+    <string name="lock_factor_totp">TOTP 令牌</string>
+    <string name="lock_factor_biometric">指纹或面容</string>
+    <string name="lock_match_all">全部通过</string>
+    <string name="lock_match_any">任一通过</string>
+</resources>

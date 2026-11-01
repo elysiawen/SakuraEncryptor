@@ -1,5 +1,8 @@
 package com.sakura.encryptor.ui.screens.transfers
 
+import com.sakura.encryptor.R
+import com.sakura.encryptor.ui.i18n.t
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -106,14 +109,25 @@ class TransfersViewModel(
     }
 }
 
-private enum class TransferTab(
-    val title: String,
-    val empty: String,
-    val icon: ImageVector,
-) {
-    UPLOAD("上传", "暂无进行中的上传", Icons.Rounded.UploadFile),
-    DOWNLOAD("下载", "暂无进行中的下载", Icons.Rounded.Downloading),
-    FINISHED("完成", "还没有结束的任务", Icons.Rounded.CheckCircle),
+private enum class TransferTab(val icon: ImageVector) {
+    UPLOAD(Icons.Rounded.UploadFile),
+    DOWNLOAD(Icons.Rounded.Downloading),
+    FINISHED(Icons.Rounded.CheckCircle);
+
+    /** Tab labels are looked up per read so they follow the interface language. */
+    val title: String
+        get() = when (this) {
+            UPLOAD -> t(R.string.browse_upload)
+            DOWNLOAD -> t(R.string.browse_download)
+            FINISHED -> t(R.string.player_done)
+        }
+
+    val empty: String
+        get() = when (this) {
+            UPLOAD -> t(R.string.transfers_uploads_progress)
+            DOWNLOAD -> t(R.string.transfers_downloads_progress)
+            FINISHED -> t(R.string.transfers_finished_tasks_yet)
+        }
 }
 
 /** One row of the merged finished list; both queues look the same there. */
@@ -183,17 +197,17 @@ fun TransfersScreen(onOpenDrawer: () -> Unit) {
             .statusBarsPadding(),
     ) {
         SakuraTopBar(
-            title = "传输",
+            title = t(R.string.app_transfers),
             subtitle = when {
-                isEmpty -> "暂无任务"
-                activeCount == 0 -> "暂无进行中任务"
-                else -> "$activeCount 个进行中"
+                isEmpty -> t(R.string.transfers_tasks)
+                activeCount == 0 -> t(R.string.transfers_active_tasks)
+                else -> t(R.string.transfers_progress, activeCount)
             },
             onMenu = onOpenDrawer,
             actions = {
                 if (finished.isNotEmpty()) {
                     IconButton(onClick = viewModel::clearFinished) {
-                        Icon(Icons.Rounded.DeleteSweep, contentDescription = "清除已完成")
+                        Icon(Icons.Rounded.DeleteSweep, contentDescription = t(R.string.transfers_clear_finished))
                     }
                 }
             },
@@ -202,8 +216,8 @@ fun TransfersScreen(onOpenDrawer: () -> Unit) {
         if (isEmpty) {
             StateMessage(
                 icon = Icons.Rounded.SwapVert,
-                title = "没有传输任务",
-                message = "在云端目录中上传文件，或下载加密文件，任务会出现在这里。加密与解密都在本机完成，切换页面不影响进度。",
+                title = t(R.string.transfers_transfers),
+                message = t(R.string.transfers_upload_files_cloud_folder_download_encrypted),
             )
             return@Column
         }
@@ -283,21 +297,21 @@ fun TransfersScreen(onOpenDrawer: () -> Unit) {
     cancelTarget?.let { task ->
         AlertDialog(
             onDismissRequest = { cancelTarget = null },
-            title = { Text("取消下载？") },
+            title = { Text(t(R.string.transfers_cancel_download2)) },
             text = {
                 Text(
-                    "将取消「${task.displayName}」并丢弃已下载的部分。\n" +
-                        "如果只是想稍后继续，请改用暂停。"
+                    t(R.string.transfers_cancels_discards_downloaded_part_n, task.displayName) +
+                        t(R.string.transfers_continue_later_use_pause_instead)
                 )
             },
             confirmButton = {
                 TextButton(onClick = {
                     viewModel.cancelDownload(task.id)
                     cancelTarget = null
-                }) { Text("取消下载") }
+                }) { Text(t(R.string.transfers_cancel_download)) }
             },
             dismissButton = {
-                TextButton(onClick = { cancelTarget = null }) { Text("继续下载") }
+                TextButton(onClick = { cancelTarget = null }) { Text(t(R.string.transfers_resume_download)) }
             },
         )
     }
@@ -422,31 +436,31 @@ private fun UploadCard(
         UploadStatus.QUEUED -> Tone(
             MaterialTheme.colorScheme.surfaceVariant,
             MaterialTheme.colorScheme.onSurfaceVariant,
-            "排队",
+            t(R.string.transfers_queued),
         )
 
         UploadStatus.RUNNING -> Tone(
             MaterialTheme.colorScheme.secondaryContainer,
             MaterialTheme.colorScheme.onSecondaryContainer,
-            if (task.phase == UploadPhase.ENCRYPTING) "加密中" else "上传中",
+            if (task.phase == UploadPhase.ENCRYPTING) t(R.string.transfers_encrypting) else t(R.string.transfers_uploading),
         )
 
         UploadStatus.DONE -> Tone(
             MaterialTheme.colorScheme.primaryContainer,
             MaterialTheme.colorScheme.onPrimaryContainer,
-            "已上传",
+            t(R.string.transfers_uploaded),
         )
 
         UploadStatus.FAILED -> Tone(
             MaterialTheme.colorScheme.errorContainer,
             MaterialTheme.colorScheme.onErrorContainer,
-            "失败",
+            t(R.string.transfers_failed),
         )
 
         UploadStatus.CANCELLED -> Tone(
             MaterialTheme.colorScheme.surfaceVariant,
             MaterialTheme.colorScheme.onSurfaceVariant,
-            "已取消",
+            t(R.string.transfers_cancelled),
         )
     }
 
@@ -496,7 +510,7 @@ private fun UploadCard(
 
         if (active) {
             RowActions {
-                TextButton(onClick = onCancel) { Text("取消") }
+                TextButton(onClick = onCancel) { Text(t(R.string.security_cancel)) }
             }
         }
     }
@@ -522,37 +536,37 @@ private fun DownloadCard(
         DownloadStatus.PENDING -> Tone(
             MaterialTheme.colorScheme.surfaceVariant,
             MaterialTheme.colorScheme.onSurfaceVariant,
-            "排队",
+            t(R.string.transfers_queued),
         )
 
         DownloadStatus.RUNNING -> Tone(
             MaterialTheme.colorScheme.secondaryContainer,
             MaterialTheme.colorScheme.onSecondaryContainer,
-            if (task.totalBytes > 0) "$percent%" else "下载中",
+            if (task.totalBytes > 0) "$percent%" else t(R.string.transfers_downloading),
         )
 
         DownloadStatus.PAUSED -> Tone(
             MaterialTheme.colorScheme.surfaceVariant,
             MaterialTheme.colorScheme.onSurfaceVariant,
-            "已暂停",
+            t(R.string.transfers_paused),
         )
 
         DownloadStatus.DONE -> Tone(
             MaterialTheme.colorScheme.primaryContainer,
             MaterialTheme.colorScheme.onPrimaryContainer,
-            "已下载",
+            t(R.string.transfers_downloaded),
         )
 
         DownloadStatus.FAILED -> Tone(
             MaterialTheme.colorScheme.errorContainer,
             MaterialTheme.colorScheme.onErrorContainer,
-            "失败",
+            t(R.string.transfers_failed),
         )
 
         DownloadStatus.CANCELLED -> Tone(
             MaterialTheme.colorScheme.surfaceVariant,
             MaterialTheme.colorScheme.onSurfaceVariant,
-            "已取消",
+            t(R.string.transfers_cancelled),
         )
     }
 
@@ -604,14 +618,14 @@ private fun DownloadCard(
         if (status != DownloadStatus.DONE) {
             RowActions {
                 when (status) {
-                    DownloadStatus.RUNNING -> TextButton(onClick = onPause) { Text("暂停") }
-                    DownloadStatus.PAUSED -> TextButton(onClick = onResume) { Text("继续") }
+                    DownloadStatus.RUNNING -> TextButton(onClick = onPause) { Text(t(R.string.components_pause)) }
+                    DownloadStatus.PAUSED -> TextButton(onClick = onResume) { Text(t(R.string.transfers_continue)) }
                     DownloadStatus.FAILED, DownloadStatus.CANCELLED ->
-                        TextButton(onClick = onRetry) { Text("重试") }
+                        TextButton(onClick = onRetry) { Text(t(R.string.components_retry)) }
 
                     DownloadStatus.DONE, DownloadStatus.PENDING -> Unit
                 }
-                TextButton(onClick = onCancel) { Text("取消") }
+                TextButton(onClick = onCancel) { Text(t(R.string.security_cancel)) }
             }
         }
     }
@@ -698,29 +712,29 @@ private fun RowActions(content: @Composable RowScope.() -> Unit) {
 }
 
 private fun uploadDetail(task: UploadTask): String = when (task.status) {
-    UploadStatus.QUEUED -> "等待开始"
+    UploadStatus.QUEUED -> t(R.string.transfers_waiting_start)
     UploadStatus.RUNNING -> when (task.phase) {
-        UploadPhase.ENCRYPTING -> "正在本机加密…"
+        UploadPhase.ENCRYPTING -> t(R.string.transfers_encrypting_device)
         UploadPhase.UPLOADING ->
             "${formatBytes(task.doneBytes)} / ${formatBytes(task.totalBytes)}"
     }
 
-    UploadStatus.DONE -> "已保存至 ${task.dir}"
-    UploadStatus.FAILED -> task.error ?: "上传失败"
-    UploadStatus.CANCELLED -> "已取消"
+    UploadStatus.DONE -> t(R.string.transfers_saved, task.dir)
+    UploadStatus.FAILED -> task.error ?: t(R.string.upload_upload_failed)
+    UploadStatus.CANCELLED -> t(R.string.transfers_cancelled)
 }
 
 private fun downloadDetail(task: DownloadTaskEntity, status: DownloadStatus): String = when (status) {
-    DownloadStatus.PENDING -> "等待中…"
+    DownloadStatus.PENDING -> t(R.string.transfers_waiting)
     DownloadStatus.RUNNING ->
         "${formatBytes(task.downloadedBytes)} / ${formatBytes(task.totalBytes)}"
 
     DownloadStatus.PAUSED ->
-        "已暂停 · ${formatBytes(task.downloadedBytes)} / ${formatBytes(task.totalBytes)}"
+        t(R.string.transfers_paused2, formatBytes(task.downloadedBytes), formatBytes(task.totalBytes))
 
-    DownloadStatus.DONE -> "已保存到本机 · ${formatBytes(task.totalBytes)}"
-    DownloadStatus.FAILED -> task.error ?: "下载失败"
-    DownloadStatus.CANCELLED -> "已取消"
+    DownloadStatus.DONE -> t(R.string.transfers_saved_device, formatBytes(task.totalBytes))
+    DownloadStatus.FAILED -> task.error ?: t(R.string.transfers_download_failed)
+    DownloadStatus.CANCELLED -> t(R.string.transfers_cancelled)
 }
 
 private val ACTIVE_DOWNLOAD_STATUSES = setOf(

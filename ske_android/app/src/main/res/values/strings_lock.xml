@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <string name="lock_any_opens_app">Any of these opens the app: %1$s</string>
+    <string name="lock_code_incorrect_expired">The code is incorrect or has expired</string>
+    <string name="lock_enter6_digit_code_authenticator_app">Enter the 6-digit code from your authenticator app</string>
+    <string name="lock_enter_launch_password">Enter the launch password</string>
+    <string name="lock_entering_app">Entering the app</string>
+    <string name="lock_fingerprint_face_unavailable_re_enrol_system">Fingerprint or face is unavailable; re-enrol it in system settings first.</string>
+    <string name="lock_fingerprint_verified">Fingerprint verified</string>
+    <string name="lock_incorrect_password">Incorrect password</string>
+    <string name="lock_launch_password">Launch password</string>
+    <string name="lock_needs_all_pass">Needs %1$s to all pass</string>
+    <string name="lock_open_system_settings">Open system settings</string>
+    <string name="lock_passed_still_needs">%1$s passed; still needs %2$s</string>
+    <string name="lock_ticked_totp_method_token_bound_skipped">The ticked TOTP method has no token bound and was skipped. After unlocking, open \"Settings → Security\"</string>
+    <string name="lock_totp_code">TOTP code</string>
+    <string name="lock_untick_method">, or untick that method.</string>
+    <string name="lock_verify_fingerprint">Verify fingerprint</string>
+    <string name="lock_verify_fingerprint_face">Verify your fingerprint or face</string>
+    <string name="lock_verify_password">Verify password</string>
+    <string name="lock_verify_token">Verify token</string>
+    <string name="lock_factor_totp">TOTP token</string>
+    <string name="lock_factor_biometric">Fingerprint or face</string>
+    <string name="lock_match_all">All must pass</string>
+    <string name="lock_match_any">Any one passes</string>
+</resources>

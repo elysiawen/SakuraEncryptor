@@ -1,5 +1,8 @@
 package com.sakura.encryptor.core.profile
 
+import com.sakura.encryptor.R
+import com.sakura.encryptor.ui.i18n.t
+
 import com.sakura.encryptor.data.db.ProfileEntity
 import kotlinx.coroutines.flow.first
 
@@ -21,7 +24,7 @@ suspend fun ProfileRepository.ensureLocalProfile(
     // must update this profile instead of leaving a second one behind.
     val known = profileId?.let { dao.find(it) }
     val existing = known ?: dao.all().firstOrNull { it.server == server }
-    val entity = (existing ?: ProfileEntity(name = "内置服务器")).copy(
+    val entity = (existing ?: ProfileEntity(name = t(R.string.settings_built_server))).copy(
         server = server,
         username = username,
         sealedAlistPassword = sealedPassword,

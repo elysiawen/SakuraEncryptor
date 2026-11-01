@@ -1,5 +1,8 @@
 package com.sakura.encryptor.core.openlist
 
+import com.sakura.encryptor.R
+import com.sakura.encryptor.ui.i18n.t
+
 import com.sakura.encryptor.core.alist.AListApi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -136,7 +139,7 @@ suspend fun AListApi.updateAdminUser(
         it["username"]?.jsonPrimitive?.contentOrNull == currentUsername
     } ?: users.firstOrNull {
         it["role"]?.jsonPrimitive?.intOrNull == ADMIN_ROLE
-    } ?: error("服务器上找不到内置管理员账号")
+    } ?: error(t(R.string.openlist_built_admin_account_found_server))
 
     val body = JsonObject(
         admin.toMutableMap().apply {

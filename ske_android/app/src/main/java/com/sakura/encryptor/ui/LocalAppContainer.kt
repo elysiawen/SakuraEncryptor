@@ -37,3 +37,4 @@ inline fun <reified VM : ViewModel> rememberAppViewModel(
         },
     )
 }
+

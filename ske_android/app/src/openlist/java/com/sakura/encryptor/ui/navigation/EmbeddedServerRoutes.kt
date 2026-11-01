@@ -49,3 +49,4 @@ fun NavGraphBuilder.embeddedServerDestinations(navController: NavHostController)
         )
     }
 }
+

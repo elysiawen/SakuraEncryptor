@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <string name="remote_failed_read_response">Failed to read the response</string>
+    <string name="remote_network_request_failed">Network request failed: %1$s</string>
+    <string name="remote_request_failed_http">Request failed (HTTP %1$s)</string>
+    <string name="remote_server_returned_download_url">The server returned no download URL for %1$s</string>
+    <string name="remote_server_returned_file_info">The server returned no file info for %1$s</string>
+    <string name="remote_support_chunked_upload">%1$s does not support chunked upload</string>
+    <string name="remote_unsupported_request_method">Unsupported request method %1$s</string>
+    <string name="remote_upload_failed_http">Upload failed (HTTP %1$s)</string>
+    <string name="remote_upload_path_cannot_empty">Upload path cannot be empty</string>
+</resources>

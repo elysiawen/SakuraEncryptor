@@ -1,5 +1,8 @@
 package com.sakura.encryptor.core.local
 
+import com.sakura.encryptor.R
+import com.sakura.encryptor.ui.i18n.t
+
 import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -28,9 +31,9 @@ class CryptoNotifications(private val context: Context) {
     init {
         val channel = NotificationChannel(
             CHANNEL_ID,
-            "加密任务",
+            t(R.string.local_encryption_tasks),
             NotificationManager.IMPORTANCE_LOW,
-        ).apply { description = "文件加密与解密进度" }
+        ).apply { description = t(R.string.local_file_encryption_decryption_progress) }
         manager.createNotificationChannel(channel)
     }
 

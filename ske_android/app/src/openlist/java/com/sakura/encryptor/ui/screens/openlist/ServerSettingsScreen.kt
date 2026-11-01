@@ -1,5 +1,8 @@
 package com.sakura.encryptor.ui.screens.openlist
 
+import com.sakura.encryptor.R
+import com.sakura.encryptor.ui.i18n.t
+
 import android.content.Context
 import android.content.Intent
 import androidx.compose.foundation.layout.Column
@@ -108,7 +111,7 @@ class ServerSettingsViewModel(
                 // process re-reads config.json and binds the new one.
                 _restartRequired.value = newPort != embeddedServer.port
             }
-            .onFailure { _error.value = it.message ?: "内置服务器设置保存失败" }
+            .onFailure { _error.value = it.message ?: t(R.string.openlist_failed_save_built_server_settings) }
         _busy.value = false
     }
 
@@ -142,7 +145,7 @@ fun ServerSettingsScreen(onBack: () -> Unit) {
             .fillMaxSize()
             .statusBarsPadding(),
     ) {
-        SakuraTopBar(title = "服务器设置", subtitle = "内置服务器", onBack = onBack)
+        SakuraTopBar(title = t(R.string.settings_server_settings), subtitle = t(R.string.settings_built_server), onBack = onBack)
 
         Column(
             modifier = Modifier
@@ -150,7 +153,7 @@ fun ServerSettingsScreen(onBack: () -> Unit) {
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp),
         ) {
-            SectionHeader("连接")
+            SectionHeader(t(R.string.browse_connect))
 
             SakuraCard {
                 OutlinedTextField(
@@ -158,13 +161,13 @@ fun ServerSettingsScreen(onBack: () -> Unit) {
                     onValueChange = { input ->
                         portInput = input.filter(Char::isDigit).take(5)
                     },
-                    label = { Text("端口") },
+                    label = { Text(t(R.string.openlist_port)) },
                     supportingText = {
                         Text(
                             if (portPending) {
-                                "新端口将在重启应用后生效"
+                                t(R.string.openlist_new_port_takes_effect_after_restarting)
                             } else {
-                                "仅在本机 127.0.0.1 上监听"
+                                t(R.string.openlist_listens127001_only)
                             },
                         )
                     },
@@ -179,7 +182,7 @@ fun ServerSettingsScreen(onBack: () -> Unit) {
                 OutlinedTextField(
                     value = usernameInput,
                     onValueChange = { usernameInput = it },
-                    label = { Text("用户名") },
+                    label = { Text(t(R.string.profiles_username)) },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                     modifier = Modifier
@@ -190,7 +193,7 @@ fun ServerSettingsScreen(onBack: () -> Unit) {
                 OutlinedTextField(
                     value = passwordInput,
                     onValueChange = { passwordInput = it },
-                    label = { Text("密码") },
+                    label = { Text(t(R.string.openlist_password)) },
                     singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(
@@ -203,8 +206,8 @@ fun ServerSettingsScreen(onBack: () -> Unit) {
                 )
 
                 Text(
-                    text = "修改账号会同步到正在运行的内置服务器，应用内保存的登录密码也会一并更新；" +
-                        "端口只在下次启动应用时生效。",
+                    text = t(R.string.openlist_account_changes_sync_running_built_server) +
+                        t(R.string.openlist_port_only_takes_effect_next_time),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 12.dp),
@@ -220,7 +223,7 @@ fun ServerSettingsScreen(onBack: () -> Unit) {
                 }
 
                 PrimaryButton(
-                    text = if (busy) "保存中…" else "保存",
+                    text = if (busy) t(R.string.openlist_saving) else t(R.string.profiles_save),
                     onClick = {
                         viewModel.save(
                             newPort = portInput.toIntOrNull() ?: port,
@@ -240,11 +243,11 @@ fun ServerSettingsScreen(onBack: () -> Unit) {
     if (restartRequired) {
         AlertDialog(
             onDismissRequest = viewModel::dismissRestart,
-            title = { Text("重启应用以生效") },
+            title = { Text(t(R.string.openlist_restart_app_apply)) },
             text = {
                 Text(
-                    "端口已保存为 $port，但运行中的服务器仍在旧端口上提供服务。" +
-                        "重启应用后才会切到新端口，现在重启吗？",
+                    t(R.string.openlist_port_saved_running_server_still_serves, port) +
+                        t(R.string.openlist_new_port_applies_after_restart_restart),
                 )
             },
             confirmButton = {
@@ -253,10 +256,10 @@ fun ServerSettingsScreen(onBack: () -> Unit) {
                         viewModel.dismissRestart()
                         restartApp(context)
                     }
-                ) { Text("立即重启") }
+                ) { Text(t(R.string.openlist_restart_now)) }
             },
             dismissButton = {
-                TextButton(onClick = viewModel::dismissRestart) { Text("稍后") }
+                TextButton(onClick = viewModel::dismissRestart) { Text(t(R.string.openlist_later)) }
             },
         )
     }

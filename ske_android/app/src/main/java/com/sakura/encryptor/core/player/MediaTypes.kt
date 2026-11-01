@@ -1,5 +1,8 @@
 package com.sakura.encryptor.core.player
 
+import com.sakura.encryptor.R
+import com.sakura.encryptor.ui.i18n.t
+
 /** Broad media categories the app knows how to present. */
 enum class MediaKind { VIDEO, AUDIO, IMAGE, OTHER }
 
@@ -64,9 +67,9 @@ object MediaTypes {
 
     /** A human-friendly label for the file kind, used on cards and badges. */
     fun labelOf(name: String): String = when (kindOf(name)) {
-        MediaKind.VIDEO -> "视频"
-        MediaKind.AUDIO -> "音频"
-        MediaKind.IMAGE -> "图片"
-        MediaKind.OTHER -> "文件"
+        MediaKind.VIDEO -> t(R.string.player_video)
+        MediaKind.AUDIO -> t(R.string.player_audio)
+        MediaKind.IMAGE -> t(R.string.player_image)
+        MediaKind.OTHER -> t(R.string.player_files)
     }
 }

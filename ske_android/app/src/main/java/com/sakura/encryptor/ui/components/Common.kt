@@ -1,5 +1,8 @@
 package com.sakura.encryptor.ui.components
 
+import com.sakura.encryptor.R
+import com.sakura.encryptor.ui.i18n.t
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -65,7 +68,7 @@ fun SakuraTopBar(
             IconButton(onClick = leading) {
                 Icon(
                     imageVector = if (onBack != null) Icons.Rounded.ArrowBack else Icons.Rounded.Menu,
-                    contentDescription = if (onBack != null) "返回" else "打开菜单",
+                    contentDescription = if (onBack != null) t(R.string.components_back) else t(R.string.components_open_menu),
                 )
             }
         }

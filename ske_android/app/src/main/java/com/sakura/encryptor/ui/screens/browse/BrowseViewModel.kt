@@ -1,5 +1,8 @@
 package com.sakura.encryptor.ui.screens.browse
 
+import com.sakura.encryptor.R
+import com.sakura.encryptor.ui.i18n.t
+
 import android.graphics.Bitmap
 import android.net.Uri
 import androidx.lifecycle.ViewModel
@@ -157,7 +160,7 @@ class BrowseViewModel(
                     if (needsOtp) {
                         _events.send(Event.NeedOtp)
                     } else {
-                        send(Event.Message(throwable.message ?: "连接失败"))
+                        send(Event.Message(throwable.message ?: t(R.string.browse_connection_failed)))
                     }
                 }
         }
@@ -273,7 +276,7 @@ class BrowseViewModel(
                         it.copy(
                             isLoading = false,
                             isRefreshing = false,
-                            error = throwable.message ?: "加载失败",
+                            error = throwable.message ?: t(R.string.browse_failed_load),
                         )
                     }
                 }
@@ -285,7 +288,7 @@ class BrowseViewModel(
         val segments = path.trim('/').split('/').filter { it.isNotEmpty() }
         var accumulated = ""
         val crumbs = ArrayList<Pair<String, String>>(segments.size + 1)
-        crumbs += "/" to "根目录"
+        crumbs += "/" to t(R.string.browse_root)
         for (segment in segments) {
             accumulated = "$accumulated/$segment"
             val label = runCatching { SkeCrypto.decryptName(segment, key) }.getOrDefault(segment)
@@ -328,7 +331,7 @@ class BrowseViewModel(
         }
         val kind = MediaTypes.kindOf(entry.displayName)
         if (kind == MediaKind.OTHER) {
-            send(Event.Message("「${entry.displayName}」不是可播放的媒体文件"))
+            send(Event.Message(t(R.string.browse_playable_media_file, entry.displayName)))
             return
         }
 
@@ -345,7 +348,7 @@ class BrowseViewModel(
                 }
                 .onFailure { throwable ->
                     _state.update { it.copy(isPreparing = false) }
-                    send(Event.Message(throwable.message ?: "无法获取播放地址"))
+                    send(Event.Message(throwable.message ?: t(R.string.browse_cannot_get_playback_url)))
                 }
         }
     }
@@ -354,11 +357,11 @@ class BrowseViewModel(
     fun download(entries: List<DecryptedEntry>) {
         val files = entries.filter { !it.isDir }
         if (files.isEmpty()) {
-            send(Event.Message("请选择要下载的文件"))
+            send(Event.Message(t(R.string.browse_select_files_download)))
             return
         }
         viewModelScope.launch {
-            send(Event.Message("已加入下载队列：${files.size} 个文件"))
+            send(Event.Message(t(R.string.browse_added_file_download_queue, files.size)))
             for (entry in files) {
                 val remotePath = "${_state.value.path.trimEnd('/')}/${entry.raw.name}"
                 val id = downloadManager.enqueue(entry, remotePath)
@@ -388,7 +391,7 @@ class BrowseViewModel(
         // virtual root is not a real directory either.
         val target = repository.absolutePath(_state.value.path)
         if (target.isBlank() || target == "/") {
-            send(Event.Message("请先进入一个具体目录再上传"))
+            send(Event.Message(t(R.string.browse_open_specific_folder_before_uploading)))
             return
         }
 
@@ -400,11 +403,11 @@ class BrowseViewModel(
                 plainPath = _state.value.path,
             )
         }.getOrElse { throwable ->
-            send(Event.Message(throwable.message ?: "无法加入上传队列"))
+            send(Event.Message(throwable.message ?: t(R.string.browse_could_join_upload_queue)))
             return
         }
 
-        send(Event.Message("已加入上传队列：${created.size} 个文件"))
+        send(Event.Message(t(R.string.browse_added_file_upload_queue, created.size)))
     }
 
     fun delete(entries: List<DecryptedEntry>) {
@@ -413,11 +416,11 @@ class BrowseViewModel(
         viewModelScope.launch {
             repository.delete(_state.value.path, names)
                 .onSuccess {
-                    send(Event.Message("已删除 ${names.size} 项"))
+                    send(Event.Message(t(R.string.browse_item_deleted, names.size)))
                     clearSelection()
                     refresh()
                 }
-                .onFailure { send(Event.Message(it.message ?: "删除失败")) }
+                .onFailure { send(Event.Message(it.message ?: t(R.string.browse_delete_failed))) }
         }
     }
 
@@ -427,10 +430,10 @@ class BrowseViewModel(
         viewModelScope.launch {
             repository.makeDirectory(_state.value.path, name, nameKey(), encryptName)
                 .onSuccess {
-                    send(Event.Message("已创建「$name」"))
+                    send(Event.Message(t(R.string.browse_created, name)))
                     refresh()
                 }
-                .onFailure { send(Event.Message(it.message ?: "创建文件夹失败")) }
+                .onFailure { send(Event.Message(it.message ?: t(R.string.browse_failed_create_folder))) }
         }
     }
 
@@ -456,11 +459,11 @@ class BrowseViewModel(
 
             repository.rename(_state.value.path, currentRemoteName, newRemoteName)
                 .onSuccess {
-                    send(Event.Message("已重命名为「$name」"))
+                    send(Event.Message(t(R.string.browse_renamed, name)))
                     clearSelection()
                     refresh()
                 }
-                .onFailure { send(Event.Message(it.message ?: "重命名失败")) }
+                .onFailure { send(Event.Message(it.message ?: t(R.string.browse_rename_failed))) }
         }
     }
 

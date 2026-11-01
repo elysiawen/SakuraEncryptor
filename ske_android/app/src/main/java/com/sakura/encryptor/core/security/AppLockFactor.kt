@@ -1,5 +1,8 @@
 package com.sakura.encryptor.core.security
 
+import com.sakura.encryptor.R
+import com.sakura.encryptor.ui.i18n.t
+
 /**
  * One proof the launch gate can demand.
  *
@@ -9,10 +12,18 @@ package com.sakura.encryptor.core.security
  * lock screen, instead of another boolean and another combination to reason
  * about.
  */
-enum class AppLockFactor(val id: String, val title: String) {
-    PASSWORD("password", "启动密码"),
-    TOTP("totp", "TOTP 令牌"),
-    BIOMETRIC("biometric", "指纹或面容");
+enum class AppLockFactor(val id: String) {
+    PASSWORD("password"),
+    TOTP("totp"),
+    BIOMETRIC("biometric");
+
+    /** Shown in the lock screen and the factor picker. */
+    val title: String
+        get() = when (this) {
+            PASSWORD -> t(R.string.lock_launch_password)
+            TOTP -> t(R.string.lock_factor_totp)
+            BIOMETRIC -> t(R.string.lock_factor_biometric)
+        }
 
     companion object {
         /** What a gate falls back to when nothing usable is configured. */
@@ -28,12 +39,18 @@ enum class AppLockFactor(val id: String, val title: String) {
  * Both options stay meaningful as factors are added: "all" is strict 2FA,
  * "any" is a convenience gate with alternatives.
  */
-enum class AppLockMatch(val id: String, val title: String) {
+enum class AppLockMatch(val id: String) {
     /** Every ticked factor has to pass. */
-    ALL("all", "全部通过"),
+    ALL("all"),
 
     /** Any single ticked factor opens the app. */
-    ANY("any", "任一通过");
+    ANY("any");
+
+    val title: String
+        get() = when (this) {
+            ALL -> t(R.string.lock_match_all)
+            ANY -> t(R.string.lock_match_any)
+        }
 
     companion object {
         fun fromId(id: String?): AppLockMatch =

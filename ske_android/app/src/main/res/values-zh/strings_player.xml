@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <string name="download_cannot_create_file_downloads">无法在下载目录创建文件</string>
+    <string name="download_cannot_create_folder">无法创建目录：%1$s</string>
+    <string name="download_cannot_write_downloads">无法写入下载目录</string>
+    <string name="download_download_failed_http">下载失败：HTTP %1$s</string>
+    <string name="download_incomplete_download_bytes">下载不完整：%1$s / %2$s 字节</string>
+    <string name="download_server_returned_empty_response">服务器返回了空响应</string>
+    <string name="player_audio">音频</string>
+    <string name="player_back10_s">后退 10 秒</string>
+    <string name="player_back_current">回到当前</string>
+    <string name="player_brightness">亮度 %1$s%%</string>
+    <string name="player_cannot_determine_file_size">无法确定文件大小</string>
+    <string name="player_cannot_display_image">无法显示图片</string>
+    <string name="player_cannot_display_page">无法显示这一页</string>
+    <string name="player_cannot_get_file_link">无法获取文件链接</string>
+    <string name="player_could_decode_image_kb">图片解码失败（%1$s KB，%2$s×%3$s）</string>
+    <string name="player_decrypting_image">正在解密图片…</string>
+    <string name="player_done">完成</string>
+    <string name="player_file_empty">文件内容为空</string>
+    <string name="player_file_too_large_mb">文件过大（%1$s MB）</string>
+    <string name="player_files">文件</string>
+    <string name="player_forward10_s">前进 10 秒</string>
+    <string name="player_image">图片</string>
+    <string name="player_image_empty">图片内容为空</string>
+    <string name="player_incomplete_read_bytes">读取不完整（%1$s / %2$s 字节）</string>
+    <string name="player_items">个</string>
+    <string name="player_items2">张</string>
+    <string name="player_locked_unlock_decrypt_file">尚未解锁，无法解密该文件</string>
+    <string name="player_lyrics_found">未找到歌词</string>
+    <string name="player_next">下一张</string>
+    <string name="player_play_order">顺序播放</string>
+    <string name="player_previous">上一张</string>
+    <string name="player_previous2">上一首</string>
+    <string name="player_reading_lyrics">正在读取歌词…</string>
+    <string name="player_repeat_one">单曲循环</string>
+    <string name="player_repeat_playlist">列表循环</string>
+    <string name="player_shuffle">随机播放</string>
+    <string name="player_single_page">单页模式</string>
+    <string name="player_streaming_decryption">%1$s · 流式解密播放</string>
+    <string name="player_subtitle_size">字幕大小</string>
+    <string name="player_subtitles">字幕</string>
+    <string name="player_tracks">首</string>
+    <string name="player_turn_off_subtitles">关闭字幕</string>
+    <string name="player_unrecognised_image_format_heicavif_may">无法识别图片格式（HEIC / AVIF 等可能不被系统支持）</string>
+    <string name="player_video">视频</string>
+    <string name="player_volume">音量 %1$s%%</string>
+    <string name="player_webtoon_mode">条漫模式</string>
+    <string name="upload_master_password_missing_cannot_encrypt_upload">缺少加密主密码，无法加密上传</string>
+    <string name="upload_upload_cancelled">上传已取消</string>
+    <string name="upload_upload_failed">上传失败</string>
+</resources>

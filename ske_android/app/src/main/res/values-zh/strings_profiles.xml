@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <string name="profile_cloud_profile_selected_yet">还没有选择云端配置</string>
+    <string name="profile_fill_login_password_profile_first">请先在配置中填写登录密码</string>
+    <string name="profile_profile_server_address">该配置没有填写服务器地址</string>
+    <string name="profile_unnamed_profile">未命名配置</string>
+    <string name="profiles_add_profile">新增配置</string>
+    <string name="profiles_advanced_options">高级选项</string>
+    <string name="profiles_auto_sign">自动登录</string>
+    <string name="profiles_base_path_optional">基础路径（可选）</string>
+    <string name="profiles_both_passwords_sealed_android_keystore_only">两个密码都会使用系统密钥库（Android Keystore）加密保存，仅在连接与解密时于内存中使用。</string>
+    <string name="profiles_cloud_profiles">云端配置</string>
+    <string name="profiles_delete_profile">删除配置</string>
+    <string name="profiles_delete_profile2">删除配置？</string>
+    <string name="profiles_deletes_profile_saved_password_cloud_files">将删除该配置及其保存的密码，云端文件不受影响。</string>
+    <string name="profiles_deletes_saved_password_n">将删除「%1$s」及其保存的密码。\n</string>
+    <string name="profiles_e_g_home_nas">例如：家庭云盘</string>
+    <string name="profiles_edit">编辑</string>
+    <string name="profiles_edit_profile">编辑配置</string>
+    <string name="profiles_encrypted_files_cloud_deleted_re_adding">云端已加密的文件不会被删除，重新添加相同配置即可恢复访问。</string>
+    <string name="profiles_hide_advanced_options">收起高级选项</string>
+    <string name="profiles_manual_sign">需手动登录</string>
+    <string name="profiles_master_password_determines_which_files_see">加密主密码决定能看到哪些文件——不同配置使用不同密码时，各自对应不同的加密目录树。</string>
+    <string name="profiles_master_password_saved_leave_blank_keep">加密主密码（已保存，留空则不变）</string>
+    <string name="profiles_one_a_list_open_list_account_one_encryption">一套 AList / OpenList 账号 + 一套加密密码</string>
+    <string name="profiles_one_profile_one_a_list_open_list_account">一个配置 = 一套 AList / OpenList 账号 + 一套加密密码。可以添加多个并随时切换；只用本地文件则无需配置。</string>
+    <string name="profiles_password">%1$s 密码</string>
+    <string name="profiles_password_remembered">已记住密码</string>
+    <string name="profiles_password_required_switch">切换时需输密码</string>
+    <string name="profiles_password_saved_leave_blank_keep">%1$s 密码（已保存，留空则不变）</string>
+    <string name="profiles_profile">共 %1$s 个配置</string>
+    <string name="profiles_profile_name">配置名称</string>
+    <string name="profiles_profiles">暂无配置</string>
+    <string name="profiles_save">保存</string>
+    <string name="profiles_save_enable">保存并启用</string>
+    <string name="profiles_save_failed">保存失败</string>
+    <string name="profiles_server_address">%1$s 服务器地址</string>
+    <string name="profiles_server_address_missing">未填写服务器地址</string>
+    <string name="profiles_server_type">服务端类型</string>
+    <string name="profiles_use">使用中</string>
+    <string name="profiles_username">用户名</string>
+</resources>

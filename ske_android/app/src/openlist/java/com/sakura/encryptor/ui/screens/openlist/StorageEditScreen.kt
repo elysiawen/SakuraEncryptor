@@ -1,5 +1,8 @@
 package com.sakura.encryptor.ui.screens.openlist
 
+import com.sakura.encryptor.R
+import com.sakura.encryptor.ui.i18n.t
+
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -99,11 +102,11 @@ class StorageEditViewModel(
             val (server, token) = embeddedServer.requireSession()
             val current = storageId?.let { id ->
                 api.storages(server, token).firstOrNull { it.id == id }
-                    ?: error("这条存储不存在，可能已被删除")
+                    ?: error(t(R.string.openlist_storage_longer_exists_may_been_deleted))
             }
             val driver = current?.driver ?: driverName
-            check(driver.isNotBlank()) { "没有指定驱动" }
-            val info = api.driverInfos(server, token)[driver] ?: error("驱动 $driver 不可用")
+            check(driver.isNotBlank()) { t(R.string.openlist_driver_specified) }
+            val info = api.driverInfos(server, token)[driver] ?: error(t(R.string.openlist_driver_unavailable, driver))
 
             existing = current
             driverInfo = info
@@ -130,7 +133,7 @@ class StorageEditViewModel(
         }.onFailure { error ->
             _state.value = _state.value.copy(
                 loading = false,
-                error = error.message ?: "读取驱动参数失败",
+                error = error.message ?: t(R.string.openlist_failed_read_driver_options),
             )
         }
     }
@@ -156,7 +159,7 @@ class StorageEditViewModel(
 
         val mountPath = current.mountPath.trim().let { if (it.startsWith("/")) it else "/$it" }
         if (current.mountPath.isBlank()) {
-            _state.value = current.copy(error = "挂载路径不能为空")
+            _state.value = current.copy(error = t(R.string.openlist_mount_path_cannot_empty))
             return@launch
         }
 
@@ -164,14 +167,16 @@ class StorageEditViewModel(
             item.required && !item.isBoolean && current.values[item.name].orEmpty().isBlank()
         }
         if (missing.isNotEmpty()) {
-            _state.value = current.copy(error = "请填写：${missing.joinToString("、") { it.name }}")
+            _state.value = current.copy(
+                error = t(R.string.openlist_fill, missing.joinToString(t(R.string.common_list_separator)) { it.name })
+            )
             return@launch
         }
         val badNumber = current.items.firstOrNull { item ->
             item.isNumber && current.values[item.name].orEmpty().let { it.isNotBlank() && it.toDoubleOrNull() == null }
         }
         if (badNumber != null) {
-            _state.value = current.copy(error = "${badNumber.name} 需要填数字")
+            _state.value = current.copy(error = t(R.string.openlist_must_number, badNumber.name))
             return@launch
         }
 
@@ -217,7 +222,7 @@ class StorageEditViewModel(
         }.onFailure { error ->
             _state.value = _state.value.copy(
                 saving = false,
-                error = error.message ?: "保存失败",
+                error = error.message ?: t(R.string.profiles_save_failed),
             )
         }
     }
@@ -280,13 +285,13 @@ fun StorageEditScreen(
             .statusBarsPadding(),
     ) {
         SakuraTopBar(
-            title = if (state.isNew) "添加存储" else "编辑存储",
+            title = if (state.isNew) t(R.string.openlist_add_storage) else t(R.string.openlist_edit_storage),
             subtitle = state.driver.ifEmpty { null },
             onBack = onBack,
         )
 
         when {
-            state.loading -> LoadingState("正在读取驱动参数…")
+            state.loading -> LoadingState(t(R.string.openlist_reading_driver_options))
             !state.loaded -> StateError(state.error.orEmpty())
             else -> Column(
                 modifier = Modifier
@@ -303,22 +308,22 @@ fun StorageEditScreen(
                     )
                 }
 
-                SectionHeader("挂载")
+                SectionHeader(t(R.string.openlist_mount))
                 SakuraCard {
                     OutlinedTextField(
                         value = state.mountPath,
                         onValueChange = viewModel::setMountPath,
-                        label = { Text("挂载路径") },
+                        label = { Text(t(R.string.openlist_mount_path)) },
                         placeholder = { Text("/115") },
                         singleLine = true,
-                        supportingText = { Text("挂载到「云端」页面的路径，不能与已有挂载重复") },
+                        supportingText = { Text(t(R.string.openlist_path_shown_cloud_page_must_duplicate)) },
                         modifier = Modifier.fillMaxWidth(),
                     )
                     Spacer(Modifier.height(8.dp))
                     OutlinedTextField(
                         value = state.order,
                         onValueChange = viewModel::setOrder,
-                        label = { Text("排序") },
+                        label = { Text(t(R.string.openlist_sort)) },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.fillMaxWidth(),
@@ -327,7 +332,7 @@ fun StorageEditScreen(
                     OutlinedTextField(
                         value = state.cacheExpiration,
                         onValueChange = viewModel::setCacheExpiration,
-                        label = { Text("缓存时间（分钟）") },
+                        label = { Text(t(R.string.openlist_cache_time_minutes)) },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.fillMaxWidth(),
@@ -336,7 +341,7 @@ fun StorageEditScreen(
                     OutlinedTextField(
                         value = state.remark,
                         onValueChange = viewModel::setRemark,
-                        label = { Text("备注") },
+                        label = { Text(t(R.string.openlist_note)) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -344,11 +349,11 @@ fun StorageEditScreen(
 
                 Spacer(Modifier.height(22.dp))
 
-                SectionHeader("驱动参数")
+                SectionHeader(t(R.string.openlist_driver_options))
                 SakuraCard {
                     if (state.items.isEmpty()) {
                         Text(
-                            text = "该驱动没有额外参数",
+                            text = t(R.string.openlist_driver_extra_options),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -372,7 +377,7 @@ fun StorageEditScreen(
                 Spacer(Modifier.height(22.dp))
 
                 PrimaryButton(
-                    text = "保存",
+                    text = t(R.string.profiles_save),
                     onClick = { viewModel.save(onSaved) },
                     loading = state.saving,
                     enabled = !state.loading,
@@ -467,7 +472,7 @@ private fun SelectField(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Text(
-                        text = value.ifEmpty { "未选择" },
+                        text = value.ifEmpty { t(R.string.openlist_none) },
                         style = MaterialTheme.typography.bodyLarge,
                     )
                 }

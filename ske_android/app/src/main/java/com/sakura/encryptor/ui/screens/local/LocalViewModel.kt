@@ -1,5 +1,8 @@
 package com.sakura.encryptor.ui.screens.local
 
+import com.sakura.encryptor.R
+import com.sakura.encryptor.ui.i18n.t
+
 import android.net.Uri
 import android.graphics.Bitmap
 import androidx.lifecycle.ViewModel
@@ -154,7 +157,7 @@ class LocalViewModel(
                 }
             }.onFailure { throwable ->
                 _state.update {
-                    it.copy(isLoading = false, error = throwable.message ?: "无法读取目录")
+                    it.copy(isLoading = false, error = throwable.message ?: t(R.string.local_cannot_read_folder))
                 }
             }
         }
@@ -165,15 +168,15 @@ class LocalViewModel(
         if (uris.isEmpty()) return
         val tree = _state.value.treeUri
         if (tree == null) {
-            emit("请先选择一个目录")
+            emit(t(R.string.local_choose_folder_first))
             return
         }
         if (!localVault.isUnlocked) {
-            emit("请先输入本地密码")
+            emit(t(R.string.encrypt_enter_local_password_first))
             return
         }
 
-        startJob("正在解密", CryptoNotifications.ID_DECRYPT) { password, onProgress ->
+        startJob(t(R.string.local_decrypting), CryptoNotifications.ID_DECRYPT) { password, onProgress ->
             runner.decrypt(uris, Uri.parse(tree), password, onProgress)
         }
     }
@@ -185,7 +188,7 @@ class LocalViewModel(
     ) {
         val password = localVault.password
         if (password.isNullOrEmpty()) {
-            emit("请先输入本地密码")
+            emit(t(R.string.encrypt_enter_local_password_first))
             return
         }
 
@@ -213,14 +216,14 @@ class LocalViewModel(
                     )
                 }
             }.onSuccess { created ->
-                notifications.finished(notificationId, "${title}完成", "共处理 ${created.size} 个文件")
+                notifications.finished(notificationId, t(R.string.local_complete, title), t(R.string.local_file_processed, created.size))
                 _state.update { it.copy(busy = false, progress = null) }
-                emit("${title}完成，共 ${created.size} 个文件")
+                emit(t(R.string.local_complete_file_processed, title, created.size))
                 refresh()
             }.onFailure { throwable ->
                 notifications.cancel(notificationId)
                 _state.update { it.copy(busy = false, progress = null) }
-                emit(throwable.message ?: "${title}失败")
+                emit(throwable.message ?: t(R.string.local_failed, title))
             }
         }
     }

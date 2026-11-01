@@ -1,5 +1,8 @@
 package com.sakura.encryptor.ui.components
 
+import com.sakura.encryptor.R
+import com.sakura.encryptor.ui.i18n.t
+
 import android.graphics.Bitmap
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -48,7 +51,7 @@ fun ViewModeToggle(
     IconButton(onClick = onToggle, modifier = modifier) {
         Icon(
             imageVector = if (grid) Icons.AutoMirrored.Rounded.ViewList else Icons.Rounded.GridView,
-            contentDescription = if (grid) "切换到列表视图" else "切换到网格视图",
+            contentDescription = if (grid) t(R.string.components_switch_list_view) else t(R.string.components_switch_grid_view),
         )
     }
 }
@@ -141,7 +144,7 @@ fun BoxScope.TileBadges(
         ) {
             Icon(
                 imageVector = Icons.Rounded.PlayArrow,
-                contentDescription = "视频",
+                contentDescription = t(R.string.player_video),
                 tint = Color.White,
                 modifier = Modifier.padding(6.dp),
             )

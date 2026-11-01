@@ -1,5 +1,8 @@
 package com.sakura.encryptor.core.upload
 
+import com.sakura.encryptor.R
+import com.sakura.encryptor.ui.i18n.t
+
 import android.net.Uri
 import com.sakura.encryptor.core.crypto.SkeCrypto
 import com.sakura.encryptor.core.crypto.SkeFormat
@@ -105,7 +108,7 @@ class UploadManager(
     ): List<UploadTask> {
         if (uris.isEmpty()) return emptyList()
         if (encrypt && !vault.isUnlocked) {
-            throw IllegalStateException("缺少加密主密码，无法加密上传")
+            throw IllegalStateException(t(R.string.upload_master_password_missing_cannot_encrypt_upload))
         }
 
         val now = System.currentTimeMillis()
@@ -245,7 +248,7 @@ class UploadManager(
 
             currentCoroutineContext().ensureActive()
             if (currentTask(id)?.status == UploadStatus.CANCELLED) {
-                throw CancellationException("上传已取消")
+                throw CancellationException(t(R.string.upload_upload_cancelled))
             }
 
             repository.upload(
@@ -302,7 +305,7 @@ class UploadManager(
                 } else {
                     it.copy(
                         status = if (cancelled) UploadStatus.CANCELLED else UploadStatus.FAILED,
-                        error = if (cancelled) null else (e.message ?: "上传失败"),
+                        error = if (cancelled) null else (e.message ?: t(R.string.upload_upload_failed)),
                         finishedAt = System.currentTimeMillis(),
                     )
                 }

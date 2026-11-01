@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <string name="download_cannot_create_file_downloads">Cannot create a file in Downloads</string>
+    <string name="download_cannot_create_folder">Cannot create folder: %1$s</string>
+    <string name="download_cannot_write_downloads">Cannot write to Downloads</string>
+    <string name="download_download_failed_http">Download failed: HTTP %1$s</string>
+    <string name="download_incomplete_download_bytes">Incomplete download: %1$s / %2$s bytes</string>
+    <string name="download_server_returned_empty_response">The server returned an empty response</string>
+    <string name="player_audio">Audio</string>
+    <string name="player_back10_s">Back 10 s</string>
+    <string name="player_back_current">Back to current</string>
+    <string name="player_brightness">Brightness %1$s%%</string>
+    <string name="player_cannot_determine_file_size">Cannot determine the file size</string>
+    <string name="player_cannot_display_image">Cannot display the image</string>
+    <string name="player_cannot_display_page">Cannot display this page</string>
+    <string name="player_cannot_get_file_link">Cannot get the file link</string>
+    <string name="player_could_decode_image_kb">Could not decode the image (%1$s KB, %2$s×%3$s)</string>
+    <string name="player_decrypting_image">Decrypting image…</string>
+    <string name="player_done">Done</string>
+    <string name="player_file_empty">The file is empty</string>
+    <string name="player_file_too_large_mb">File too large (%1$s MB)</string>
+    <string name="player_files">Files</string>
+    <string name="player_forward10_s">Forward 10 s</string>
+    <string name="player_image">Image</string>
+    <string name="player_image_empty">The image is empty</string>
+    <string name="player_incomplete_read_bytes">Incomplete read (%1$s / %2$s bytes)</string>
+    <string name="player_items">items</string>
+    <string name="player_items2">items</string>
+    <string name="player_locked_unlock_decrypt_file">Locked; unlock to decrypt this file</string>
+    <string name="player_lyrics_found">No lyrics found</string>
+    <string name="player_next">Next</string>
+    <string name="player_play_order">Play in order</string>
+    <string name="player_previous">Previous</string>
+    <string name="player_previous2">Previous</string>
+    <string name="player_reading_lyrics">Reading lyrics…</string>
+    <string name="player_repeat_one">Repeat one</string>
+    <string name="player_repeat_playlist">Repeat playlist</string>
+    <string name="player_shuffle">Shuffle</string>
+    <string name="player_single_page">Single page</string>
+    <string name="player_streaming_decryption">%1$s · Streaming decryption</string>
+    <string name="player_subtitle_size">Subtitle size</string>
+    <string name="player_subtitles">Subtitles</string>
+    <string name="player_tracks">tracks</string>
+    <string name="player_turn_off_subtitles">Turn off subtitles</string>
+    <string name="player_unrecognised_image_format_heicavif_may">Unrecognised image format (HEIC / AVIF may be unsupported)</string>
+    <string name="player_video">Video</string>
+    <string name="player_volume">Volume %1$s%%</string>
+    <string name="player_webtoon_mode">Webtoon mode</string>
+    <string name="upload_master_password_missing_cannot_encrypt_upload">Master password missing; cannot encrypt the upload</string>
+    <string name="upload_upload_cancelled">Upload cancelled</string>
+    <string name="upload_upload_failed">Upload failed</string>
+</resources>

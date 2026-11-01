@@ -1,5 +1,8 @@
 package com.sakura.encryptor.ui.components
 
+import com.sakura.encryptor.R
+import com.sakura.encryptor.ui.i18n.t
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -106,7 +109,7 @@ fun UnlockPanel(
                 password = it
                 error = null
             },
-            label = { Text("加密主密码") },
+            label = { Text(t(R.string.components_master_password)) },
             singleLine = true,
             leadingIcon = {
                 Icon(Icons.Rounded.Lock, contentDescription = null, modifier = Modifier.size(19.dp))
@@ -119,7 +122,7 @@ fun UnlockPanel(
                         } else {
                             Icons.Rounded.Visibility
                         },
-                        contentDescription = if (showPassword) "隐藏密码" else "显示密码",
+                        contentDescription = if (showPassword) t(R.string.components_hide_password) else t(R.string.components_show_password),
                         modifier = Modifier.size(19.dp),
                     )
                 }
@@ -145,9 +148,9 @@ fun UnlockPanel(
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Column(Modifier.weight(1f)) {
-                Text("记住密码", style = MaterialTheme.typography.bodyMedium)
+                Text(t(R.string.components_remember_password), style = MaterialTheme.typography.bodyMedium)
                 Text(
-                    text = "使用系统密钥库加密保存，下次自动解锁",
+                    text = t(R.string.components_sealed_android_keystore_unlocks_automatically_next),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -161,10 +164,10 @@ fun UnlockPanel(
         Spacer(Modifier.height(16.dp))
 
         PrimaryButton(
-            text = "解锁",
+            text = t(R.string.components_unlock),
             onClick = {
                 if (password.isEmpty()) {
-                    error = "请输入密码"
+                    error = t(R.string.components_enter_password)
                     return@PrimaryButton
                 }
                 busy = true
@@ -177,7 +180,7 @@ fun UnlockPanel(
                         }
                         .onFailure {
                             busy = false
-                            error = it.message ?: "解锁失败"
+                            error = it.message ?: t(R.string.components_unlock_failed)
                         }
                 }
             },

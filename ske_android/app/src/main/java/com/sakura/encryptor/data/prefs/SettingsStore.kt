@@ -31,6 +31,7 @@ class SettingsStore(private val context: Context) {
     private object Keys {
         val ACCENT = stringPreferencesKey("accent")
         val THEME_MODE = stringPreferencesKey("theme_mode")
+        val LANGUAGE = stringPreferencesKey("language")
         val CACHE_BLOCKS = intPreferencesKey("cache_blocks")
         val CACHE_THUMBNAILS = booleanPreferencesKey("cache_thumbnails")
         val CACHE_FILES = booleanPreferencesKey("cache_files")
@@ -83,6 +84,10 @@ class SettingsStore(private val context: Context) {
 
     val themeMode: Flow<ThemeMode> =
         context.settingsDataStore.data.map { ThemeMode.fromId(it[Keys.THEME_MODE]) }
+
+    /** Interface language; "follow the system" until the user picks one. */
+    val language: Flow<AppLanguage> =
+        context.settingsDataStore.data.map { AppLanguage.fromId(it[Keys.LANGUAGE]) }
 
     /** Number of 1 MiB blocks kept decrypted in memory while streaming. */
     val cacheBlocks: Flow<Int> =
@@ -228,6 +233,9 @@ class SettingsStore(private val context: Context) {
 
     suspend fun setThemeMode(mode: ThemeMode) =
         context.settingsDataStore.edit { it[Keys.THEME_MODE] = mode.name }
+
+    suspend fun setLanguage(language: AppLanguage) =
+        context.settingsDataStore.edit { it[Keys.LANGUAGE] = language.id }
 
     suspend fun setCacheBlocks(blocks: Int) =
         context.settingsDataStore.edit {

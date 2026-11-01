@@ -1,5 +1,8 @@
 package com.sakura.encryptor.core.local
 
+import com.sakura.encryptor.R
+import com.sakura.encryptor.ui.i18n.t
+
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
@@ -173,7 +176,7 @@ class CryptoTaskRunner(private val context: Context) {
 
     private fun copyUriToFile(uri: Uri, target: File) {
         val input = context.contentResolver.openInputStream(uri)
-            ?: throw IOException("无法读取所选文件")
+            ?: throw IOException(t(R.string.local_cannot_read_selected_file))
         input.use { source ->
             target.outputStream().use { out -> source.copyTo(out, BUFFER_SIZE) }
         }
@@ -181,15 +184,15 @@ class CryptoTaskRunner(private val context: Context) {
 
     private fun writeToTree(treeUri: Uri, name: String, mime: String, source: File): Uri {
         val tree = DocumentFile.fromTreeUri(context, treeUri)
-            ?: throw IOException("无法访问输出目录，请重新选择")
+            ?: throw IOException(t(R.string.local_cannot_access_output_folder_choose_again))
 
         val existing = tree.findFile(name)
         val document = existing ?: tree.createFile(mime, name)
-        ?: throw IOException("无法在输出目录创建 $name")
+        ?: throw IOException(t(R.string.local_cannot_create_output_folder, name))
 
         context.contentResolver.openOutputStream(document.uri, "wt")?.use { out ->
             source.inputStream().use { input -> input.copyTo(out, BUFFER_SIZE) }
-        } ?: throw IOException("无法写入 $name")
+        } ?: throw IOException(t(R.string.local_cannot_write, name))
 
         return document.uri
     }

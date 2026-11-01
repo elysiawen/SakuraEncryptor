@@ -1,5 +1,8 @@
 package com.sakura.encryptor.ui.screens.lock
 
+import com.sakura.encryptor.R
+import com.sakura.encryptor.ui.i18n.t
+
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
@@ -143,7 +146,7 @@ fun AppLockScreen(
             val ok = runCatching { verify(password) }.getOrDefault(false)
             checkingPassword = false
             if (!ok) {
-                passwordError = "密码不正确"
+                passwordError = t(R.string.lock_incorrect_password)
                 password = ""
                 return@launch
             }
@@ -167,7 +170,7 @@ fun AppLockScreen(
             val ok = runCatching { verifyTotp(totpCode) }.getOrDefault(false)
             checkingTotp = false
             if (!ok) {
-                totpError = "验证码不正确或已过期"
+                totpError = t(R.string.lock_code_incorrect_expired)
                 totpCode = ""
                 return@launch
             }
@@ -246,13 +249,14 @@ fun AppLockScreen(
             Spacer(Modifier.height(6.dp))
             Text(
                 text = when {
-                    nothingToProve -> "正在进入应用"
+                    nothingToProve -> t(R.string.lock_entering_app)
                     required.size > 1 && match == AppLockMatch.ANY ->
-                        "以下任一方式通过即可：${required.joinToString("、") { it.title }}"
-                    required.size > 1 -> "需要${required.joinToString("和") { it.title }}都通过"
-                    needsPassword -> "请输入启动密码"
-                    needsTotp -> "请输入令牌应用中的 6 位验证码"
-                    else -> "请验证指纹或面容"
+                        t(R.string.lock_any_opens_app, required.joinToString(t(R.string.common_list_separator)) { it.title })
+                    required.size > 1 ->
+                        t(R.string.lock_needs_all_pass, required.joinToString(t(R.string.common_and)) { it.title })
+                    needsPassword -> t(R.string.lock_enter_launch_password)
+                    needsTotp -> t(R.string.lock_enter6_digit_code_authenticator_app)
+                    else -> t(R.string.lock_verify_fingerprint_face)
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -262,8 +266,8 @@ fun AppLockScreen(
             if (unboundTotp) {
                 Spacer(Modifier.height(14.dp))
                 Text(
-                    text = "已勾选的 TOTP 尚未绑定令牌，本次已跳过。解锁后请到「设置 → 安全」" +
-                        "中绑定，或取消勾选该方式。",
+                    text = t(R.string.lock_ticked_totp_method_token_bound_skipped) +
+                        t(R.string.lock_untick_method),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                     textAlign = TextAlign.Center,
@@ -274,7 +278,7 @@ fun AppLockScreen(
             if (needsBiometric && !biometricUsable) {
                 Spacer(Modifier.height(14.dp))
                 Text(
-                    text = "此设备的指纹或面容不可用，请先在系统设置中重新录入。",
+                    text = t(R.string.lock_fingerprint_face_unavailable_re_enrol_system),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                     textAlign = TextAlign.Center,
@@ -289,7 +293,7 @@ fun AppLockScreen(
                         .fillMaxWidth()
                         .height(50.dp),
                 ) {
-                    Text("打开系统设置")
+                    Text(t(R.string.lock_open_system_settings))
                 }
             } else {
                 if (needsPassword) {
@@ -300,7 +304,7 @@ fun AppLockScreen(
                             password = it
                             passwordError = null
                         },
-                        label = { Text("启动密码") },
+                        label = { Text(t(R.string.lock_launch_password)) },
                         singleLine = true,
                         isError = passwordError != null,
                         supportingText = passwordError?.let { message -> { Text(message) } },
@@ -325,7 +329,7 @@ fun AppLockScreen(
                         if (checkingPassword) {
                             ProgressDot()
                         } else {
-                            Text(if (required.size == 1) "解锁" else "验证密码")
+                            Text(if (required.size == 1) t(R.string.components_unlock) else t(R.string.lock_verify_password))
                         }
                     }
                 }
@@ -338,7 +342,7 @@ fun AppLockScreen(
                             totpCode = input.filter { it.isDigit() }.take(Totp.DIGITS)
                             totpError = null
                         },
-                        label = { Text("TOTP 验证码") },
+                        label = { Text(t(R.string.lock_totp_code)) },
                         placeholder = { Text("000000") },
                         singleLine = true,
                         isError = totpError != null,
@@ -363,7 +367,7 @@ fun AppLockScreen(
                         if (checkingTotp) {
                             ProgressDot()
                         } else {
-                            Text(if (required.size == 1) "解锁" else "验证令牌")
+                            Text(if (required.size == 1) t(R.string.components_unlock) else t(R.string.lock_verify_token))
                         }
                     }
                 }
@@ -385,9 +389,9 @@ fun AppLockScreen(
                         Spacer(Modifier.width(8.dp))
                         Text(
                             if (AppLockFactor.BIOMETRIC in verified) {
-                                "指纹已验证"
+                                t(R.string.lock_fingerprint_verified)
                             } else {
-                                "验证指纹"
+                                t(R.string.lock_verify_fingerprint)
                             }
                         )
                     }
@@ -403,8 +407,10 @@ fun AppLockScreen(
                 ) {
                     Spacer(Modifier.height(12.dp))
                     Text(
-                        text = "已通过${verified.joinToString("、") { it.title }}，" +
-                            "还需要${pending.joinToString("和") { it.title }}",
+                        text = t(R.string.lock_passed_still_needs,
+                            verified.joinToString(t(R.string.common_list_separator)) { it.title },
+                            pending.joinToString(t(R.string.common_and)) { it.title },
+                        ),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.primary,
                         textAlign = TextAlign.Center,

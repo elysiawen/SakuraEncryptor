@@ -1,5 +1,7 @@
 package com.sakura.encryptor.ui.components
 
+import com.sakura.encryptor.R
+import com.sakura.encryptor.ui.i18n.t
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -60,7 +62,7 @@ fun TaskProgressDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onSendToBackground) { Text("后台运行") }
+            TextButton(onClick = onSendToBackground) { Text(t(R.string.components_run_background)) }
         },
     )
 }

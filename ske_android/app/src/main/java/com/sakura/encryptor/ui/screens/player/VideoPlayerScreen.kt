@@ -1,5 +1,8 @@
 package com.sakura.encryptor.ui.screens.player
 
+import com.sakura.encryptor.R
+import com.sakura.encryptor.ui.i18n.t
+
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
@@ -559,7 +562,7 @@ fun VideoPlayerScreen(
                                         params.screenBrightness = next.coerceAtLeast(0.01f)
                                         act.window.attributes = params
                                     }
-                                    gestureHint = "亮度 ${(next * 100).roundToInt()}%"
+                                    gestureHint = t(R.string.player_brightness, (next * 100).roundToInt())
                                 }
 
                                 VideoGesture.VOLUME -> {
@@ -571,7 +574,7 @@ fun VideoPlayerScreen(
                                         (next * maxVolume).roundToInt().coerceIn(0, maxVolume),
                                         0,
                                     )
-                                    gestureHint = "音量 ${(next * 100).roundToInt()}%"
+                                    gestureHint = t(R.string.player_volume, (next * 100).roundToInt())
                                 }
 
                                 VideoGesture.NONE -> Unit
@@ -663,7 +666,7 @@ fun VideoPlayerScreen(
                     IconButton(onClick = onBack) {
                         Icon(
                             imageVector = Icons.Rounded.ArrowBack,
-                            contentDescription = "返回",
+                            contentDescription = t(R.string.components_back),
                             tint = Color.White,
                         )
                     }
@@ -682,7 +685,7 @@ fun VideoPlayerScreen(
                         IconButton(onClick = { showPlaylist = true }) {
                             Icon(
                                 imageVector = Icons.Rounded.PlaylistPlay,
-                                contentDescription = "播放列表",
+                                contentDescription = t(R.string.components_playlist),
                                 tint = Color.White,
                             )
                         }
@@ -692,7 +695,7 @@ fun VideoPlayerScreen(
                         IconButton(onClick = { showSubtitleMenu = true }) {
                             Icon(
                                 imageVector = Icons.Rounded.Subtitles,
-                                contentDescription = "字幕",
+                                contentDescription = t(R.string.player_subtitles),
                                 tint = if (subtitlesEnabled) {
                                     MaterialTheme.colorScheme.primary
                                 } else {
@@ -718,7 +721,7 @@ fun VideoPlayerScreen(
                         Box(contentAlignment = Alignment.Center) {
                             Icon(
                                 imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                                contentDescription = if (isPlaying) "暂停" else "播放",
+                                contentDescription = if (isPlaying) t(R.string.components_pause) else t(R.string.components_playback),
                                 tint = Color.White,
                                 modifier = Modifier.size(38.dp),
                             )
@@ -795,11 +798,11 @@ fun VideoPlayerScreen(
     if (showSubtitleMenu) {
         AlertDialog(
             onDismissRequest = { showSubtitleMenu = false },
-            title = { Text("字幕") },
+            title = { Text(t(R.string.player_subtitles)) },
             text = {
                 Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                     SubtitleOption(
-                        label = "关闭字幕",
+                        label = t(R.string.player_turn_off_subtitles),
                         selected = !subtitlesEnabled,
                         onClick = {
                             applySubtitle(null)
@@ -825,7 +828,7 @@ fun VideoPlayerScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(text = "字幕大小", style = MaterialTheme.typography.titleSmall)
+                        Text(text = t(R.string.player_subtitle_size), style = MaterialTheme.typography.titleSmall)
                         Text(
                             text = "${subtitleSize.roundToInt()} sp",
                             style = MaterialTheme.typography.labelLarge,
@@ -867,7 +870,7 @@ fun VideoPlayerScreen(
                 }
             },
             confirmButton = {
-                TextButton(onClick = { showSubtitleMenu = false }) { Text("完成") }
+                TextButton(onClick = { showSubtitleMenu = false }) { Text(t(R.string.player_done)) }
             },
         )
     }
@@ -876,7 +879,7 @@ fun VideoPlayerScreen(
         PlaylistSheet(
             items = playlist,
             currentIndex = playlistIndex,
-            unit = "个",
+            unit = t(R.string.player_items),
             onSelect = { item ->
                 playItem(item)
                 showPlaylist = false

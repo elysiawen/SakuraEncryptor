@@ -1,5 +1,8 @@
 package com.sakura.encryptor.ui.screens.profiles
 
+import com.sakura.encryptor.R
+import com.sakura.encryptor.ui.i18n.t
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -94,12 +97,12 @@ fun ProfilesScreen(
             .statusBarsPadding(),
     ) {
         SakuraTopBar(
-            title = "云端配置",
-            subtitle = if (profiles.isEmpty()) "暂无配置" else "共 ${profiles.size} 个配置",
+            title = t(R.string.profiles_cloud_profiles),
+            subtitle = if (profiles.isEmpty()) t(R.string.profiles_profiles) else t(R.string.profiles_profile, profiles.size),
             onBack = onBack,
             actions = {
                 IconButton(onClick = { onEditProfile(null) }) {
-                    Icon(Icons.Rounded.Add, contentDescription = "新增配置")
+                    Icon(Icons.Rounded.Add, contentDescription = t(R.string.profiles_add_profile))
                 }
             },
         )
@@ -107,8 +110,8 @@ fun ProfilesScreen(
         if (profiles.isEmpty()) {
             StateMessage(
                 icon = Icons.Rounded.Cloud,
-                title = "还没有云端配置",
-                message = "一个配置 = 一套 AList / OpenList 账号 + 一套加密密码。可以添加多个并随时切换；只用本地文件则无需配置。",
+                title = t(R.string.browse_cloud_profiles_yet),
+                message = t(R.string.profiles_one_profile_one_a_list_open_list_account),
             )
             Box(
                 modifier = Modifier
@@ -116,7 +119,7 @@ fun ProfilesScreen(
                     .padding(horizontal = 24.dp),
             ) {
                 PrimaryButton(
-                    text = "新增配置",
+                    text = t(R.string.profiles_add_profile),
                     onClick = { onEditProfile(null) },
                     icon = Icons.Rounded.Add,
                 )
@@ -143,7 +146,7 @@ fun ProfilesScreen(
                 item {
                     Spacer(Modifier.height(6.dp))
                     PrimaryButton(
-                        text = "新增配置",
+                        text = t(R.string.profiles_add_profile),
                         onClick = { onEditProfile(null) },
                         icon = Icons.Rounded.Add,
                     )
@@ -156,21 +159,21 @@ fun ProfilesScreen(
     pendingDelete?.let { profile ->
         AlertDialog(
             onDismissRequest = { pendingDelete = null },
-            title = { Text("删除配置？") },
+            title = { Text(t(R.string.profiles_delete_profile2)) },
             text = {
                 Text(
-                    "将删除「${profile.name}」及其保存的密码。\n" +
-                        "云端已加密的文件不会被删除，重新添加相同配置即可恢复访问。"
+                    t(R.string.profiles_deletes_saved_password_n, profile.name) +
+                        t(R.string.profiles_encrypted_files_cloud_deleted_re_adding)
                 )
             },
             confirmButton = {
                 TextButton(onClick = {
                     viewModel.delete(profile.id)
                     pendingDelete = null
-                }) { Text("删除") }
+                }) { Text(t(R.string.browse_delete)) }
             },
             dismissButton = {
-                TextButton(onClick = { pendingDelete = null }) { Text("取消") }
+                TextButton(onClick = { pendingDelete = null }) { Text(t(R.string.security_cancel)) }
             },
         )
     }
@@ -241,7 +244,7 @@ private fun ProfileCard(
                     text = if (profile.hasServer) {
                         profile.server + if (profile.username.isNotBlank()) " · ${profile.username}" else ""
                     } else {
-                        "未填写服务器地址"
+                        t(R.string.profiles_server_address_missing)
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -257,19 +260,19 @@ private fun ProfileCard(
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     if (isActive) {
-                        MiniBadge(text = "使用中", highlighted = true)
+                        MiniBadge(text = t(R.string.profiles_use), highlighted = true)
                     }
                     MiniBadge(
                         text = profile.remoteProvider.label,
                         icon = Icons.Rounded.Cloud,
                     )
                     MiniBadge(
-                        text = if (profile.canAutoUnlock) "已记住密码" else "切换时需输密码",
+                        text = if (profile.canAutoUnlock) t(R.string.profiles_password_remembered) else t(R.string.profiles_password_required_switch),
                         icon = Icons.Rounded.LockOpen,
                     )
                     if (profile.hasServer) {
                         MiniBadge(
-                            text = if (profile.canAutoLogin) "自动登录" else "需手动登录",
+                            text = if (profile.canAutoLogin) t(R.string.profiles_auto_sign) else t(R.string.profiles_manual_sign),
                             icon = Icons.Rounded.Key,
                         )
                     }
@@ -277,10 +280,10 @@ private fun ProfileCard(
             }
 
             IconButton(onClick = onEdit) {
-                Icon(Icons.Rounded.Edit, contentDescription = "编辑")
+                Icon(Icons.Rounded.Edit, contentDescription = t(R.string.profiles_edit))
             }
             IconButton(onClick = onDelete) {
-                Icon(Icons.Rounded.Delete, contentDescription = "删除")
+                Icon(Icons.Rounded.Delete, contentDescription = t(R.string.browse_delete))
             }
         }
     }

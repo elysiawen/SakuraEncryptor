@@ -1,5 +1,8 @@
 package com.sakura.encryptor.ui.components
 
+import com.sakura.encryptor.R
+import com.sakura.encryptor.ui.i18n.t
+
 import android.content.ComponentName
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInVertically
@@ -240,7 +243,7 @@ fun MiniPlayerBar(
 
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = info.title?.toString().orEmpty().ifEmpty { "未知曲目" },
+                            text = info.title?.toString().orEmpty().ifEmpty { t(R.string.components_unknown_track) },
                             style = MaterialTheme.typography.bodyMedium,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -265,12 +268,12 @@ fun MiniPlayerBar(
                             } else {
                                 Icons.Rounded.PlayArrow
                             },
-                            contentDescription = if (isPlaying) "暂停" else "播放",
+                            contentDescription = if (isPlaying) t(R.string.components_pause) else t(R.string.components_playback),
                         )
                     }
 
                     IconButton(onClick = { active.seekToNextMediaItem() }) {
-                        Icon(Icons.Rounded.SkipNext, contentDescription = "下一首")
+                        Icon(Icons.Rounded.SkipNext, contentDescription = t(R.string.components_next))
                     }
                 }
 

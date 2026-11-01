@@ -1,6 +1,7 @@
 package com.sakura.encryptor.core.embedded
 
 import android.content.Context
+import com.sakura.encryptor.R
 import com.sakura.encryptor.core.alist.AListApi
 import com.sakura.encryptor.core.profile.ProfileRepository
 import com.sakura.encryptor.core.remote.RemoteSession
@@ -55,7 +56,8 @@ interface EmbeddedServer {
 
 /** Stand-in for packages without the embedded server. */
 object DisabledEmbeddedServer : EmbeddedServer {
-    private const val UNSUPPORTED = "此安装包未包含内置服务器组件"
+    private val UNSUPPORTED: String
+        get() = com.sakura.encryptor.ui.i18n.t(R.string.embedded_package_include_built_server)
 
     override val isBundled: Boolean = false
     override val isSupported: Boolean = false

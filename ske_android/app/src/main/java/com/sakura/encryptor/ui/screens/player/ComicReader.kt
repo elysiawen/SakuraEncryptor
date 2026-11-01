@@ -1,5 +1,8 @@
 package com.sakura.encryptor.ui.screens.player
 
+import com.sakura.encryptor.R
+import com.sakura.encryptor.ui.i18n.t
+
 import android.graphics.Bitmap
 import android.net.Uri
 import androidx.compose.foundation.Image
@@ -127,7 +130,7 @@ private fun ComicPage(
         runCatching {
             val locator = container.playlistRepository
                 .resolvePlayable(item.locator, fromCloud)
-                ?: error("无法获取文件链接")
+                ?: error(t(R.string.player_cannot_get_file_link))
             decryptor.decrypt(Uri.parse(locator), password, maxPixels = COMIC_PAGE_PIXELS)
         }
             .onSuccess {
@@ -160,9 +163,9 @@ private fun ComicPage(
 
             error != null -> StateMessage(
                 icon = Icons.Rounded.BrokenImage,
-                title = "无法显示这一页",
+                title = t(R.string.player_cannot_display_page),
                 message = error,
-                actionLabel = "重试",
+                actionLabel = t(R.string.components_retry),
                 onAction = { attempt++ },
             )
 

@@ -1,5 +1,8 @@
 package com.sakura.encryptor.core.openlist
 
+import com.sakura.encryptor.R
+import com.sakura.encryptor.ui.i18n.t
+
 import com.sakura.encryptor.core.remote.RemoteClient
 import com.sakura.encryptor.core.remote.RemoteException
 import kotlinx.coroutines.Dispatchers
@@ -72,7 +75,7 @@ class OpenListApi(
         if (!initEnvelope.ok) {
             val error = RemoteException(
                 initEnvelope.code,
-                initEnvelope.message ?: "分片上传初始化失败 (HTTP ${initRaw.httpCode})",
+                initEnvelope.message ?: t(R.string.openlist_could_start_chunked_upload_http, initRaw.httpCode),
             )
             error.multipartUnsupported = initRaw.httpCode in 403..405
             throw error
@@ -82,7 +85,7 @@ class OpenListApi(
             initEnvelope.data ?: JsonNull,
         )
         val uploadId = init.uploadId?.takeIf { it.isNotBlank() }
-            ?: throw RemoteException(-1, "分片上传响应缺少 upload_id").also { it.multipartUnsupported = true }
+            ?: throw RemoteException(-1, t(R.string.openlist_chunked_upload_response_upload_id)).also { it.multipartUnsupported = true }
         val chunkSize = init.chunkSize?.takeIf { it > 0 } ?: DEFAULT_CHUNK_BYTES
         val totalChunks = init.totalChunks
             ?.takeIf { it > 0 }
@@ -128,7 +131,7 @@ class OpenListApi(
                 .build()
             val complete = readEnvelope(sendRaw(completeRequest, onCall))
             if (!complete.ok) {
-                throw RemoteException(complete.code, complete.message ?: "分片上传合并失败")
+                throw RemoteException(complete.code, complete.message ?: t(R.string.openlist_could_merge_uploaded_chunks))
             }
             if (onProgress != null) onProgress(total, total)
         } catch (e: Throwable) {
@@ -168,14 +171,14 @@ class OpenListApi(
             if (raw.httpCode == 429 || raw.httpCode == 409) {
                 attempt++
                 if (attempt >= MULTIPART_MAX_RETRIES) {
-                    throw RemoteException(-1, "分片 $index 上传失败：服务器持续繁忙")
+                    throw RemoteException(-1, t(R.string.openlist_chunk_failed_server_stayed_busy, index))
                 }
                 delay(300L + attempt * 300L)
                 continue
             }
             throw RemoteException(
                 envelope.code,
-                envelope.message ?: "分片 $index 上传失败 (HTTP ${raw.httpCode})",
+                envelope.message ?: t(R.string.openlist_chunk_failed_http, index, raw.httpCode),
             )
         }
     }
@@ -195,7 +198,7 @@ class OpenListApi(
                 var skipped = 0L
                 while (skipped < start) {
                     val step = input.skip(start - skipped)
-                    if (step <= 0) throw IOException("无法定位分片起点")
+                    if (step <= 0) throw IOException(t(R.string.openlist_cannot_locate_chunk_start))
                     skipped += step
                 }
 
@@ -203,7 +206,7 @@ class OpenListApi(
                 val buffer = ByteArray(64 * 1024)
                 while (remaining > 0) {
                     val read = input.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
-                    if (read < 0) throw IOException("文件读取提前结束")
+                    if (read < 0) throw IOException(t(R.string.openlist_file_ended_early))
                     sink.write(buffer, 0, read)
                     remaining -= read
                 }

@@ -1,5 +1,8 @@
 package com.sakura.encryptor.core.download
 
+import com.sakura.encryptor.R
+import com.sakura.encryptor.ui.i18n.t
+
 import android.Manifest
 import android.content.ContentResolver
 import android.content.ContentValues
@@ -229,11 +232,11 @@ class DownloadManager(
         }
 
         val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
-            ?: throw IOException("无法在下载目录创建文件")
+            ?: throw IOException(t(R.string.download_cannot_create_file_downloads))
         try {
             resolver.openOutputStream(uri)?.use { out ->
                 source.inputStream().use { it.copyTo(out) }
-            } ?: throw IOException("无法写入下载目录")
+            } ?: throw IOException(t(R.string.download_cannot_write_downloads))
         } catch (e: Exception) {
             // An empty stub would otherwise sit in the user's Downloads forever.
             runCatching { resolver.delete(uri, null, null) }
@@ -253,7 +256,7 @@ class DownloadManager(
             PUBLIC_DIR,
         )
         if (!dir.isDirectory && !dir.mkdirs()) {
-            throw IOException("无法创建目录：${dir.absolutePath}")
+            throw IOException(t(R.string.download_cannot_create_folder, dir.absolutePath))
         }
         val target = File(dir, uniqueFileName(dir, name))
         source.copyTo(target, overwrite = true)
@@ -352,7 +355,7 @@ class DownloadManager(
         currentCoroutineContext().ensureActive()
 
         if (total > 0 && part.length() != total) {
-            throw IOException("下载不完整：${part.length()} / $total 字节")
+            throw IOException(t(R.string.download_incomplete_download_bytes, part.length(), total))
         }
 
         val plainTemp = File.createTempFile("dl_", ".plain", context.cacheDir)
@@ -400,9 +403,9 @@ class DownloadManager(
         try {
             call.execute().use { response ->
                 if (!response.isSuccessful) {
-                    throw IOException("下载失败：HTTP ${response.code}")
+                    throw IOException(t(R.string.download_download_failed_http, response.code))
                 }
-                val body = response.body ?: throw IOException("服务器返回了空响应")
+                val body = response.body ?: throw IOException(t(R.string.download_server_returned_empty_response))
 
                 // 206 means the resume was honoured; a 200 means the server sent
                 // the whole file again, so we start the file over.

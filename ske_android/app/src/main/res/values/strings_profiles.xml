@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <string name="profile_cloud_profile_selected_yet">No cloud profile selected yet</string>
+    <string name="profile_fill_login_password_profile_first">Fill in the login password in the profile first</string>
+    <string name="profile_profile_server_address">This profile has no server address</string>
+    <string name="profile_unnamed_profile">Unnamed profile</string>
+    <string name="profiles_add_profile">Add profile</string>
+    <string name="profiles_advanced_options">Advanced options</string>
+    <string name="profiles_auto_sign">Auto sign-in</string>
+    <string name="profiles_base_path_optional">Base path (optional)</string>
+    <string name="profiles_both_passwords_sealed_android_keystore_only">Both passwords are sealed by the Android Keystore and only used in memory while connecting and decrypting.</string>
+    <string name="profiles_cloud_profiles">Cloud profiles</string>
+    <string name="profiles_delete_profile">Delete profile</string>
+    <string name="profiles_delete_profile2">Delete profile?</string>
+    <string name="profiles_deletes_profile_saved_password_cloud_files">This deletes the profile and its saved password; cloud files are untouched.</string>
+    <string name="profiles_deletes_saved_password_n">This deletes \"%1$s\" and its saved password.\n</string>
+    <string name="profiles_e_g_home_nas">e.g. Home NAS</string>
+    <string name="profiles_edit">Edit</string>
+    <string name="profiles_edit_profile">Edit profile</string>
+    <string name="profiles_encrypted_files_cloud_deleted_re_adding">Encrypted files in the cloud are not deleted; re-adding the same profile restores access.</string>
+    <string name="profiles_hide_advanced_options">Hide advanced options</string>
+    <string name="profiles_manual_sign">Manual sign-in</string>
+    <string name="profiles_master_password_determines_which_files_see">The master password determines which files you can see — each password maps to its own encrypted tree.</string>
+    <string name="profiles_master_password_saved_leave_blank_keep">Master password (saved; leave blank to keep it)</string>
+    <string name="profiles_one_a_list_open_list_account_one_encryption">one AList / OpenList account + one encryption password</string>
+    <string name="profiles_one_profile_one_a_list_open_list_account">One profile = one AList / OpenList account + one encryption password. Add several and switch anytime; none is needed for local files only.</string>
+    <string name="profiles_password">%1$s password</string>
+    <string name="profiles_password_remembered">Password remembered</string>
+    <string name="profiles_password_required_switch">Password required to switch</string>
+    <string name="profiles_password_saved_leave_blank_keep">%1$s password (saved; leave blank to keep it)</string>
+    <string name="profiles_profile">%1$s profile(s)</string>
+    <string name="profiles_profile_name">Profile name</string>
+    <string name="profiles_profiles">No profiles</string>
+    <string name="profiles_save">Save</string>
+    <string name="profiles_save_enable">Save and enable</string>
+    <string name="profiles_save_failed">Save failed</string>
+    <string name="profiles_server_address">%1$s server address</string>
+    <string name="profiles_server_address_missing">Server address missing</string>
+    <string name="profiles_server_type">Server type</string>
+    <string name="profiles_use">In use</string>
+    <string name="profiles_username">Username</string>
+</resources>

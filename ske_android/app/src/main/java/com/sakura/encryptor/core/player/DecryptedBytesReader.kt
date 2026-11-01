@@ -1,5 +1,8 @@
 package com.sakura.encryptor.core.player
 
+import com.sakura.encryptor.R
+import com.sakura.encryptor.ui.i18n.t
+
 import android.net.Uri
 import com.sakura.encryptor.core.crypto.SkeBlockDecryptor
 import com.sakura.encryptor.core.crypto.SkeFormat
@@ -24,7 +27,7 @@ class DecryptedBytesReader(private val sourceFactory: CipherBlockSourceFactory) 
             source.open()
 
             val cipherSize = source.cipherSize
-            if (cipherSize <= 0) throw IOException("无法确定文件大小")
+            if (cipherSize <= 0) throw IOException(t(R.string.player_cannot_determine_file_size))
 
             // Read past the header so the thumbnail envelope can be skipped.
             val headLength = minOf(cipherSize, SkeFormat.PROBE_SIZE.toLong()).toInt()
@@ -33,11 +36,11 @@ class DecryptedBytesReader(private val sourceFactory: CipherBlockSourceFactory) 
                 head.copyOf(SkeFormat.MAGIC_SIZE).contentEquals(SkeFormat.MAGIC)
 
             if (!isContainer) {
-                if (cipherSize > MAX_BYTES) throw IOException("文件过大（${cipherSize / 1024 / 1024} MB）")
+                if (cipherSize > MAX_BYTES) throw IOException(t(R.string.player_file_too_large_mb, cipherSize / 1024 / 1024))
                 return@withContext readRange(source, 0, cipherSize.toInt())
             }
 
-            if (password.isNullOrEmpty()) throw IOException("尚未解锁，无法解密该文件")
+            if (password.isNullOrEmpty()) throw IOException(t(R.string.player_locked_unlock_decrypt_file))
 
             val header = SkeHeader.parse(head)
             // create() derives with the work factor recorded in the container
@@ -49,9 +52,9 @@ class DecryptedBytesReader(private val sourceFactory: CipherBlockSourceFactory) 
             val reader = SkeBlockReader(source, header, decryptor, cipherSize, CACHE_BLOCKS)
 
             val plaintextSize = reader.plaintextSize
-            if (plaintextSize <= 0) throw IOException("文件内容为空")
+            if (plaintextSize <= 0) throw IOException(t(R.string.player_file_empty))
             if (plaintextSize > MAX_BYTES) {
-                throw IOException("文件过大（${plaintextSize / 1024 / 1024} MB）")
+                throw IOException(t(R.string.player_file_too_large_mb, plaintextSize / 1024 / 1024))
             }
 
             val out = ByteArray(plaintextSize.toInt())
@@ -62,7 +65,7 @@ class DecryptedBytesReader(private val sourceFactory: CipherBlockSourceFactory) 
                 position += read
             }
             if (position != out.size) {
-                throw IOException("读取不完整（$position / ${out.size} 字节）")
+                throw IOException(t(R.string.player_incomplete_read_bytes, position, out.size))
             }
             out
         } finally {

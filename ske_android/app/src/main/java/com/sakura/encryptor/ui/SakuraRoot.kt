@@ -39,6 +39,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -62,15 +63,21 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.sakura.encryptor.AppContainer
+import com.sakura.encryptor.R
 import com.sakura.encryptor.core.player.PlaybackExtras
 import com.sakura.encryptor.core.security.AppLockFactor
 import com.sakura.encryptor.core.security.AppLockMatch
 import com.sakura.encryptor.core.security.AppLockState
 import com.sakura.encryptor.core.security.BiometricUnlock
+import com.sakura.encryptor.data.prefs.AppLanguage
 import com.sakura.encryptor.data.prefs.ThemeMode
 import com.sakura.encryptor.ui.components.LocalMusicController
 import com.sakura.encryptor.ui.components.MiniPlayerBar
 import com.sakura.encryptor.ui.components.rememberMusicController
+import com.sakura.encryptor.ui.i18n.LocalLanguage
+import com.sakura.encryptor.ui.i18n.currentLanguage
+import com.sakura.encryptor.ui.i18n.resolveLanguage
+import com.sakura.encryptor.ui.i18n.t
 import com.sakura.encryptor.ui.navigation.PlaybackSource
 import com.sakura.encryptor.ui.navigation.Routes
 import com.sakura.encryptor.ui.screens.browse.BrowseScreen
@@ -93,6 +100,12 @@ fun SakuraRoot(container: AppContainer) {
         .collectAsStateWithLifecycle(initialValue = AccentTheme.Indigo)
     val themeMode by container.settings.themeMode
         .collectAsStateWithLifecycle(initialValue = ThemeMode.System)
+    val languagePreference by container.settings.language
+        .collectAsStateWithLifecycle(initialValue = AppLanguage.SYSTEM)
+    // Resolved once per preference change: the string table and every screen
+    // read this value, and `key(language)` below re-runs them on a switch.
+    val language = resolveLanguage(languagePreference)
+    currentLanguage = language
     val lockState by container.appLockManager.state.collectAsStateWithLifecycle()
     val appLockFactors by container.settings.appLockFactors
         .collectAsStateWithLifecycle(initialValue = AppLockFactor.DEFAULT)
@@ -131,10 +144,12 @@ fun SakuraRoot(container: AppContainer) {
     var currentRoute by remember { mutableStateOf<String?>(null) }
 
     CompositionLocalProvider(
+        LocalLanguage provides language,
         LocalAppContainer provides container,
         LocalMusicController provides musicController,
     ) {
-        SakuraTheme(accent = accent, darkTheme = darkTheme) {
+        key(language) {
+            SakuraTheme(accent = accent, darkTheme = darkTheme) {
             when (lockState) {
                 // The credential is still being read from disk. Showing the app
                 // now would flash its content before the gate appears, and a
@@ -159,7 +174,7 @@ fun SakuraRoot(container: AppContainer) {
                         )
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            text = "媒体保险箱",
+                            text = t(R.string.app_media_vault),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -209,6 +224,7 @@ fun SakuraRoot(container: AppContainer) {
                     )
                 }
             }
+            }
         }
     }
 }
@@ -219,12 +235,17 @@ private data class DrawerDestination(
     val icon: ImageVector,
 )
 
-private val drawerDestinations = listOf(
-    DrawerDestination(Routes.ENCRYPT, "加密", Icons.Rounded.Shield),
-    DrawerDestination(Routes.BROWSE, "云端", Icons.Rounded.Cloud),
-    DrawerDestination(Routes.LOCAL, "本地", Icons.Rounded.FolderOpen),
-    DrawerDestination(Routes.TRANSFERS, "传输", Icons.Rounded.SwapVert),
-    DrawerDestination(Routes.SETTINGS, "设置", Icons.Rounded.Settings),
+/**
+ * Destinations in the drawer. Built per use rather than held in a top-level
+ * value: the labels are translated, so a static list would freeze whatever
+ * language was active at class-load time.
+ */
+private fun drawerDestinations(): List<DrawerDestination> = listOf(
+    DrawerDestination(Routes.ENCRYPT, t(R.string.app_encrypt), Icons.Rounded.Shield),
+    DrawerDestination(Routes.BROWSE, t(R.string.app_cloud), Icons.Rounded.Cloud),
+    DrawerDestination(Routes.LOCAL, t(R.string.app_local), Icons.Rounded.FolderOpen),
+    DrawerDestination(Routes.TRANSFERS, t(R.string.app_transfers), Icons.Rounded.SwapVert),
+    DrawerDestination(Routes.SETTINGS, t(R.string.app_settings), Icons.Rounded.Settings),
 )
 
 /**
@@ -460,7 +481,7 @@ private fun SakuraDrawer(
             Text(text = "Sakura Encryptor", style = MaterialTheme.typography.titleLarge)
             Spacer(Modifier.height(4.dp))
             Text(
-                text = "媒体保险箱",
+                text = t(R.string.app_media_vault),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -473,7 +494,7 @@ private fun SakuraDrawer(
 
         Spacer(Modifier.height(10.dp))
 
-        drawerDestinations.forEach { destination ->
+        drawerDestinations().forEach { destination ->
             NavigationDrawerItem(
                 label = { Text(destination.label) },
                 icon = { Icon(destination.icon, contentDescription = null) },

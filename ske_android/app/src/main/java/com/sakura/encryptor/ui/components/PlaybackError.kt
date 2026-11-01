@@ -1,5 +1,8 @@
 package com.sakura.encryptor.ui.components
 
+import com.sakura.encryptor.R
+import com.sakura.encryptor.ui.i18n.t
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -47,7 +50,7 @@ fun PlaybackErrorOverlay(
     message: String,
     onRetry: (() -> Unit)?,
     onBack: () -> Unit,
-    title: String = "无法播放",
+    title: String = t(R.string.components_cannot_play),
 ) {
     Box(
         modifier = Modifier
@@ -83,13 +86,13 @@ fun PlaybackErrorOverlay(
             Spacer(Modifier.height(26.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (onRetry != null) {
-                    Button(onClick = onRetry) { Text("重试") }
+                    Button(onClick = onRetry) { Text(t(R.string.components_retry)) }
                 }
                 OutlinedButton(
                     onClick = onBack,
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
                 ) {
-                    Text("返回")
+                    Text(t(R.string.components_back))
                 }
             }
         }
@@ -105,23 +108,23 @@ fun PlaybackErrorOverlay(
  */
 fun describePlaybackError(error: PlaybackException): String = when (error.errorCode) {
     PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS ->
-        "服务器拒绝了访问，可能需要重新登录"
+        t(R.string.components_server_refused_access_may_need_sign)
 
     PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND ->
-        "文件不存在或已被移动"
+        t(R.string.components_file_missing_moved)
 
     PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ->
-        "网络连接失败，请检查网络与 AList 地址"
+        t(R.string.components_network_connection_failed_check_network_a_list)
 
     PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT ->
-        "网络连接超时，请稍后重试"
+        t(R.string.components_network_timed_out_try_again_later)
 
     PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED ->
-        "暂不支持这种媒体格式"
+        t(R.string.components_media_format_supported_yet)
 
     PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED,
     PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED,
-    -> "文件已损坏，无法解析"
+    -> t(R.string.components_file_damaged_cannot_parsed)
 
     else -> describeFailure(error)
 }
@@ -138,22 +141,22 @@ fun describeFailure(throwable: Throwable): String {
 
     return when {
         chain.any { it is AEADBadTagException || it is BadPaddingException } ->
-            "密码错误，或文件已损坏"
+            t(R.string.components_wrong_password_file_damaged)
 
         chain.any { it is UnknownHostException } ->
-            "找不到服务器，请检查网络与 AList 地址"
+            t(R.string.components_server_found_check_network_a_list_address)
 
         chain.any { it is SocketTimeoutException || it is ConnectException } ->
-            "连接超时，请稍后重试"
+            t(R.string.components_connection_timed_out_try_again_later)
 
         chain.any { it is SSLException } ->
-            "安全连接失败，请检查服务器证书"
+            t(R.string.components_secure_connection_failed_check_server_certificate)
 
         chain.any { it is FileNotFoundException } ->
-            "文件不存在或已被移动"
+            t(R.string.components_file_missing_moved)
 
         else -> chain.firstNotNullOfOrNull { it.message?.takeIf(String::isNotBlank) }
-            ?: "操作失败"
+            ?: t(R.string.components_operation_failed)
     }
 }
 

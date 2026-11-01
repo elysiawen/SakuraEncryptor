@@ -1,5 +1,8 @@
 package com.sakura.encryptor.ui.screens.openlist
 
+import com.sakura.encryptor.R
+import com.sakura.encryptor.ui.i18n.t
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -96,7 +99,7 @@ class StorageListViewModel(
         }.onFailure { error ->
             _state.value = _state.value.copy(
                 loading = false,
-                error = error.message ?: "读取存储列表失败",
+                error = error.message ?: t(R.string.openlist_failed_read_storage_list),
             )
         }
     }
@@ -114,7 +117,7 @@ class StorageListViewModel(
             }.onFailure { error ->
                 _state.value = _state.value.copy(
                     busy = false,
-                    error = error.message ?: "读取驱动列表失败",
+                    error = error.message ?: t(R.string.openlist_failed_read_driver_list),
                 )
             }
         }
@@ -132,7 +135,7 @@ class StorageListViewModel(
         }.onFailure { error ->
             _state.value = _state.value.copy(
                 busy = false,
-                error = error.message ?: "切换存储状态失败",
+                error = error.message ?: t(R.string.openlist_failed_toggle_storage),
             )
         }
     }
@@ -149,7 +152,7 @@ class StorageListViewModel(
         }.onFailure { error ->
             _state.value = _state.value.copy(
                 busy = false,
-                error = error.message ?: "删除存储失败",
+                error = error.message ?: t(R.string.openlist_failed_delete_storage),
             )
         }
     }
@@ -177,7 +180,7 @@ fun StorageScreen(
             .fillMaxSize()
             .statusBarsPadding(),
     ) {
-        SakuraTopBar(title = "存储管理", subtitle = "内置服务器", onBack = onBack)
+        SakuraTopBar(title = t(R.string.openlist_storage_management), subtitle = t(R.string.settings_built_server), onBack = onBack)
 
         Column(
             modifier = Modifier
@@ -192,14 +195,14 @@ fun StorageScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "挂载",
+                    text = t(R.string.openlist_mount),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.weight(1f),
                 )
                 if (state.storages.isNotEmpty()) {
                     Text(
-                        text = "${state.storages.size} 个 · ${state.storages.count { !it.disabled }} 个已启用",
+                        text = t(R.string.openlist_total_enabled, state.storages.size, state.storages.count { !it.disabled }),
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -207,7 +210,7 @@ fun StorageScreen(
             }
 
             PrimaryButton(
-                text = "添加存储",
+                text = t(R.string.openlist_add_storage),
                 onClick = {
                     viewModel.loadDrivers()
                     showDriverPicker = true
@@ -228,11 +231,11 @@ fun StorageScreen(
             }
 
             when {
-                state.loading -> LoadingState("正在读取存储…")
+                state.loading -> LoadingState(t(R.string.openlist_reading_storage))
                 state.storages.isEmpty() -> StateMessage(
                     icon = Icons.Rounded.FolderOpen,
-                    title = "还没有存储",
-                    message = "添加一个存储后，「云端」页面才能浏览文件。",
+                    title = t(R.string.openlist_storage_yet),
+                    message = t(R.string.openlist_add_storage_browse_files_cloud_page),
                 )
                 else -> state.storages.forEach { storage ->
                     StorageCard(
@@ -265,18 +268,18 @@ fun StorageScreen(
     pendingDelete?.let { storage ->
         AlertDialog(
             onDismissRequest = { pendingDelete = null },
-            title = { Text("删除存储") },
-            text = { Text("确定删除「${storage.mountPath}」吗？只删除挂载，不会删除存储里的文件。") },
+            title = { Text(t(R.string.openlist_delete_storage)) },
+            text = { Text(t(R.string.openlist_delete_only_removes_mount_files_storage, storage.mountPath)) },
             confirmButton = {
                 TextButton(
                     onClick = {
                         pendingDelete = null
                         viewModel.delete(storage)
                     }
-                ) { Text("删除", color = MaterialTheme.colorScheme.error) }
+                ) { Text(t(R.string.browse_delete), color = MaterialTheme.colorScheme.error) }
             },
             dismissButton = {
-                TextButton(onClick = { pendingDelete = null }) { Text("取消") }
+                TextButton(onClick = { pendingDelete = null }) { Text(t(R.string.security_cancel)) }
             },
         )
     }
@@ -314,7 +317,7 @@ private fun StorageCard(
                     StatusDot(enabled = enabled)
                     Spacer(Modifier.width(6.dp))
                     Text(
-                        text = if (enabled) "已启用" else "已停用",
+                        text = if (enabled) t(R.string.openlist_enabled) else t(R.string.openlist_disabled),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -343,7 +346,7 @@ private fun StorageCard(
                 ) {
                     Icon(
                         imageVector = Icons.Rounded.MoreVert,
-                        contentDescription = "更多操作",
+                        contentDescription = t(R.string.openlist_more_actions),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -352,7 +355,7 @@ private fun StorageCard(
                     onDismissRequest = { menuOpen = false },
                 ) {
                     DropdownMenuItem(
-                        text = { Text("编辑") },
+                        text = { Text(t(R.string.profiles_edit)) },
                         leadingIcon = {
                             Icon(Icons.Rounded.Edit, contentDescription = null)
                         },
@@ -363,7 +366,7 @@ private fun StorageCard(
                     )
                     DropdownMenuItem(
                         text = {
-                            Text("删除", color = MaterialTheme.colorScheme.error)
+                            Text(t(R.string.browse_delete), color = MaterialTheme.colorScheme.error)
                         },
                         leadingIcon = {
                             Icon(
@@ -428,7 +431,7 @@ private fun DriverTag(driver: String) {
         shape = CircleShape,
     ) {
         Text(
-            text = driver.ifBlank { "未知驱动" },
+            text = driver.ifBlank { t(R.string.openlist_unknown_driver) },
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
@@ -465,21 +468,21 @@ private fun DriverPickerDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("选择驱动") },
+        title = { Text(t(R.string.openlist_choose_driver)) },
         text = {
             Column {
                 OutlinedTextField(
                     value = query,
                     onValueChange = { query = it },
-                    label = { Text("搜索驱动") },
+                    label = { Text(t(R.string.openlist_search_drivers)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(Modifier.height(10.dp))
                 when {
-                    loading -> LoadingState("正在读取驱动…")
+                    loading -> LoadingState(t(R.string.openlist_reading_drivers))
                     filtered.isEmpty() -> Text(
-                        text = "没有匹配的驱动",
+                        text = t(R.string.openlist_matching_driver),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -505,7 +508,7 @@ private fun DriverPickerDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text("取消") }
+            TextButton(onClick = onDismiss) { Text(t(R.string.security_cancel)) }
         },
     )
 }

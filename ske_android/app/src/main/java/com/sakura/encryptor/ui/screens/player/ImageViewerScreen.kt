@@ -1,5 +1,8 @@
 package com.sakura.encryptor.ui.screens.player
 
+import com.sakura.encryptor.R
+import com.sakura.encryptor.ui.i18n.t
+
 import android.graphics.Bitmap
 import android.net.Uri
 import androidx.compose.animation.AnimatedVisibility
@@ -443,15 +446,15 @@ fun ImageViewerScreen(
                     page.error != null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         StateMessage(
                             icon = Icons.Rounded.BrokenImage,
-                            title = "无法显示图片",
+                            title = t(R.string.player_cannot_display_image),
                             message = page.error,
-                            actionLabel = "重试",
+                            actionLabel = t(R.string.components_retry),
                             onAction = { retryToken++ },
                         )
                     }
 
                     current == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        LoadingState("正在解密图片…")
+                        LoadingState(t(R.string.player_decrypting_image))
                     }
 
                     else -> Image(
@@ -537,7 +540,7 @@ fun ImageViewerScreen(
             ) {
                 Icon(
                     imageVector = Icons.Rounded.ChevronLeft,
-                    contentDescription = "上一张",
+                    contentDescription = t(R.string.player_previous),
                     tint = Color.White,
                 )
             }
@@ -556,7 +559,7 @@ fun ImageViewerScreen(
             ) {
                 Icon(
                     imageVector = Icons.Rounded.ChevronRight,
-                    contentDescription = "下一张",
+                    contentDescription = t(R.string.player_next),
                     tint = Color.White,
                 )
             }
@@ -591,7 +594,7 @@ fun ImageViewerScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconButton(onClick = onBack) {
-                    Icon(Icons.Rounded.ArrowBack, contentDescription = "返回", tint = Color.White)
+                    Icon(Icons.Rounded.ArrowBack, contentDescription = t(R.string.components_back), tint = Color.White)
                 }
                 Text(
                     text = if (comicMode) {
@@ -620,14 +623,14 @@ fun ImageViewerScreen(
                     IconButton(onClick = { toggleComicMode() }) {
                         Icon(
                             imageVector = Icons.Rounded.MenuBook,
-                            contentDescription = if (comicMode) "单页模式" else "条漫模式",
+                            contentDescription = if (comicMode) t(R.string.player_single_page) else t(R.string.player_webtoon_mode),
                             tint = Color.White,
                         )
                     }
                     IconButton(onClick = { showPlaylist = true }) {
                         Icon(
                             imageVector = Icons.Rounded.PlaylistPlay,
-                            contentDescription = "播放列表",
+                            contentDescription = t(R.string.components_playlist),
                             tint = Color.White,
                         )
                     }
@@ -647,7 +650,7 @@ fun ImageViewerScreen(
             } else {
                 playlistIndex
             },
-            unit = "张",
+            unit = t(R.string.player_items2),
             onSelect = { item ->
                 showPlaylist = false
                 val index = playlist.indexOf(item)

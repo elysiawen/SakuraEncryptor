@@ -1,5 +1,8 @@
 package com.sakura.encryptor.ui.screens.player
 
+import com.sakura.encryptor.R
+import com.sakura.encryptor.ui.i18n.t
+
 import android.app.Activity
 import android.content.res.Configuration
 import android.net.Uri
@@ -608,7 +611,7 @@ fun MusicPlayerScreen(
             text = listOfNotNull(tagArtist, tagAlbum)
                 .takeIf { it.isNotEmpty() }
                 ?.joinToString(" · ")
-                ?: "${MediaTypes.labelOf(currentName)} · 流式解密播放",
+                ?: t(R.string.player_streaming_decryption, MediaTypes.labelOf(currentName)),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -655,7 +658,7 @@ fun MusicPlayerScreen(
                 enabled = playlist.size > 1,
                 modifier = Modifier.size(48.dp),
             ) {
-                Icon(Icons.Rounded.SkipPrevious, contentDescription = "上一首")
+                Icon(Icons.Rounded.SkipPrevious, contentDescription = t(R.string.player_previous2))
             }
 
             Spacer(Modifier.width(8.dp))
@@ -668,7 +671,7 @@ fun MusicPlayerScreen(
                 },
                 modifier = Modifier.size(48.dp),
             ) {
-                Icon(Icons.Rounded.Replay10, contentDescription = "后退 10 秒")
+                Icon(Icons.Rounded.Replay10, contentDescription = t(R.string.player_back10_s))
             }
 
             Spacer(Modifier.width(8.dp))
@@ -683,7 +686,7 @@ fun MusicPlayerScreen(
             ) {
                 Icon(
                     imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                    contentDescription = if (isPlaying) "暂停" else "播放",
+                    contentDescription = if (isPlaying) t(R.string.components_pause) else t(R.string.components_playback),
                     modifier = Modifier.size(34.dp),
                 )
             }
@@ -700,7 +703,7 @@ fun MusicPlayerScreen(
                 },
                 modifier = Modifier.size(48.dp),
             ) {
-                Icon(Icons.Rounded.Forward10, contentDescription = "前进 10 秒")
+                Icon(Icons.Rounded.Forward10, contentDescription = t(R.string.player_forward10_s))
             }
 
             Spacer(Modifier.width(8.dp))
@@ -710,7 +713,7 @@ fun MusicPlayerScreen(
                 enabled = playlist.size > 1,
                 modifier = Modifier.size(48.dp),
             ) {
-                Icon(Icons.Rounded.SkipNext, contentDescription = "下一首")
+                Icon(Icons.Rounded.SkipNext, contentDescription = t(R.string.components_next))
             }
         }
     }
@@ -730,12 +733,12 @@ fun MusicPlayerScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(onClick = onBack) {
-                Icon(Icons.Rounded.ArrowBack, contentDescription = "返回")
+                Icon(Icons.Rounded.ArrowBack, contentDescription = t(R.string.components_back))
             }
             Spacer(Modifier.weight(1f))
             if (playlist.size > 1) {
                 IconButton(onClick = { showPlaylist = true }) {
-                    Icon(Icons.Rounded.PlaylistPlay, contentDescription = "播放列表")
+                    Icon(Icons.Rounded.PlaylistPlay, contentDescription = t(R.string.components_playlist))
                 }
             }
             IconButton(
@@ -770,10 +773,10 @@ fun MusicPlayerScreen(
                         else -> Icons.Rounded.Repeat
                     },
                     contentDescription = when {
-                        shuffleEnabled -> "随机播放"
-                        repeatMode == Player.REPEAT_MODE_ONE -> "单曲循环"
-                        repeatMode == Player.REPEAT_MODE_ALL -> "列表循环"
-                        else -> "顺序播放"
+                        shuffleEnabled -> t(R.string.player_shuffle)
+                        repeatMode == Player.REPEAT_MODE_ONE -> t(R.string.player_repeat_one)
+                        repeatMode == Player.REPEAT_MODE_ALL -> t(R.string.player_repeat_playlist)
+                        else -> t(R.string.player_play_order)
                     },
                     tint = if (shuffleEnabled || repeatMode != Player.REPEAT_MODE_OFF) {
                         MaterialTheme.colorScheme.primary
@@ -870,7 +873,7 @@ fun MusicPlayerScreen(
         PlaylistSheet(
             items = playlist,
             currentIndex = playlistIndex,
-            unit = "首",
+            unit = t(R.string.player_tracks),
             onSelect = { item ->
                 playItem(item)
                 showPlaylist = false
@@ -969,7 +972,7 @@ private fun LyricsBox(
         when {
             loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
-                    "正在读取歌词…",
+                    t(R.string.player_reading_lyrics),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -987,7 +990,7 @@ private fun LyricsBox(
                 )
                 Spacer(Modifier.height(10.dp))
                 Text(
-                    "未找到歌词",
+                    t(R.string.player_lyrics_found),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -1029,7 +1032,7 @@ private fun LyricsBox(
                             modifier = Modifier.size(16.dp),
                         )
                         Spacer(Modifier.width(4.dp))
-                        Text("回到当前", style = MaterialTheme.typography.labelSmall)
+                        Text(t(R.string.player_back_current), style = MaterialTheme.typography.labelSmall)
                     }
                 }
             }

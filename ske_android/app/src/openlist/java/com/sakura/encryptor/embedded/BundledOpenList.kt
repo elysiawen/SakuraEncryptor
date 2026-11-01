@@ -1,5 +1,7 @@
 package com.sakura.encryptor.embedded
 
+import com.sakura.encryptor.ui.i18n.t
+
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -379,7 +381,7 @@ class LocalOpenListManager(
      */
     fun requireSession(): Pair<String, String> {
         check(session.isLoggedIn && session.server == baseUrl) {
-            "内置服务器未在运行，请先在设置中开启"
+            t(R.string.embedded_built_server_running_enable_settings_first)
         }
         return session.server to session.token
     }
@@ -432,11 +434,11 @@ class LocalOpenListManager(
     suspend fun updateSettings(newPort: Int, newUsername: String, newPassword: String): Result<Unit> =
         mutex.withLock {
             runCatching {
-                check(server.isSupported) { "此安装包未包含内置服务器组件" }
-                require(newPort in MIN_PORT..MAX_PORT) { "端口需在 $MIN_PORT 到 $MAX_PORT 之间" }
+                check(server.isSupported) { t(R.string.embedded_package_include_built_server) }
+                require(newPort in MIN_PORT..MAX_PORT) { t(R.string.embedded_port_must_between, MIN_PORT, MAX_PORT) }
                 val user = newUsername.trim()
-                require(user.isNotEmpty() && user.none(Char::isWhitespace)) { "用户名不能为空，也不能包含空格" }
-                require(newPassword.isNotEmpty()) { "管理员密码不能为空" }
+                require(user.isNotEmpty() && user.none(Char::isWhitespace)) { t(R.string.embedded_username_cannot_empty_contain_spaces) }
+                require(newPassword.isNotEmpty()) { t(R.string.embedded_admin_password_cannot_empty) }
 
                 val oldPort = settings.localOpenListPort.first()
                 val oldUser = settings.localOpenListUsername.first()
@@ -451,7 +453,7 @@ class LocalOpenListManager(
                     if (!server.isRunning) {
                         server.port = oldPort
                         startedHere = true
-                        check(server.start()) { "内置服务器启动失败，请稍后重试" }
+                        check(server.start()) { t(R.string.embedded_built_server_failed_start_try_again) }
                     }
                     val address = server.baseUrl
                     if (api.initStatus(address)) {
@@ -459,13 +461,13 @@ class LocalOpenListManager(
                             session.token
                         } else {
                             oldPassword?.let { api.login(address, oldUser, it) }
-                                ?: error("无法登录内置服务器，请先开启后重试")
+                                ?: error(t(R.string.embedded_cannot_log_built_server_enable_first))
                         }
                         api.updateAdminUser(address, token, oldUser, user, newPassword)
                     }
                 }
 
-                val sealed = keyStore.seal(newPassword) ?: error("无法保存内置服务器的账号凭据")
+                val sealed = keyStore.seal(newPassword) ?: error(t(R.string.embedded_could_save_built_server_s_credentials))
                 settings.setLocalOpenListPort(newPort)
                 settings.setLocalOpenListUsername(user)
                 settings.setLocalOpenListSealedPassword(sealed)
@@ -507,18 +509,18 @@ class LocalOpenListManager(
     }
 
     private suspend fun connect(isRestore: Boolean) {
-        check(server.isSupported) { "此安装包未包含内置服务器组件" }
+        check(server.isSupported) { t(R.string.embedded_package_include_built_server) }
         server.port = settings.localOpenListPort.first()
         cachedUsername = settings.localOpenListUsername.first()
-        check(server.start()) { "内置服务器启动失败，请稍后重试" }
+        check(server.start()) { t(R.string.embedded_built_server_failed_start_try_again) }
 
         val password = adminPassword()
-        check(server.isRunning) { "内置服务器未能启动，请稍后重试" }
+        check(server.isRunning) { t(R.string.embedded_built_server_did_start_try_again) }
         if (!api.initStatus(baseUrl)) {
             api.setup(baseUrl, cachedUsername, password)
         }
 
-        val sealedPassword = keyStore.seal(password) ?: error("无法保存内置服务器的账号凭据")
+        val sealedPassword = keyStore.seal(password) ?: error(t(R.string.embedded_could_save_built_server_s_credentials))
         val localId = profiles.ensureLocalProfile(
             profileId = settings.localOpenListProfileId.first(),
             server = baseUrl,
@@ -586,7 +588,7 @@ class LocalOpenListManager(
             val random = SecureRandom()
             repeat(PASSWORD_LENGTH) { append(ALPHABET[random.nextInt(ALPHABET.length)]) }
         }
-        val sealed = keyStore.seal(generated) ?: error("无法保存内置服务器的管理员密码")
+        val sealed = keyStore.seal(generated) ?: error(t(R.string.embedded_could_save_built_server_s_admin))
         settings.setLocalOpenListSealedPassword(sealed)
         return generated
     }
@@ -621,9 +623,9 @@ class LocalOpenListService : Service() {
 
         val channel = NotificationChannel(
             CHANNEL_ID,
-            "内置服务器",
+            t(R.string.settings_built_server),
             NotificationManager.IMPORTANCE_LOW,
-        ).apply { description = "在本机运行 OpenList 时显示" }
+        ).apply { description = t(R.string.embedded_shown_while_open_list_runs_device) }
         getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
 
         val openApp = PendingIntent.getActivity(
@@ -637,8 +639,8 @@ class LocalOpenListService : Service() {
             NOTIFICATION_ID,
             NotificationCompat.Builder(this, CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_stat_sakura)
-                .setContentTitle("内置服务器运行中")
-                .setContentText("OpenList 正在本机提供文件服务")
+                .setContentTitle(t(R.string.embedded_built_server_running))
+                .setContentText(t(R.string.embedded_openlist_serving_files_device))
                 .setContentIntent(openApp)
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)

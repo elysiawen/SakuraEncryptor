@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <string name="remote_failed_read_response">读取响应失败</string>
+    <string name="remote_network_request_failed">网络请求失败：%1$s</string>
+    <string name="remote_request_failed_http">请求失败 (HTTP %1$s)</string>
+    <string name="remote_server_returned_download_url">服务器没有返回 %1$s 的下载地址</string>
+    <string name="remote_server_returned_file_info">服务器没有返回 %1$s 的文件信息</string>
+    <string name="remote_support_chunked_upload">%1$s 不支持分片上传</string>
+    <string name="remote_unsupported_request_method">不支持的请求方法 %1$s</string>
+    <string name="remote_upload_failed_http">上传失败 (HTTP %1$s)</string>
+    <string name="remote_upload_path_cannot_empty">上传路径不能为空</string>
+</resources>

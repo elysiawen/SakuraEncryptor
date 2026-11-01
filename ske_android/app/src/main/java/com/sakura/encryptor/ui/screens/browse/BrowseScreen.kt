@@ -1,5 +1,8 @@
 package com.sakura.encryptor.ui.screens.browse
 
+import com.sakura.encryptor.R
+import com.sakura.encryptor.ui.i18n.t
+
 import android.Manifest
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -167,7 +170,7 @@ fun BrowseScreen(
         pendingDownload = emptyList()
         if (queued.isNotEmpty()) {
             if (!granted) {
-                Toast.makeText(context, "未授予存储权限，文件将保存到应用私有目录", Toast.LENGTH_LONG).show()
+                Toast.makeText(context, t(R.string.browse_storage_permission_granted_files_saved_app), Toast.LENGTH_LONG).show()
             }
             // Runs either way: the manager falls back when the grant is missing.
             viewModel.download(queued)
@@ -240,14 +243,14 @@ fun BrowseScreen(
     ) {
         SakuraTopBar(
             title = when {
-                state.inSelectionMode -> "已选择 ${state.selected.size} 项"
-                !ready -> activeProfile?.name ?: "云端媒体库"
-                state.path == "/" -> activeProfile?.name ?: "云端媒体库"
+                state.inSelectionMode -> t(R.string.browse_item_selected, state.selected.size)
+                !ready -> activeProfile?.name ?: t(R.string.browse_cloud_library)
+                state.path == "/" -> activeProfile?.name ?: t(R.string.browse_cloud_library)
                 // Use the decrypted folder name, never the encrypted path segment.
-                else -> breadcrumbs.lastOrNull()?.second ?: activeProfile?.name ?: "云端媒体库"
+                else -> breadcrumbs.lastOrNull()?.second ?: activeProfile?.name ?: t(R.string.browse_cloud_library)
             },
             subtitle = when {
-                !ready -> "未连接"
+                !ready -> t(R.string.browse_connected2)
                 else -> breadcrumbs.joinToString(" / ") { it.second }.ifBlank { "/" }
             },
             onBack = if (state.inSelectionMode) viewModel::clearSelection else goUpAction,
@@ -259,14 +262,14 @@ fun BrowseScreen(
                     // Renaming only makes sense for a single entry.
                     if (selectedEntries.size == 1) {
                         IconButton(onClick = { renameTarget = selectedEntries.first() }) {
-                            Icon(Icons.Rounded.Edit, contentDescription = "重命名")
+                            Icon(Icons.Rounded.Edit, contentDescription = t(R.string.browse_rename))
                         }
                     }
                     IconButton(onClick = { startDownload(selectedEntries) }) {
-                        Icon(Icons.Rounded.Download, contentDescription = "下载")
+                        Icon(Icons.Rounded.Download, contentDescription = t(R.string.browse_download))
                     }
                     IconButton(onClick = { deleteTargets = selectedEntries }) {
-                        Icon(Icons.Rounded.Delete, contentDescription = "删除")
+                        Icon(Icons.Rounded.Delete, contentDescription = t(R.string.browse_delete))
                     }
                 } else if (ready) {
                     if (state.entries.isNotEmpty()) {
@@ -276,17 +279,17 @@ fun BrowseScreen(
                         )
                     }
                     IconButton(onClick = viewModel::refresh) {
-                        Icon(Icons.Rounded.Refresh, contentDescription = "刷新")
+                        Icon(Icons.Rounded.Refresh, contentDescription = t(R.string.browse_refresh))
                     }
                     IconButton(onClick = { showCreateDialog = true }) {
-                        Icon(Icons.Rounded.CreateNewFolder, contentDescription = "新建文件夹")
+                        Icon(Icons.Rounded.CreateNewFolder, contentDescription = t(R.string.browse_new_folder))
                     }
                     IconButton(onClick = onManageProfiles) {
-                        Icon(Icons.Rounded.SwapHoriz, contentDescription = "切换配置")
+                        Icon(Icons.Rounded.SwapHoriz, contentDescription = t(R.string.browse_switch_profile))
                     }
                 } else if (profiles.isNotEmpty()) {
                     IconButton(onClick = onManageProfiles) {
-                        Icon(Icons.Rounded.SwapHoriz, contentDescription = "管理配置")
+                        Icon(Icons.Rounded.SwapHoriz, contentDescription = t(R.string.browse_manage_profiles))
                     }
                 }
             },
@@ -298,55 +301,55 @@ fun BrowseScreen(
 
         when {
             // Still trying a remembered password: avoid flashing the prompt.
-            !restoreFinished && !unlocked -> LoadingState("正在准备…")
+            !restoreFinished && !unlocked -> LoadingState(t(R.string.browse_preparing))
 
             activeProfile == null -> StateMessage(
                 icon = Icons.Rounded.Add,
-                title = if (profiles.isEmpty()) "还没有云端配置" else "未选择云端配置",
-                message = "添加一个 AList / OpenList 配置后即可浏览云端加密文件；只想播放本地文件可以跳过。",
-                actionLabel = "管理配置",
+                title = if (profiles.isEmpty()) t(R.string.browse_cloud_profiles_yet) else t(R.string.browse_cloud_profile_selected),
+                message = t(R.string.browse_add_a_list_open_list_profile_browse_encrypted),
+                actionLabel = t(R.string.browse_manage_profiles),
                 onAction = onManageProfiles,
             )
 
             !unlocked -> UnlockPanel(
-                title = "输入「${activeProfile.name}」的密码",
-                message = "每个云端配置拥有独立的加密密码，用于解密该配置下的文件。",
+                title = t(R.string.browse_enter_password, activeProfile.name),
+                message = t(R.string.browse_every_cloud_profile_own_encryption_password),
                 initialRemember = rememberDefault,
                 onSubmit = { password, remember -> viewModel.unlockActive(password, remember) },
                 onUnlocked = { viewModel.syncSession() },
                 secondaryAction = {
-                    TextButton(onClick = onManageProfiles) { Text("切换或编辑配置") }
+                    TextButton(onClick = onManageProfiles) { Text(t(R.string.browse_switch_edit_profiles)) }
                 },
             )
 
             !loggedIn -> StateMessage(
                 icon = Icons.Rounded.CloudOff,
-                title = "「${activeProfile.name}」尚未连接",
+                title = t(R.string.browse_connected, activeProfile.name),
                 message = if (activeProfile.canAutoLogin) {
-                    "点击连接，使用已保存的账号信息登录 ${activeProfile.remoteProvider.label}。"
+                    t(R.string.browse_tap_connect_sign_saved_account, activeProfile.remoteProvider.label)
                 } else {
-                    "该配置还没有保存登录密码，请先在配置中填写。"
+                    t(R.string.browse_profile_saved_login_password_fill_first)
                 },
-                actionLabel = "连接",
+                actionLabel = t(R.string.browse_connect),
                 onAction = { viewModel.connectActive() },
             )
 
             else -> Box(modifier = Modifier.weight(1f)) {
                 when {
-                    state.isLoading -> LoadingState("正在读取加密目录…")
+                    state.isLoading -> LoadingState(t(R.string.browse_reading_encrypted_folder))
 
                     state.error != null -> StateMessage(
                         icon = Icons.Rounded.CloudOff,
-                        title = "无法加载目录",
+                        title = t(R.string.browse_cannot_load_folder),
                         message = state.error,
-                        actionLabel = "重试",
+                        actionLabel = t(R.string.components_retry),
                         onAction = viewModel::refresh,
                     )
 
                     state.entries.isEmpty() -> StateMessage(
                         icon = Icons.Rounded.FolderOpen,
-                        title = "这里是空的",
-                        message = "目录中没有文件，或加密文件尚未上传。",
+                        title = t(R.string.browse_nothing_here),
+                        message = t(R.string.browse_files_folder_encrypted_files_been_uploaded),
                     )
 
                     else -> if (grid) {
@@ -443,7 +446,7 @@ fun BrowseScreen(
                             color = MaterialTheme.colorScheme.surface,
                             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                         ) {
-                            LoadingState("正在获取解密地址…")
+                            LoadingState(t(R.string.browse_getting_decryption_url))
                         }
                     }
                 }
@@ -458,7 +461,7 @@ fun BrowseScreen(
                             .align(Alignment.BottomEnd)
                             .padding(20.dp),
                     ) {
-                        Icon(Icons.Rounded.UploadFile, contentDescription = "上传")
+                        Icon(Icons.Rounded.UploadFile, contentDescription = t(R.string.browse_upload))
                     }
                 }
             }
@@ -470,7 +473,7 @@ fun BrowseScreen(
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                TextButton(onClick = onGoLocal) { Text("只想播放本地文件？前往本地") }
+                TextButton(onClick = onGoLocal) { Text(t(R.string.browse_only_want_local_files_go_local)) }
             }
         }
     }
@@ -495,9 +498,9 @@ fun BrowseScreen(
             title = {
                 Text(
                     if (single != null) {
-                        if (single.isDir) "删除文件夹？" else "删除文件？"
+                        if (single.isDir) t(R.string.browse_delete_folder) else t(R.string.browse_delete_file)
                     } else {
-                        "删除 ${deleteTargets.size} 项？"
+                        t(R.string.browse_delete_item, deleteTargets.size)
                     }
                 )
             },
@@ -507,13 +510,13 @@ fun BrowseScreen(
                         // Name what goes away: with decrypted names shown in the
                         // list, "所选项目" would be harder to check than the name.
                         if (single != null) {
-                            append("将永久删除「${single.displayName}」")
-                            if (single.isDir) append("及其中全部内容")
+                            append(t(R.string.browse_permanently_delete, single.displayName))
+                            if (single.isDir) append(t(R.string.browse_all_contents))
                         } else {
-                            append("将永久删除所选的 ${deleteTargets.size} 项")
-                            if (hasFolder) append("（文件夹内的全部内容一并删除）")
+                            append(t(R.string.browse_permanently_delete_selected_item, deleteTargets.size))
+                            if (hasFolder) append(t(R.string.browse_everything_inside_folder_deleted_too))
                         }
-                        append("。云端数据删除后无法恢复。")
+                        append(t(R.string.browse_cloud_data_cannot_recovered_once_deleted))
                     }
                 )
             },
@@ -521,10 +524,10 @@ fun BrowseScreen(
                 TextButton(onClick = {
                     viewModel.delete(deleteTargets)
                     deleteTargets = emptyList()
-                }) { Text("删除") }
+                }) { Text(t(R.string.browse_delete)) }
             },
             dismissButton = {
-                TextButton(onClick = { deleteTargets = emptyList() }) { Text("取消") }
+                TextButton(onClick = { deleteTargets = emptyList() }) { Text(t(R.string.security_cancel)) }
             },
         )
     }
@@ -532,13 +535,13 @@ fun BrowseScreen(
     if (showCreateDialog) {
         AlertDialog(
             onDismissRequest = { showCreateDialog = false },
-            title = { Text("新建文件夹") },
+            title = { Text(t(R.string.browse_new_folder)) },
             text = {
                 Column {
                     OutlinedTextField(
                         value = newFolderName,
                         onValueChange = { newFolderName = it },
-                        label = { Text("文件夹名称") },
+                        label = { Text(t(R.string.browse_folder_name)) },
                         singleLine = true,
                         shape = MaterialTheme.shapes.medium,
                         modifier = Modifier.fillMaxWidth(),
@@ -555,10 +558,10 @@ fun BrowseScreen(
                     viewModel.createFolder(newFolderName, encryptNewFolderName)
                     newFolderName = ""
                     showCreateDialog = false
-                }) { Text("创建") }
+                }) { Text(t(R.string.browse_create)) }
             },
             dismissButton = {
-                TextButton(onClick = { showCreateDialog = false }) { Text("取消") }
+                TextButton(onClick = { showCreateDialog = false }) { Text(t(R.string.security_cancel)) }
             },
         )
     }
@@ -574,14 +577,14 @@ fun BrowseScreen(
         }
         AlertDialog(
             onDismissRequest = clearPending,
-            title = { Text("上传文件") },
+            title = { Text(t(R.string.browse_upload_files)) },
             text = {
                 Column(
                     Modifier
                         .heightIn(max = 320.dp)
                         .verticalScroll(rememberScrollState()),
                 ) {
-                    Text("将 ${pendingUpload.size} 个文件上传到「$folderLabel」")
+                    Text(t(R.string.browse_upload_file, pendingUpload.size, folderLabel))
                     Spacer(Modifier.height(8.dp))
                     pendingUpload.indices.forEach { index ->
                         OutlinedTextField(
@@ -593,7 +596,7 @@ fun BrowseScreen(
                             modifier = Modifier.fillMaxWidth(),
                             label = {
                                 Text(
-                                    if (pendingUpload.size == 1) "文件名" else "文件名 ${index + 1}",
+                                    if (pendingUpload.size == 1) t(R.string.browse_file_name) else t(R.string.browse_file_name2, index + 1),
                                 )
                             },
                             singleLine = true,
@@ -603,9 +606,9 @@ fun BrowseScreen(
                     EncryptNameToggle(
                         checked = encryptUpload,
                         onCheckedChange = { encryptUpload = it },
-                        title = "加密后上传",
-                        onText = "内容与文件名一并加密为 .ske，仅本应用可读",
-                        offText = "以明文上传，其他客户端可直接打开",
+                        title = t(R.string.browse_encrypt_before_upload),
+                        onText = t(R.string.browse_content_filename_both_encrypted_ske_only),
+                        offText = t(R.string.browse_uploaded_clear_other_clients_open),
                     )
                 }
             },
@@ -616,10 +619,10 @@ fun BrowseScreen(
                         viewModel.upload(pendingUpload, encryptUpload, pendingNames)
                         clearPending()
                     },
-                ) { Text("上传") }
+                ) { Text(t(R.string.browse_upload)) }
             },
             dismissButton = {
-                TextButton(onClick = clearPending) { Text("取消") }
+                TextButton(onClick = clearPending) { Text(t(R.string.security_cancel)) }
             },
         )
     }
@@ -627,17 +630,17 @@ fun BrowseScreen(
     if (showOtpDialog) {
         AlertDialog(
             onDismissRequest = { showOtpDialog = false },
-            title = { Text("两步验证") },
+            title = { Text(t(R.string.browse_two_step_verification)) },
             text = {
                 Column {
-                    Text("该账号已开启两步验证，请输入身份验证器中的 6 位动态码。")
+                    Text(t(R.string.browse_account_two_step_verification_enter6))
                     Spacer(Modifier.height(12.dp))
                     OutlinedTextField(
                         value = otpCode,
                         onValueChange = { value ->
                             otpCode = value.filter { it.isDigit() }.take(6)
                         },
-                        label = { Text("动态验证码") },
+                        label = { Text(t(R.string.browse_one_time_code)) },
                         singleLine = true,
                         shape = MaterialTheme.shapes.medium,
                         modifier = Modifier.fillMaxWidth(),
@@ -651,10 +654,10 @@ fun BrowseScreen(
                         showOtpDialog = false
                         viewModel.connectActive(otpCode)
                     },
-                ) { Text("验证并连接") }
+                ) { Text(t(R.string.browse_verify_connect)) }
             },
             dismissButton = {
-                TextButton(onClick = { showOtpDialog = false }) { Text("取消") }
+                TextButton(onClick = { showOtpDialog = false }) { Text(t(R.string.security_cancel)) }
             },
         )
     }
@@ -673,13 +676,13 @@ private fun RenameDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (entry.isDir) "重命名文件夹" else "重命名文件") },
+        title = { Text(if (entry.isDir) t(R.string.browse_rename_folder) else t(R.string.browse_rename_file)) },
         text = {
             Column {
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("新名称") },
+                    label = { Text(t(R.string.browse_new_name)) },
                     singleLine = true,
                     shape = MaterialTheme.shapes.medium,
                     modifier = Modifier.fillMaxWidth(),
@@ -695,10 +698,10 @@ private fun RenameDialog(
             TextButton(
                 onClick = { onConfirm(name, encryptName) },
                 enabled = name.isNotBlank() && name != entry.displayName,
-            ) { Text("重命名") }
+            ) { Text(t(R.string.browse_rename)) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("取消") }
+            TextButton(onClick = onDismiss) { Text(t(R.string.security_cancel)) }
         },
     )
 }
@@ -713,9 +716,9 @@ private fun RenameDialog(
 private fun EncryptNameToggle(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
-    title: String = "加密名称",
-    onText: String = "云端保存为密文，仅本应用可读",
-    offText: String = "取消勾选后以明文保存，其他客户端可直接看到",
+    title: String = t(R.string.browse_encrypt_names),
+    onText: String = t(R.string.browse_saved_cloud_ciphertext_only_app_read),
+    offText: String = t(R.string.browse_when_unticked_files_saved_clear_other),
 ) {
     Row(
         modifier = Modifier
@@ -798,7 +801,7 @@ private fun FileRow(
         if (isSelected) {
             Icon(
                 imageVector = Icons.Rounded.CheckCircle,
-                contentDescription = "已选择",
+                contentDescription = t(R.string.browse_selected),
                 tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(22.dp),
             )
@@ -815,7 +818,7 @@ private fun iconFor(entry: DecryptedEntry, kind: MediaKind): ImageVector = when 
 }
 
 private fun subtitleFor(entry: DecryptedEntry, kind: MediaKind): String = when {
-    entry.isDir -> "文件夹"
+    entry.isDir -> t(R.string.browse_folder)
     entry.size > 0 -> "${formatBytes(entry.size)} · ${MediaTypes.labelOf(entry.displayName)}"
     else -> MediaTypes.labelOf(entry.displayName)
 }

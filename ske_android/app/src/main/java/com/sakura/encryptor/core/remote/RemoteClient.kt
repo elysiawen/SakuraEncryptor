@@ -1,5 +1,8 @@
 package com.sakura.encryptor.core.remote
 
+import com.sakura.encryptor.R
+import com.sakura.encryptor.ui.i18n.t
+
 import com.sakura.encryptor.core.alist.FileEntry
 import com.sakura.encryptor.core.alist.GetData
 import com.sakura.encryptor.core.alist.GetRequest
@@ -208,7 +211,7 @@ abstract class RemoteClient(
     suspend fun get(server: String, token: String, path: String): GetData {
         val body = json.encodeToString(GetRequest.serializer(), GetRequest(path))
         val data = requestJson("POST", url(server, "/api/fs/get"), token, body)
-        if (data is JsonNull) throw RemoteException(-1, "服务器没有返回 $path 的文件信息")
+        if (data is JsonNull) throw RemoteException(-1, t(R.string.remote_server_returned_file_info, path))
         return json.decodeFromJsonElement(GetData.serializer(), data)
     }
 
@@ -271,13 +274,13 @@ abstract class RemoteClient(
         onProgress: ((Long, Long) -> Unit)?,
         onCall: ((Call) -> Unit)?,
     ) {
-        throw RemoteException(-1, "$label 不支持分片上传").also { it.multipartUnsupported = true }
+        throw RemoteException(-1, t(R.string.remote_support_chunked_upload, label)).also { it.multipartUnsupported = true }
     }
 
     /** Direct download URL plus the signed size for a remote file. */
     suspend fun resolveRawUrl(server: String, token: String, path: String): Pair<String, Long> {
         val info = get(server, token, path)
-        val raw = info.rawUrl ?: throw RemoteException(-1, "服务器没有返回 $path 的下载地址")
+        val raw = info.rawUrl ?: throw RemoteException(-1, t(R.string.remote_server_returned_download_url, path))
         return raw to info.size
     }
 
@@ -316,7 +319,7 @@ abstract class RemoteClient(
         if (!envelope.ok) {
             throw RemoteException(
                 envelope.code,
-                envelope.message ?: "上传失败 (HTTP ${raw.httpCode})",
+                envelope.message ?: t(R.string.remote_upload_failed_http, raw.httpCode),
             )
         }
     }
@@ -359,7 +362,7 @@ abstract class RemoteClient(
 
     protected fun normalizeUploadPath(dir: String, fileName: String): String {
         val trimmed = dir.trim()
-        if (trimmed.isEmpty() || trimmed == "/") throw RemoteException(-1, "上传路径不能为空")
+        if (trimmed.isEmpty() || trimmed == "/") throw RemoteException(-1, t(R.string.remote_upload_path_cannot_empty))
         val withSlash = if (trimmed.startsWith("/")) trimmed else "/$trimmed"
         return encodePath("$withSlash/$fileName")
     }
@@ -382,7 +385,7 @@ abstract class RemoteClient(
             "GET" -> builder.get()
             "POST" -> builder.post(requestBody ?: ByteArray(0).toRequestBody(JSON_MEDIA))
             "PUT" -> builder.put(requestBody ?: ByteArray(0).toRequestBody(JSON_MEDIA))
-            else -> throw RemoteException(-1, "不支持的请求方法 $method")
+            else -> throw RemoteException(-1, t(R.string.remote_unsupported_request_method, method))
         }
         if (token != null) builder.header("Authorization", token)
 
@@ -390,7 +393,7 @@ abstract class RemoteClient(
         if (!envelope.ok) {
             throw RemoteException(
                 envelope.code,
-                envelope.message ?: "请求失败 (HTTP ${envelope.httpCode})",
+                envelope.message ?: t(R.string.remote_request_failed_http, envelope.httpCode),
             )
         }
         envelope.data ?: JsonNull
@@ -407,14 +410,14 @@ abstract class RemoteClient(
         val response = try {
             call.execute()
         } catch (e: Exception) {
-            throw RemoteException(-1, "网络请求失败：${e.message ?: e.javaClass.simpleName}", e)
+            throw RemoteException(-1, t(R.string.remote_network_request_failed, e.message ?: e.javaClass.simpleName), e)
         }
 
         response.use { resp ->
             val text = try {
                 resp.body?.string().orEmpty()
             } catch (e: Exception) {
-                throw RemoteException(-1, "读取响应失败", e)
+                throw RemoteException(-1, t(R.string.remote_failed_read_response), e)
             }
             return RawResponse(resp.code, text)
         }

@@ -1,5 +1,8 @@
 package com.sakura.encryptor.core.player
 
+import com.sakura.encryptor.R
+import com.sakura.encryptor.ui.i18n.t
+
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
@@ -96,7 +99,7 @@ class ImageDecryptor(
             PlaintextBlockCache.get(diskKey)?.also { ImageBytesCache.put(key, it) }
                 ?: run {
                     val bytes = bytesReader.readAll(uri, password)
-                    if (bytes.isEmpty()) throw IOException("图片内容为空")
+                    if (bytes.isEmpty()) throw IOException(t(R.string.player_image_empty))
                     ImageBytesCache.put(key, bytes)
                     // Only containers need this: a plain local image is already
                     // on disk and costs nothing to read again.
@@ -115,7 +118,7 @@ class ImageDecryptor(
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
-            throw IOException("无法识别图片格式（HEIC / AVIF 等可能不被系统支持）")
+            throw IOException(t(R.string.player_unrecognised_image_format_heicavif_may))
         }
 
         val options = BitmapFactory.Options().apply {
@@ -123,7 +126,7 @@ class ImageDecryptor(
         }
 
         return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
-            ?: throw IOException("图片解码失败（${bytes.size / 1024} KB，${bounds.outWidth}×${bounds.outHeight}）")
+            ?: throw IOException(t(R.string.player_could_decode_image_kb, bytes.size / 1024, bounds.outWidth, bounds.outHeight))
     }
 
     /**

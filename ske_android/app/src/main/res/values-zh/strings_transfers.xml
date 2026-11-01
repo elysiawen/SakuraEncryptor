@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <string name="transfers_active_tasks">暂无进行中任务</string>
+    <string name="transfers_cancel_download">取消下载</string>
+    <string name="transfers_cancel_download2">取消下载？</string>
+    <string name="transfers_cancelled">已取消</string>
+    <string name="transfers_cancels_discards_downloaded_part_n">将取消「%1$s」并丢弃已下载的部分。\n</string>
+    <string name="transfers_clear_finished">清除已完成</string>
+    <string name="transfers_continue">继续</string>
+    <string name="transfers_continue_later_use_pause_instead">如果只是想稍后继续，请改用暂停。</string>
+    <string name="transfers_download_failed">下载失败</string>
+    <string name="transfers_downloaded">已下载</string>
+    <string name="transfers_downloading">下载中</string>
+    <string name="transfers_downloads_progress">暂无进行中的下载</string>
+    <string name="transfers_encrypting">加密中</string>
+    <string name="transfers_encrypting_device">正在本机加密…</string>
+    <string name="transfers_failed">失败</string>
+    <string name="transfers_finished_tasks_yet">还没有结束的任务</string>
+    <string name="transfers_paused">已暂停</string>
+    <string name="transfers_paused2">已暂停 · %1$s / %2$s</string>
+    <string name="transfers_progress">%1$s 个进行中</string>
+    <string name="transfers_queued">排队</string>
+    <string name="transfers_resume_download">继续下载</string>
+    <string name="transfers_saved">已保存至 %1$s</string>
+    <string name="transfers_saved_device">已保存到本机 · %1$s</string>
+    <string name="transfers_tasks">暂无任务</string>
+    <string name="transfers_transfers">没有传输任务</string>
+    <string name="transfers_upload_files_cloud_folder_download_encrypted">在云端目录中上传文件，或下载加密文件，任务会出现在这里。加密与解密都在本机完成，切换页面不影响进度。</string>
+    <string name="transfers_uploaded">已上传</string>
+    <string name="transfers_uploading">上传中</string>
+    <string name="transfers_uploads_progress">暂无进行中的上传</string>
+    <string name="transfers_waiting">等待中…</string>
+    <string name="transfers_waiting_start">等待开始</string>
+</resources>

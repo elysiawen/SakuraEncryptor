@@ -1,5 +1,8 @@
 package com.sakura.encryptor.core.profile
 
+import com.sakura.encryptor.R
+import com.sakura.encryptor.ui.i18n.t
+
 import com.sakura.encryptor.core.remote.RemoteProvider
 import com.sakura.encryptor.core.remote.RemoteRepository
 import com.sakura.encryptor.core.security.KeyStoreManager
@@ -50,7 +53,7 @@ class ProfileRepository(
         val existing = id?.let { dao.find(it) }
 
         val entity = (existing ?: ProfileEntity(name = name)).copy(
-            name = name.trim().ifBlank { server.trim().ifBlank { "未命名配置" } },
+            name = name.trim().ifBlank { server.trim().ifBlank { t(R.string.profile_unnamed_profile) } },
             server = server.trim().trimEnd('/'),
             username = username.trim(),
             basePath = basePath.trim(),
@@ -136,12 +139,12 @@ class ProfileRepository(
      */
     suspend fun connectActive(otpCode: String = ""): Result<Unit> {
         val profile = activeProfile()
-            ?: return Result.failure(IllegalStateException("还没有选择云端配置"))
+            ?: return Result.failure(IllegalStateException(t(R.string.profile_cloud_profile_selected_yet)))
         if (!profile.hasServer) {
-            return Result.failure(IllegalStateException("该配置没有填写服务器地址"))
+            return Result.failure(IllegalStateException(t(R.string.profile_profile_server_address)))
         }
         val password = profile.sealedAlistPassword?.let { keyStore.open(it) }
-            ?: return Result.failure(IllegalStateException("请先在配置中填写登录密码"))
+            ?: return Result.failure(IllegalStateException(t(R.string.profile_fill_login_password_profile_first)))
 
         return remoteRepository.login(
             provider = profile.remoteProvider,

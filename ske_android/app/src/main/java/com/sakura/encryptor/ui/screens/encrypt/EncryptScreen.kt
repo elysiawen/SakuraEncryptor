@@ -1,5 +1,8 @@
 package com.sakura.encryptor.ui.screens.encrypt
 
+import com.sakura.encryptor.R
+import com.sakura.encryptor.ui.i18n.t
+
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -142,12 +145,12 @@ class EncryptViewModel(
 
         val output = _state.value.outputUri
         if (output == null) {
-            emit("请先选择输出目录")
+            emit(t(R.string.encrypt_choose_output_folder_first))
             return
         }
         val password = localVault.password
         if (password.isNullOrEmpty()) {
-            emit("请先输入本地密码")
+            emit(t(R.string.encrypt_enter_local_password_first))
             return
         }
 
@@ -168,7 +171,7 @@ class EncryptViewModel(
                     }
                     notifications.progress(
                         id = CryptoNotifications.ID_ENCRYPT,
-                        title = "正在加密",
+                        title = t(R.string.encrypt_encrypting),
                         text = "${progress.fileName} (${progress.index}/${progress.count})",
                         percent = (progress.fraction * 100).toInt(),
                     )
@@ -176,15 +179,15 @@ class EncryptViewModel(
             }.onSuccess { created ->
                 notifications.finished(
                     CryptoNotifications.ID_ENCRYPT,
-                    "加密完成",
-                    "共 ${created.size} 个文件",
+                    t(R.string.encrypt_encryption_complete),
+                    t(R.string.encrypt_file, created.size),
                 )
                 _state.update { it.copy(busy = false, progress = null) }
-                emit("加密完成，共 ${created.size} 个文件")
+                emit(t(R.string.encrypt_encryption_complete_file, created.size))
             }.onFailure { throwable ->
                 notifications.cancel(CryptoNotifications.ID_ENCRYPT)
                 _state.update { it.copy(busy = false, progress = null) }
-                emit(throwable.message ?: "加密失败")
+                emit(throwable.message ?: t(R.string.encrypt_encryption_failed))
             }
         }
     }
@@ -241,8 +244,8 @@ fun EncryptScreen(onOpenDrawer: () -> Unit) {
             viewModel.encrypt(uris)
         } else {
             unlockRequest = UnlockRequest(
-                message = "开始加密前，请输入用于本次加密的本地密码。",
-                confirmLabel = "加密",
+                message = t(R.string.encrypt_enter_local_password_use_encryption),
+                confirmLabel = t(R.string.app_encrypt),
             ) { viewModel.encrypt(uris) }
         }
     }
@@ -263,12 +266,12 @@ fun EncryptScreen(onOpenDrawer: () -> Unit) {
             .statusBarsPadding(),
     ) {
         SakuraTopBar(
-            title = "加密",
+            title = t(R.string.app_encrypt),
             subtitle = when (mode) {
                 EncryptMode.FILES ->
-                    outputLabel?.let { "输出到 $it" } ?: "尚未选择输出目录"
+                    outputLabel?.let { t(R.string.encrypt_output, it) } ?: t(R.string.encrypt_output_folder_chosen)
 
-                EncryptMode.TEXT -> "文本与文件名共用同一套加密"
+                EncryptMode.TEXT -> t(R.string.encrypt_text_filenames_share_same_encryption)
             },
             onMenu = onOpenDrawer,
         )
@@ -306,11 +309,11 @@ fun EncryptScreen(onOpenDrawer: () -> Unit) {
                     onRequestUnlock = { encrypting, afterUnlock ->
                         unlockRequest = UnlockRequest(
                             message = if (encrypting) {
-                                "开始加密前，请输入用于本次加密的本地密码。"
+                                t(R.string.encrypt_enter_local_password_use_encryption)
                             } else {
-                                "开始解密前，请输入用于本次解密的本地密码。"
+                                t(R.string.encrypt_enter_local_password_use_decryption)
                             },
-                            confirmLabel = if (encrypting) "加密" else "解密",
+                            confirmLabel = if (encrypting) t(R.string.app_encrypt) else t(R.string.encrypt_decrypt),
                             afterUnlock = afterUnlock,
                         )
                     },
@@ -329,9 +332,9 @@ fun EncryptScreen(onOpenDrawer: () -> Unit) {
                     )
                     Spacer(Modifier.width(12.dp))
                     Column {
-                        Text("本地加密", style = MaterialTheme.typography.titleMedium)
+                        Text(t(R.string.encrypt_local_encryption), style = MaterialTheme.typography.titleMedium)
                         Text(
-                            text = "文件内容与文件名都会被加密，产物可直接上传到云端，或与 CLI / Web 端互解。",
+                            text = t(R.string.encrypt_both_content_filename_encrypted_result_uploaded),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -340,12 +343,12 @@ fun EncryptScreen(onOpenDrawer: () -> Unit) {
             }
 
             Spacer(Modifier.height(20.dp))
-            SectionHeader("输出目录")
+            SectionHeader(t(R.string.encrypt_output_folder))
 
             SakuraCard {
                 SettingRow(
-                    title = outputLabel ?: "选择输出目录",
-                    subtitle = "加密后的 .ske 文件会保存到这里",
+                    title = outputLabel ?: t(R.string.encrypt_choose_output_folder),
+                    subtitle = t(R.string.encrypt_encrypted_ske_files_saved_here),
                     onClick = { outputPicker.launch(null) },
                     trailing = {
                         Icon(
@@ -360,7 +363,7 @@ fun EncryptScreen(onOpenDrawer: () -> Unit) {
             Spacer(Modifier.height(22.dp))
 
             PrimaryButton(
-                text = "选择文件并开始加密",
+                text = t(R.string.encrypt_select_files_start_encrypting),
                 onClick = { filePicker.launch(arrayOf("*/*")) },
                 enabled = state.outputUri != null,
                 icon = Icons.Rounded.UploadFile,
@@ -378,9 +381,9 @@ fun EncryptScreen(onOpenDrawer: () -> Unit) {
                 Spacer(Modifier.width(6.dp))
                 Text(
                     text = if (unlocked) {
-                        "本地密码已解锁，可直接加密"
+                        t(R.string.encrypt_local_password_unlocked_ready_encrypt)
                     } else {
-                        "开始加密前会提示输入本地密码（可勾选记住）"
+                        t(R.string.encrypt_asks_local_password_before_encrypting_remember)
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -398,7 +401,7 @@ fun EncryptScreen(onOpenDrawer: () -> Unit) {
                     )
                     Spacer(Modifier.width(6.dp))
                     Text(
-                        text = "请先选择输出目录",
+                        text = t(R.string.encrypt_choose_output_folder_first),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                     )
@@ -406,16 +409,16 @@ fun EncryptScreen(onOpenDrawer: () -> Unit) {
             }
 
             Spacer(Modifier.height(28.dp))
-            SectionHeader("加密后会发生什么")
+            SectionHeader(t(R.string.encrypt_what_happens_after_encryption))
 
             SakuraCard {
-                BulletLine("文件名会变成加密 token，例如 t0VGq1fpF9Z…")
+                BulletLine(t(R.string.encrypt_filenames_become_encrypted_tokens_eg))
                 Spacer(Modifier.height(8.dp))
-                BulletLine("内容按 1 MiB 分块，使用 AES-256-GCM 加密")
+                BulletLine(t(R.string.encrypt_content_split1_mi_b_chunks_encrypted))
                 Spacer(Modifier.height(8.dp))
-                BulletLine("密钥由密码经 PBKDF2（100,000 次迭代）派生，密码不会随文件保存")
+                BulletLine(t(R.string.encrypt_keys_derived_password_via_pbkdf2100))
                 Spacer(Modifier.height(8.dp))
-                BulletLine("原文件保持不变，可自行删除")
+                BulletLine(t(R.string.encrypt_original_file_unchanged_deleted))
             }
 
             Spacer(Modifier.height(40.dp))
@@ -440,11 +443,11 @@ fun EncryptScreen(onOpenDrawer: () -> Unit) {
     val progress = state.progress
     if (state.busy) {
         TaskProgressDialog(
-            title = "正在加密",
+            title = t(R.string.encrypt_encrypting),
             detail = if (progress != null) {
                 "${progress.fileName}  (${progress.index}/${progress.count})"
             } else {
-                "准备中…"
+                t(R.string.encrypt_preparing)
             },
             fraction = progress?.fraction ?: 0f,
             onSendToBackground = viewModel::dismissProgress,
@@ -470,9 +473,16 @@ private fun BulletLine(text: String) {
 }
 
 /** Which workspace the encryption screen is showing. */
-private enum class EncryptMode(val label: String) {
-    FILES("文件"),
-    TEXT("文本"),
+private enum class EncryptMode {
+    FILES,
+    TEXT;
+
+    /** Read on every draw so the segmented control follows the language. */
+    val label: String
+        get() = when (this) {
+            FILES -> t(R.string.player_files)
+            TEXT -> t(R.string.encrypt_text)
+        }
 }
 
 /**
@@ -523,7 +533,7 @@ private fun TextConverterPanel(
         }
         val source = input.trim()
         if (source.isEmpty()) {
-            error = "请先输入内容"
+            error = t(R.string.encrypt_enter_some_content_first)
             return
         }
 
@@ -541,9 +551,9 @@ private fun TextConverterPanel(
             }.onFailure {
                 output = ""
                 error = if (encrypting) {
-                    "加密失败"
+                    t(R.string.encrypt_encryption_failed)
                 } else {
-                    "解密失败：加密密码错误，或这段文字不是本工具生成的密文"
+                    t(R.string.encrypt_decryption_failed_wrong_password_text_produced)
                 }
             }
         }
@@ -553,8 +563,8 @@ private fun TextConverterPanel(
         OutlinedTextField(
             value = input,
             onValueChange = { input = it },
-            label = { Text("输入内容") },
-            placeholder = { Text("要加密的文字，或粘贴一段密文") },
+            label = { Text(t(R.string.encrypt_enter_content)) },
+            placeholder = { Text(t(R.string.encrypt_text_encrypt_paste_ciphertext)) },
             minLines = 4,
             maxLines = 8,
             modifier = Modifier.fillMaxWidth(),
@@ -563,7 +573,7 @@ private fun TextConverterPanel(
         if (!unlocked) {
             Spacer(Modifier.height(10.dp))
             Text(
-                text = "文本转换使用本地密码，首次使用会提示解锁",
+                text = t(R.string.encrypt_text_conversion_uses_local_password_asks),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -576,13 +586,13 @@ private fun TextConverterPanel(
                 onClick = { run(encrypting = true) },
                 shape = MaterialTheme.shapes.medium,
             ) {
-                Text("加密")
+                Text(t(R.string.app_encrypt))
             }
             OutlinedButton(
                 onClick = { run(encrypting = false) },
                 shape = MaterialTheme.shapes.medium,
             ) {
-                Text("解密")
+                Text(t(R.string.encrypt_decrypt))
             }
         }
 
@@ -600,7 +610,7 @@ private fun TextConverterPanel(
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             Spacer(Modifier.height(16.dp))
             Text(
-                text = "结果",
+                text = t(R.string.encrypt_result),
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -618,11 +628,11 @@ private fun TextConverterPanel(
                     val clipboard =
                         context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
                     clipboard?.setPrimaryClip(ClipData.newPlainText("ske-text", output))
-                    Toast.makeText(context, "已复制到剪贴板", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, t(R.string.encrypt_copied_clipboard), Toast.LENGTH_SHORT).show()
                 },
                 shape = MaterialTheme.shapes.medium,
             ) {
-                Text("复制结果")
+                Text(t(R.string.encrypt_copy_result))
             }
         }
     }

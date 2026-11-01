@@ -1,5 +1,8 @@
 package com.sakura.encryptor.core.security
 
+import com.sakura.encryptor.R
+import com.sakura.encryptor.ui.i18n.t
+
 import android.content.Context
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
@@ -64,11 +67,11 @@ object BiometricUnlock {
 
         prompt.authenticate(
             BiometricPrompt.PromptInfo.Builder()
-                .setTitle("解锁 Sakura Encryptor")
-                .setSubtitle("使用指纹或面容验证身份")
+                .setTitle(t(R.string.security_unlock_sakura_encryptor))
+                .setSubtitle(t(R.string.security_verify_fingerprint_face))
                 // Only factors the user ticked are accepted, so there is no
                 // "switch to the password" shortcut in this dialog.
-                .setNegativeButtonText("取消")
+                .setNegativeButtonText(t(R.string.security_cancel))
                 .setAllowedAuthenticators(AUTHENTICATORS)
                 .setConfirmationRequired(false)
                 .build()

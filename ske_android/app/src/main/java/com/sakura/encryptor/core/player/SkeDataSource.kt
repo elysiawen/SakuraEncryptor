@@ -1,5 +1,8 @@
 package com.sakura.encryptor.core.player
 
+import com.sakura.encryptor.R
+import com.sakura.encryptor.ui.i18n.t
+
 import android.net.Uri
 import androidx.media3.common.C
 import androidx.media3.datasource.BaseDataSource
@@ -173,7 +176,7 @@ class SkeDataSourceFactory(
     /** Resolve the password for [uri], failing loudly when the vault is locked. */
     internal fun passwordFor(uri: Uri): String =
         passwordProvider(uri)?.takeIf { it.isNotEmpty() }
-            ?: throw IOException("尚未解锁，无法解密该文件")
+            ?: throw IOException(t(R.string.player_locked_unlock_decrypt_file))
 
     /**
      * Build a decryptor for [header], reusing the memoised key when possible.
