@@ -5,7 +5,7 @@
     <EmptyState
       v-else-if="items.length === 0"
       icon="📂"
-      title="该目录为空"
+      :title="t('browser.emptyDir')"
     />
     <div
       v-else
@@ -42,6 +42,9 @@ import FileTile from './FileTile.vue'
 import LoadingState from '../common/LoadingState.vue'
 import ErrorState from '../common/ErrorState.vue'
 import EmptyState from '../common/EmptyState.vue'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 defineProps({
   items: { type: Array, default: () => [] },

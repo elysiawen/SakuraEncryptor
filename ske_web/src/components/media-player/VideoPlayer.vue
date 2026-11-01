@@ -2,7 +2,7 @@
   <div class="video-player">
     <div v-if="error" class="error-state">
       <n-alert type="error" :bordered="false">{{ errorText }}</n-alert>
-      <n-button quaternary @click="init">重试</n-button>
+      <n-button quaternary @click="init">{{ t('common.retry') }}</n-button>
     </div>
     <div v-else class="player-wrapper">
       <div ref="playerContainer" class="artplayer-container"></div>
@@ -12,10 +12,12 @@
 
 <script setup>
 import { computed, ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { useI18n } from 'vue-i18n'
 import Artplayer from 'artplayer'
 import { renderAssSubtitle, clearAssSubtitle, setAssScale } from '../../composables/useAssRenderer.js'
 import { useUpstreamAlerts } from '../../composables/useUpstreamAlerts.js'
 import { useFailureDiagnosis } from '../../composables/useDecryptDiagnosis.js'
+import { isZh } from '../../i18n/index.js'
 
 const props = defineProps({
   playUrl: { type: String, required: true },
@@ -30,11 +32,12 @@ const emit = defineEmits(['error', 'ready'])
 const playerContainer = ref(null)
 const error = ref('')
 
+const { t } = useI18n()
 const { dismissBanner } = useUpstreamAlerts()
 const { detail, examine, reset: resetDiagnosis } = useFailureDiagnosis(() => props.playUrl)
 
 // Only the first line is generic; the diagnosis replaces it with one cause.
-const errorText = computed(() => detail.value || '播放失败，正在检查原因…')
+const errorText = computed(() => detail.value || t('playerError.playingFailed'))
 
 // The page above has its own alert; it should say the same thing as this panel.
 watch(detail, (text) => {
@@ -96,7 +99,7 @@ async function applySubtitle() {
 
     const blob = new Blob([sub.content], { type: 'text/vtt' })
     vttBlobUrl = URL.createObjectURL(blob)
-    await art.subtitle.switch(vttBlobUrl, { name: sub.name || '字幕', type: 'vtt' })
+    await art.subtitle.switch(vttBlobUrl, { name: sub.name || t('player.subtitle'), type: 'vtt' })
     art.subtitle.show = true
     applyVttScale(props.subtitleScale)
   } catch (err) {
@@ -137,7 +140,8 @@ async function init() {
     lock: true,
     FAST_FORWARD: true,
     theme: '#8b5cf6',
-    lang: 'zh-cn',
+    // ArtPlayer owns its own control-bar strings, so it follows the app language.
+    lang: isZh() ? 'zh-cn' : 'en',
   })
 
   art.on('video:error', () => {

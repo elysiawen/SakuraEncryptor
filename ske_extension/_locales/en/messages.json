@@ -1,0 +1,108 @@
+{
+  "extName": {
+    "message": "Sakura Encryptor CORS Helper",
+    "description": "Extension name, also used as the panel heading and the toolbar tooltip."
+  },
+  "extDescription": {
+    "message": "Adds Access-Control-Allow-Origin to whitelisted drives so the web client can read and decrypt the ciphertext."
+  },
+  "popupSubtitle": {
+    "message": "Adds Access-Control-Allow-Origin to whitelisted drives so the web client can read the ciphertext."
+  },
+  "pageOriginLabel": {
+    "message": "Page origin:"
+  },
+  "unknownOrigin": {
+    "message": "Unknown (open this from the app page)"
+  },
+  "domainPlaceholder": {
+    "message": "Enter a host, e.g. pan.example.com"
+  },
+  "addButton": {
+    "message": "Add"
+  },
+  "autoAddLabel": {
+    "message": "Auto-add detected drives"
+  },
+  "autoAddNote": {
+    "message": "Turning this on gives the extension access to all sites; only hosts on the list are rewritten."
+  },
+  "enableLabel": {
+    "message": "Enabled"
+  },
+  "emptyList": {
+    "message": "No hosts added yet"
+  },
+  "removeButton": {
+    "message": "Remove"
+  },
+  "statusPaused": {
+    "message": "Paused"
+  },
+  "statusMissed": {
+    "message": "The rule does not match — add the host again"
+  },
+  "statusOk": {
+    "message": "Rules are active"
+  },
+  "statusApplied": {
+    "message": "Active: $domain$",
+    "placeholders": {
+      "domain": {
+        "content": "$1",
+        "example": "pan.example.com"
+      }
+    }
+  },
+  "errOpenOnAppPage": {
+    "message": "Open this extension from a Sakura Encryptor page before adding a host"
+  },
+  "errPermissionDenied": {
+    "message": "Access to the host or the page origin was not granted"
+  },
+  "errAddFailed": {
+    "message": "Could not add the host"
+  },
+  "errDomainRequired": {
+    "message": "Enter a host"
+  },
+  "errDomainInvalid": {
+    "message": "That is not a valid host name"
+  },
+  "errReadState": {
+    "message": "Could not read the saved state"
+  },
+  "pendingGranted": {
+    "message": "Access to $domain$ is already granted — just click \"Add\".",
+    "placeholders": {
+      "domain": {
+        "content": "$1",
+        "example": "pan.example.com"
+      }
+    }
+  },
+  "pendingDetected": {
+    "message": "Detected drive blocked by CORS: $domain$. Click \"Add\" and \"Allow\" in the prompt and it will be added automatically; the panel closing is normal. Then reload the page to decrypt.",
+    "placeholders": {
+      "domain": {
+        "content": "$1",
+        "example": "pan.example.com"
+      }
+    }
+  },
+  "statusNoAllSites": {
+    "message": "All-sites access was not granted; hosts are authorised one by one"
+  },
+  "statusAutoOn": {
+    "message": "Auto mode on"
+  },
+  "statusKeepAuto": {
+    "message": "Per-domain access was not granted; auto mode stays on"
+  },
+  "statusAllSitesKept": {
+    "message": "Could not revoke all-sites access; auto mode stays on"
+  },
+  "statusPerDomain": {
+    "message": "Switched to per-domain access"
+  }
+}

@@ -4,6 +4,7 @@
  * Uses fetch streaming + Range requests for true pause/resume support.
  */
 import { reactive, computed } from 'vue'
+import { t } from '../i18n/index.js'
 
 const tasks = reactive([])
 let nextId = 1
@@ -180,7 +181,7 @@ async function startDownload(task, { resumeFromPartial }) {
     }
 
     task.status = 'failed'
-    task.error = err?.message || '网络错误'
+    task.error = err?.message || t('errors.networkError')
   }
 }
 

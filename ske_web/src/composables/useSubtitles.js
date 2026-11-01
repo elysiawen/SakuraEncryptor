@@ -20,6 +20,7 @@ import { getNameKeyFromSession, decryptName } from './useCrypto.js'
 import { isSubtitle, getExt } from './useFileDetection.js'
 import { buildDecryptProxyUrl } from './useDecryptProxy.js'
 import { useLocalFiles } from './useLocalFiles.js'
+import { t, getLocale } from '../i18n/index.js'
 
 const LANG_LABELS = {
     'zh': '中文', 'chi': '中文',
@@ -32,11 +33,10 @@ const LANG_LABELS = {
     'de': 'Deutsch', 'ger': 'Deutsch',
     'es': 'Español', 'spa': 'Español',
     'ru': 'Русский', 'rus': 'Русский',
-    'bilingual': '双语', 'bi': '双语',
 }
 
 /** Strip the last extension: "a.b.srt" -> "a.b". */
-function baseName(name) {
+export function baseName(name) {
     const i = name.lastIndexOf('.')
     return i > 0 ? name.slice(0, i) : name
 }
@@ -60,6 +60,11 @@ function langTagOf(videoBase, subBase) {
 
 function langLabel(tag) {
     if (!tag) return ''
+    // "Bilingual" is the one pseudo-language that has to be translated; real
+    // language names stay in their own script.
+    if (tag.toLowerCase() === 'bilingual' || tag.toLowerCase() === 'bi') {
+        return t('tag.bilingual')
+    }
     return LANG_LABELS[tag.toLowerCase()] || tag.toUpperCase()
 }
 
@@ -69,7 +74,7 @@ function buildLabel(tag, ext) {
     return lang ? `${lang} · ${type}` : type
 }
 
-function joinPath(dir, name) {
+export function joinPath(dir, name) {
     if (!dir) return '/' + name
     return (dir.endsWith('/') ? dir : dir + '/') + name
 }
@@ -153,13 +158,13 @@ export async function loadSubtitleText(track) {
             const res = await fetch(url)
             if (!res.ok) throw new Error(`HTTP ${res.status}`)
             const text = decodeSubtitleBuffer(await res.arrayBuffer())
-            if (!text || !text.trim()) throw new Error('字幕内容为空')
+            if (!text || !text.trim()) throw new Error(t('errors.subtitleEmpty'))
             return text
         } catch (err) {
             lastError = err
         }
     }
-    throw lastError || new Error('字幕加载失败')
+    throw lastError || new Error(t('errors.subtitleLoadFailed'))
 }
 
 /** Build the payload consumed by VideoPlayer. */
@@ -173,7 +178,7 @@ export async function buildSubtitlePayload(track) {
 }
 
 /** Decrypt a stored filename when a session key is available. */
-async function decryptEntryName(encName, nameKey) {
+export async function decryptEntryName(encName, nameKey) {
     if (!nameKey) return encName
     let nameToDecrypt = encName
     if (nameToDecrypt.endsWith('.ske')) nameToDecrypt = nameToDecrypt.slice(0, -4)
@@ -181,8 +186,8 @@ async function decryptEntryName(encName, nameKey) {
     return result || encName
 }
 
-/** List the video's folder on AList. */
-async function listRemoteEntries(dirPath, nameKey) {
+/** List a remote folder, with each entry's name decrypted. */
+export async function listRemoteEntries(dirPath, nameKey) {
     const data = await listDir(dirPath)
     const files = (data.content || []).filter(entry => !entry.is_dir)
 
@@ -196,8 +201,8 @@ async function listRemoteEntries(dirPath, nameKey) {
     )
 }
 
-/** List the video's folder among the locally registered files. */
-function listLocalEntries(dirPath, nameKey) {
+/** List a folder among the locally registered files. */
+export function listLocalEntries(dirPath, nameKey) {
     const { state } = useLocalFiles()
     const localDir = dirPath.replace(/^\/local\/?/, '')
     const prefix = localDir ? localDir + '/' : ''
@@ -253,7 +258,7 @@ export function useSubtitles() {
             matched.sort((a, b) => {
                 if (a.tag === '' && b.tag !== '') return -1
                 if (b.tag === '' && a.tag !== '') return 1
-                return a.tag.localeCompare(b.tag, 'zh-CN')
+                return a.tag.localeCompare(b.tag, getLocale())
             })
 
             tracks.value = matched.map(item => ({

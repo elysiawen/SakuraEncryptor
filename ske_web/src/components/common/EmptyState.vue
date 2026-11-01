@@ -1,21 +1,25 @@
 <template>
   <div class="empty-state">
     <div class="empty-icon">{{ icon }}</div>
-    <h3>{{ title }}</h3>
+    <h3>{{ title || t('common.empty') }}</h3>
     <p v-if="description">{{ description }}</p>
     <n-button v-if="actionText" type="primary" @click="$emit('action')">{{ actionText }}</n-button>
   </div>
 </template>
 
 <script setup>
+import { useI18n } from 'vue-i18n'
+
 defineProps({
   icon: { type: String, default: '📂' },
-  title: { type: String, default: '暂无内容' },
+  title: { type: String, default: '' },
   description: { type: String, default: '' },
   actionText: { type: String, default: '' },
 })
 
 defineEmits(['action'])
+
+const { t } = useI18n()
 </script>
 
 <style scoped>

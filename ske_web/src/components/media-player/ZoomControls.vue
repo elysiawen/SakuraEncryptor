@@ -1,19 +1,23 @@
 <template>
   <div class="zoom-controls glass-card" :class="{ 'ui-hidden': !visible }" @click.stop>
-    <button @click="$emit('zoom-out')">➖</button>
+    <button @click="$emit('zoom-out')" :title="t('image.zoomOut')">➖</button>
     <span class="zoom-text">{{ Math.round(zoom * 100) }}%</span>
-    <button @click="$emit('zoom-in')">➕</button>
-    <button @click="$emit('reset')">🏠</button>
+    <button @click="$emit('zoom-in')" :title="t('image.zoomIn')">➕</button>
+    <button @click="$emit('reset')" :title="t('image.resetView')">🏠</button>
   </div>
 </template>
 
 <script setup>
+import { useI18n } from 'vue-i18n'
+
 defineProps({
   zoom: { type: Number, default: 1 },
   visible: { type: Boolean, default: true },
 })
 
 defineEmits(['zoom-in', 'zoom-out', 'reset'])
+
+const { t } = useI18n()
 </script>
 
 <style scoped>

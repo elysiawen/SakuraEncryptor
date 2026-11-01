@@ -1,0 +1,108 @@
+{
+  "extName": {
+    "message": "Sakura Encryptor 跨域小助手",
+    "description": "扩展名称，同时用作面板标题与按钮悬停提示。"
+  },
+  "extDescription": {
+    "message": "为指定网盘的跨域响应补上 Access-Control-Allow-Origin，让网页端可以读取密文并解密。"
+  },
+  "popupSubtitle": {
+    "message": "给指定网盘的跨域响应补 Access-Control-Allow-Origin，网页端才读得到密文。"
+  },
+  "pageOriginLabel": {
+    "message": "页面来源："
+  },
+  "unknownOrigin": {
+    "message": "未获取到（请在应用页面打开）"
+  },
+  "domainPlaceholder": {
+    "message": "请输入网址，例如 pan.example.com"
+  },
+  "addButton": {
+    "message": "添加"
+  },
+  "autoAddLabel": {
+    "message": "自动添加检测到的网盘"
+  },
+  "autoAddNote": {
+    "message": "开启后本插件会获得「所有网站」的读取权限，但只有列表里的域名才会被改写。"
+  },
+  "enableLabel": {
+    "message": "启用"
+  },
+  "emptyList": {
+    "message": "还没有添加域名"
+  },
+  "removeButton": {
+    "message": "移除"
+  },
+  "statusPaused": {
+    "message": "已暂停"
+  },
+  "statusMissed": {
+    "message": "规则未命中，请重新添加域名"
+  },
+  "statusOk": {
+    "message": "规则已生效"
+  },
+  "statusApplied": {
+    "message": "已生效：$domain$",
+    "placeholders": {
+      "domain": {
+        "content": "$1",
+        "example": "pan.example.com"
+      }
+    }
+  },
+  "errOpenOnAppPage": {
+    "message": "请先在 Sakura Encryptor 网页上打开本插件，再添加域名"
+  },
+  "errPermissionDenied": {
+    "message": "没有获得域名或页面来源的访问权限"
+  },
+  "errAddFailed": {
+    "message": "添加失败"
+  },
+  "errDomainRequired": {
+    "message": "请输入域名"
+  },
+  "errDomainInvalid": {
+    "message": "域名格式不正确"
+  },
+  "errReadState": {
+    "message": "读取状态失败"
+  },
+  "pendingGranted": {
+    "message": "已获得 $domain$ 的访问权限，点「添加」即可完成。",
+    "placeholders": {
+      "domain": {
+        "content": "$1",
+        "example": "pan.example.com"
+      }
+    }
+  },
+  "pendingDetected": {
+    "message": "检测到被跨域拦截的网盘 $domain$。点「添加」并在弹框中点「允许」就会自动加入，本面板被关闭不用管；回到网页刷新即可解密。",
+    "placeholders": {
+      "domain": {
+        "content": "$1",
+        "example": "pan.example.com"
+      }
+    }
+  },
+  "statusNoAllSites": {
+    "message": "没有获得全站权限，仍按域名逐个授权"
+  },
+  "statusAutoOn": {
+    "message": "自动模式已开启"
+  },
+  "statusKeepAuto": {
+    "message": "未授权逐个域名，保持自动模式"
+  },
+  "statusAllSitesKept": {
+    "message": "没能撤销全站权限，仍保持自动模式"
+  },
+  "statusPerDomain": {
+    "message": "已转为逐个域名授权"
+  }
+}

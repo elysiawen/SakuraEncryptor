@@ -1,12 +1,12 @@
 <template>
   <header class="media-topbar glass-card">
     <n-button quaternary size="small" @click="$emit('back')">
-      <span class="desktop-text">← 返回</span>
+      <span class="desktop-text">← {{ t('common.back') }}</span>
       <span class="mobile-text">←</span>
     </n-button>
     <div class="media-title truncate">{{ title }}</div>
     <n-button v-if="downloadUrl" quaternary size="small" @click="handleDownload">
-      <span class="desktop-text">⬇️ 下载</span>
+      <span class="desktop-text">⬇️ {{ t('common.download') }}</span>
       <span class="mobile-text">⬇️</span>
     </n-button>
     <div v-else style="width: 60px;"></div>
@@ -15,6 +15,7 @@
 </template>
 
 <script setup>
+import { useI18n } from 'vue-i18n'
 import { useDownloadManager } from '../../composables/useDownloadManager.js'
 
 const props = defineProps({
@@ -26,6 +27,7 @@ const props = defineProps({
 
 defineEmits(['back'])
 
+const { t } = useI18n()
 const { addTask } = useDownloadManager()
 
 function handleDownload() {

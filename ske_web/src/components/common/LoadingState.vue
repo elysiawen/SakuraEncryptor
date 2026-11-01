@@ -1,14 +1,18 @@
 <template>
   <div class="loading-state">
     <n-spin size="large" />
-    <p>{{ text }}</p>
+    <p>{{ text || t('common.loading') }}</p>
   </div>
 </template>
 
 <script setup>
+import { useI18n } from 'vue-i18n'
+
 defineProps({
-  text: { type: String, default: '正在加载…' },
+  text: { type: String, default: '' },
 })
+
+const { t } = useI18n()
 </script>
 
 <style scoped>

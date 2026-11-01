@@ -6,21 +6,24 @@
 
 <script setup>
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 const props = defineProps({
   // folder, video, image, audio, subtitle, file, encrypted, plain
   type: { type: String, required: true },
 })
 
-const labelMap = {
-  folder: '文件夹',
-  video: '视频',
-  image: '图片',
-  audio: '音乐',
-  subtitle: '字幕',
-  file: '文件',
-  encrypted: '加密',
-  plain: '未加密',
+const { t } = useI18n()
+
+const labelKeys = {
+  folder: 'tag.folder',
+  video: 'tag.video',
+  image: 'tag.image',
+  audio: 'tag.audio',
+  subtitle: 'tag.subtitle',
+  file: 'tag.file',
+  encrypted: 'tag.encrypted',
+  plain: 'tag.plain',
 }
 
 const tagTypeMap = {
@@ -34,6 +37,6 @@ const tagTypeMap = {
   plain: 'default',
 }
 
-const label = computed(() => labelMap[props.type] || '文件')
+const label = computed(() => t(labelKeys[props.type] || 'tag.file'))
 const tagType = computed(() => tagTypeMap[props.type] || 'default')
 </script>

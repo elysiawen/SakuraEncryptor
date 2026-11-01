@@ -1,7 +1,7 @@
 <template>
   <MediaLayout>
     <MediaTopbar
-      :title="decryptedName || '加载中…'"
+      :title="decryptedName || t('player.loading')"
       :download-url="downloadUrl"
       :download-name="decryptedName"
       :download-size="downloadSize"
@@ -15,12 +15,12 @@
           @select="onSubtitleSelect"
         >
           <n-button quaternary size="small" :loading="subtitleBusy">
-            <span class="desktop-text">💬 字幕</span>
+            <span class="desktop-text">💬 {{ t('player.subtitle') }}</span>
             <span class="mobile-text">💬</span>
           </n-button>
         </n-dropdown>
         <n-button quaternary size="small" @click="showPlaylist = !showPlaylist">
-          <span class="desktop-text">📋 列表</span>
+          <span class="desktop-text">📋 {{ t('player.playlist') }}</span>
           <span class="mobile-text">📋</span>
         </n-button>
       </template>
@@ -39,7 +39,7 @@
 
       <div v-if="error" class="error-msg">
         <n-alert type="error" :bordered="false">{{ error }}</n-alert>
-        <n-button quaternary @click="resolve">重试</n-button>
+        <n-button quaternary @click="resolve">{{ t('common.retry') }}</n-button>
       </div>
 
       <PerfMonitor v-if="isEncrypted" :perf="perf" />
@@ -49,7 +49,7 @@
       :items="playlist.items.value"
       :current-index="playlist.currentIndex.value"
       :visible="showPlaylist"
-      label="个"
+      :label="t('playlist.unitVideo')"
       @close="showPlaylist = false"
       @select="onPlaylistSelect"
     />
@@ -59,6 +59,7 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useMessage } from 'naive-ui'
 import MediaLayout from '../layouts/MediaLayout.vue'
 import MediaTopbar from '../components/media-player/MediaTopbar.vue'
@@ -72,6 +73,7 @@ import { useSubtitles, buildSubtitlePayload } from '../composables/useSubtitles.
 import { toDownloadUrl } from '../composables/useFileDownload.js'
 
 const route = useRoute()
+const { t } = useI18n()
 const message = useMessage()
 const { decryptedName, playUrl, isEncrypted, isLocal, rawUrl, rawSize, error, resolve, goBack } = useFileResolver()
 const playlist = usePlaylist('video')
@@ -97,26 +99,27 @@ const subtitlePayload = ref(null)
 const activeSubtitleId = ref('off')
 const subtitleBusy = ref(false)
 
-const SUBTITLE_SCALES = [
-  { label: '很小', value: 0.75 },
-  { label: '小', value: 0.9 },
-  { label: '标准', value: 1 },
-  { label: '大', value: 1.15 },
-  { label: '很大', value: 1.3 },
-  { label: '超大', value: 1.5 },
+// Keys, not sentences: the menu is rebuilt from the active locale.
+const SCALE_STEPS = [
+  { labelKey: 'player.sizes.xsmall', value: 0.75 },
+  { labelKey: 'player.sizes.small', value: 0.9 },
+  { labelKey: 'player.sizes.normal', value: 1 },
+  { labelKey: 'player.sizes.large', value: 1.15 },
+  { labelKey: 'player.sizes.xlarge', value: 1.3 },
+  { labelKey: 'player.sizes.xxlarge', value: 1.5 },
 ]
 
 const SCALE_STORAGE_KEY = 'ske_subtitle_scale'
 
 function loadScale() {
   const saved = Number(localStorage.getItem(SCALE_STORAGE_KEY))
-  return SUBTITLE_SCALES.some(item => item.value === saved) ? saved : 1
+  return SCALE_STEPS.some(item => item.value === saved) ? saved : 1
 }
 
 const subtitleScale = ref(loadScale())
 
 const subtitleMenuOptions = computed(() => {
-  const options = [{ label: '关闭字幕', key: 'off' }]
+  const options = [{ label: t('player.subtitleOff'), key: 'off' }]
 
   if (subtitleTracks.value.length > 0) {
     options.push({ type: 'divider', key: 'divider-tracks' })
@@ -125,10 +128,10 @@ const subtitleMenuOptions = computed(() => {
     }
     options.push({ type: 'divider', key: 'divider-scale' })
     options.push({
-      label: '字幕大小',
+      label: t('player.subtitleSize'),
       key: 'scale',
-      children: SUBTITLE_SCALES.map(item => ({
-        label: `${item.label} (${Math.round(item.value * 100)}%)` +
+      children: SCALE_STEPS.map(item => ({
+        label: `${t(item.labelKey)} (${Math.round(item.value * 100)}%)` +
           (item.value === subtitleScale.value ? ' ✓' : ''),
         key: `scale:${item.value}`,
       })),
@@ -164,7 +167,7 @@ async function selectSubtitle(id) {
     subtitlePayload.value = await buildSubtitlePayload(track)
   } catch (err) {
     subtitlePayload.value = null
-    message.error('字幕加载失败：' + (err?.message || '未知错误'))
+    message.error(t('player.subtitleLoadFailed', { reason: err?.message || t('errors.unknownError') }))
   } finally {
     subtitleBusy.value = false
   }

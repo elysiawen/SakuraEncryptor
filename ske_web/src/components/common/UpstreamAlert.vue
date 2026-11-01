@@ -5,10 +5,10 @@
         <template #header>{{ banner.title }}</template>
         {{ banner.message }}
         <p v-if="banner.link" class="download">
-          下载地址：<a :href="banner.link" target="_blank" rel="noopener noreferrer">{{ banner.link }}</a>
+          {{ t('upstream.downloadLink') }}<a :href="banner.link" target="_blank" rel="noopener noreferrer">{{ banner.link }}</a>
         </p>
         <div v-if="banner.canAdd" class="actions">
-          <n-button type="warning" strong :loading="adding" @click="addDrive">添加到插件</n-button>
+          <n-button type="warning" strong :loading="adding" @click="addDrive">{{ t('upstream.addToExtension') }}</n-button>
         </div>
         <p v-if="banner.note" class="note">{{ banner.note }}</p>
       </n-alert>
@@ -17,8 +17,10 @@
 </template>
 
 <script setup>
+import { useI18n } from 'vue-i18n'
 import { useUpstreamAlerts } from '../../composables/useUpstreamAlerts.js'
 
+const { t } = useI18n()
 const { banner, dismissBanner, adding, addDrive } = useUpstreamAlerts()
 </script>
 

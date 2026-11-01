@@ -2,122 +2,188 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8" />
-  <title>Sakura Encryptor 跨域小助手</title>
+  <title data-i18n="extName">Sakura Encryptor 跨域小助手</title>
   <style>
     :root {
-      --bg: #0d0d18;
-      --card: #17172a;
-      --line: rgba(255, 255, 255, 0.1);
-      --text: #e8e8f0;
-      --muted: #9090b0;
-      --accent: #8b5cf6;
-      --warn: #f59e0b;
-      --danger: #ef4444;
+      color-scheme: light;
+      --bg: #ffffff;
+      --card: #f7f7fb;
+      --card-hover: #f1f1f8;
+      --line: #e6e6ef;
+      --text: #1e1e2e;
+      --muted: #6f6f8a;
+      --accent: #7c3aed;
+      --accent-2: #db2777;
+      --ok: #16a34a;
+      --warn: #b45309;
+      --danger: #dc2626;
     }
 
     * { box-sizing: border-box; }
 
     body {
-      width: 330px;
+      width: 340px;
       margin: 0;
-      padding: 14px;
+      padding: 16px;
       background: var(--bg);
       color: var(--text);
-      font: 13px/1.5 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+      font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body::-webkit-scrollbar { width: 8px; }
+    body::-webkit-scrollbar-thumb {
+      border-radius: 4px;
+      background: rgba(0, 0, 0, 0.15);
+    }
+
+    /* ---- header ---- */
+
+    .top {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 6px;
+    }
+
+    .mark {
+      flex: none;
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      border: 1px solid var(--line);
+      background: #fff;
+      box-shadow: 0 2px 10px rgba(124, 58, 237, 0.16);
     }
 
     h1 {
-      margin: 0 0 4px;
-      font-size: 14px;
-      font-weight: 600;
+      margin: 0;
+      font-size: 14.5px;
+      font-weight: 650;
+      letter-spacing: 0.2px;
     }
 
     .sub {
-      margin: 0 0 12px;
+      margin: 0 0 14px;
       color: var(--muted);
-      font-size: 12px;
+      font-size: 11.5px;
+      line-height: 1.55;
     }
 
-    .hint {
-      margin: 0 0 12px;
-      padding: 8px 10px;
-      border: 1px solid rgba(245, 158, 11, 0.35);
-      border-radius: 8px;
-      background: rgba(245, 158, 11, 0.08);
-      color: #f0d9b0;
-      font-size: 12px;
-    }
+    /* ---- current page origin ---- */
 
     .origin {
+      display: flex;
+      align-items: center;
+      gap: 8px;
       margin: 0 0 10px;
+      padding: 8px 11px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--card);
       color: var(--muted);
-      font-size: 12px;
+      font-size: 11.5px;
+    }
+
+    .origin .label { flex: none; }
+
+    #origin {
+      min-width: 0;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      color: var(--text);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 11px;
+    }
+
+    /* ---- hints ---- */
+
+    .hint {
+      margin: 0 0 10px;
+      padding: 9px 11px 9px 13px;
+      border: 1px solid rgba(180, 83, 9, 0.22);
+      border-left: 3px solid rgba(180, 83, 9, 0.55);
+      border-radius: 10px;
+      background: #fff8ec;
+      color: #8a5a13;
+      font-size: 11.5px;
+      line-height: 1.55;
       word-break: break-all;
     }
 
     .hint.pending {
-      border-color: rgba(139, 92, 246, 0.45);
-      background: rgba(139, 92, 246, 0.1);
-      color: #d9cdfb;
-      word-break: break-all;
+      border-color: rgba(124, 58, 237, 0.28);
+      border-left-color: var(--accent);
+      background: #f5f1ff;
+      color: #5b3fae;
     }
 
-    .origin span { color: var(--text); }
+    /* ---- add form ---- */
 
     form {
       display: flex;
-      gap: 6px;
-      margin-bottom: 10px;
+      gap: 8px;
+      margin-bottom: 12px;
     }
 
-    /* Scoped on purpose: a bare `input` rule also hits the two checkboxes,
-       stretches them with `flex: 1` and hides their labels behind it. */
     #domain {
       flex: 1;
       min-width: 0;
-      padding: 7px 9px;
+      padding: 9px 11px;
       border: 1px solid var(--line);
-      border-radius: 8px;
-      background: rgba(255, 255, 255, 0.04);
+      border-radius: 10px;
+      background: #fff;
       color: var(--text);
       font-size: 12px;
+      transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
     }
+
+    #domain::placeholder { color: #a0a0b8; }
 
     #domain:focus {
       outline: none;
-      border-color: var(--accent);
+      border-color: rgba(124, 58, 237, 0.55);
+      background: #faf8ff;
+      box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.14);
     }
 
-    input[type="checkbox"] {
+    #add {
       flex: none;
-      width: 14px;
-      height: 14px;
-      margin: 0;
-      accent-color: var(--accent);
-    }
-
-    button {
-      padding: 7px 12px;
+      padding: 0 16px;
       border: none;
-      border-radius: 8px;
-      background: var(--accent);
+      border-radius: 10px;
+      background: linear-gradient(135deg, #3b82f6, #2563eb);
       color: #fff;
       font-size: 12px;
+      font-weight: 600;
       cursor: pointer;
+      box-shadow: 0 4px 14px rgba(37, 99, 235, 0.26);
+      transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
     }
 
-    button:disabled {
-      opacity: 0.5;
-      cursor: default;
+    #add:hover:not(:disabled) {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 18px rgba(37, 99, 235, 0.34);
     }
+
+    #add:active:not(:disabled) { transform: translateY(0) scale(0.98); }
+
+    #add:disabled {
+      opacity: 0.55;
+      cursor: default;
+      box-shadow: none;
+    }
+
+    /* ---- domain list ---- */
 
     ul {
-      margin: 0 0 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin: 0 0 12px;
       padding: 0;
       list-style: none;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      overflow: hidden;
     }
 
     li {
@@ -125,113 +191,201 @@
       align-items: center;
       justify-content: space-between;
       gap: 8px;
-      padding: 7px 10px;
+      padding: 8px 10px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
       background: var(--card);
       font-size: 12px;
-      word-break: break-all;
+      transition: background 0.15s ease, border-color 0.15s ease;
     }
 
-    li + li { border-top: 1px solid var(--line); }
-
-    .empty {
-      padding: 10px;
-      color: var(--muted);
-      font-size: 12px;
-      text-align: center;
+    li:hover {
+      background: var(--card-hover);
+      border-color: #dcdce8;
     }
 
-    .badge {
-      flex: none;
-      padding: 1px 7px;
-      border-radius: 999px;
-      font-size: 11px;
+    li > span:first-child {
+      min-width: 0;
+      overflow: hidden;
       white-space: nowrap;
+      text-overflow: ellipsis;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 11.5px;
     }
 
-    .badge.ok { background: rgba(34, 197, 94, 0.15); color: #22c55e; }
-    .badge.bad { background: rgba(239, 68, 68, 0.15); color: var(--danger); }
-    .badge.unknown { background: rgba(255, 255, 255, 0.06); color: var(--muted); }
+    li.empty {
+      justify-content: center;
+      padding: 14px 10px;
+      border-style: dashed;
+      border-color: var(--line);
+      background: transparent;
+      color: var(--muted);
+      font-size: 11.5px;
+      font-style: normal;
+    }
 
     .remove {
       flex: none;
-      padding: 2px 8px;
-      border-radius: 6px;
+      padding: 3px 8px;
+      border: none;
+      border-radius: 8px;
       background: transparent;
       color: var(--muted);
-      font-size: 12px;
+      font-size: 11.5px;
+      cursor: pointer;
+      transition: background 0.15s ease, color 0.15s ease;
     }
 
     .remove:hover {
-      background: rgba(239, 68, 68, 0.15);
+      background: rgba(220, 38, 38, 0.08);
       color: var(--danger);
     }
 
-    .auto {
+    /* ---- toggles ---- */
+
+    .auto-block {
+      margin-bottom: 12px;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--card);
+    }
+
+    .toggle {
       display: flex;
       align-items: center;
-      gap: 6px;
-      margin-bottom: 4px;
+      gap: 9px;
       color: var(--text);
+      font-size: 12px;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .toggle input {
+      position: absolute;
+      width: 0;
+      height: 0;
+      margin: 0;
+      opacity: 0;
+    }
+
+    .track {
+      position: relative;
+      flex: none;
+      width: 34px;
+      height: 20px;
+      border-radius: 999px;
+      background: #d9d9e6;
+      transition: background 0.18s ease;
+    }
+
+    .track::after {
+      content: "";
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: #fff;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+      transition: transform 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .toggle input:checked + .track {
+      background: linear-gradient(135deg, #3b82f6, #2563eb);
+    }
+
+    .toggle input:checked + .track::after { transform: translateX(14px); }
+
+    .toggle input:focus-visible + .track {
+      box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.2);
     }
 
     .auto-note {
-      margin: 0 0 10px;
+      margin: 7px 0 0;
+      padding-left: 43px;
       color: var(--muted);
-      font-size: 11px;
-      line-height: 1.4;
+      font-size: 10.5px;
+      line-height: 1.5;
     }
+
+    /* ---- footer ---- */
 
     footer {
       display: flex;
+      flex-wrap: wrap;
       align-items: center;
       justify-content: space-between;
-      padding-top: 10px;
+      gap: 8px 10px;
+      padding-top: 12px;
       border-top: 1px solid var(--line);
     }
 
-    label {
-      display: flex;
+    .status {
+      display: inline-flex;
       align-items: center;
       gap: 6px;
+      max-width: 100%;
+      padding: 3px 9px;
+      border-radius: 999px;
+      overflow: hidden;
+      background: #f0f0f6;
       color: var(--muted);
-      font-size: 12px;
+      font-size: 11px;
+      white-space: nowrap;
+      text-overflow: ellipsis;
     }
 
-    .status {
-      color: var(--muted);
-      font-size: 12px;
+    .status::before {
+      content: "";
+      flex: none;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: currentColor;
     }
 
-    .status.on { color: #22c55e; }
-    .status.off { color: var(--warn); }
-    .status.error { color: var(--danger); }
+    .status.on { background: #e8f7ee; color: var(--ok); }
+    .status.off { background: #fdf3e3; color: var(--warn); }
+    .status.error { background: #fdecec; color: var(--danger); }
   </style>
 </head>
 <body>
-  <h1>Sakura Encryptor 跨域小助手</h1>
-  <p class="sub">给指定网盘的跨域响应补 <code>Access-Control-Allow-Origin</code>，网页端才读得到密文。</p>
+  <header class="top">
+    <img class="mark" src="icons/icon48.png" alt="" />
+    <h1 data-i18n="extName">Sakura Encryptor 跨域小助手</h1>
+  </header>
+  <p class="sub" data-i18n="popupSubtitle">给指定网盘的跨域响应补 Access-Control-Allow-Origin，网页端才读得到密文。</p>
 
-  <p class="origin">页面来源：<span id="origin">—</span></p>
+  <div class="origin">
+    <span class="label" data-i18n="pageOriginLabel">页面来源：</span>
+    <span id="origin">—</span>
+  </div>
 
   <p id="pending" class="hint pending" hidden></p>
 
   <form id="add-form">
-    <input id="domain" placeholder="请输入网址，例如 pan.example.com" autocomplete="off" spellcheck="false" />
-    <button id="add" type="submit">添加</button>
+    <input id="domain" data-i18n-placeholder="domainPlaceholder" placeholder="请输入网址，例如 pan.example.com" autocomplete="off" spellcheck="false" />
+    <button id="add" type="submit" data-i18n="addButton">添加</button>
   </form>
 
   <ul id="list"></ul>
 
-  <label class="auto">
-    <input id="auto" type="checkbox" />
-    <span>自动添加检测到的网盘</span>
-  </label>
-  <p class="auto-note">开启后本插件会获得「所有网站」的读取权限，但只有列表里的域名才会被改写。</p>
+  <div class="auto-block">
+    <label class="toggle">
+      <input id="auto" type="checkbox" />
+      <span class="track"></span>
+      <span data-i18n="autoAddLabel">自动添加检测到的网盘</span>
+    </label>
+    <p class="auto-note" data-i18n="autoAddNote">开启后本插件会获得「所有网站」的读取权限，但只有列表里的域名才会被改写。</p>
+  </div>
 
   <footer>
-    <label>
+    <label class="toggle">
       <input id="enabled" type="checkbox" />
-      启用
+      <span class="track"></span>
+      <span data-i18n="enableLabel">启用</span>
     </label>
     <span id="status" class="status">—</span>
   </footer>

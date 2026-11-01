@@ -4,6 +4,7 @@
  * Extracted from MusicView: play/pause, seek, volume, mute, loop, retry.
  */
 import { ref } from 'vue'
+import { t } from '../i18n/index.js'
 
 export function useAudioControls(audioEl, playUrl) {
   const isPlaying = ref(false)
@@ -60,7 +61,7 @@ export function useAudioControls(audioEl, playUrl) {
       }, 800)
       return
     }
-    if (onErrorMsg) onErrorMsg('音频加载重试失败，请检查网络或刷新页面。')
+    if (onErrorMsg) onErrorMsg(t('errors.audioRetryFailed'))
   }
 
   function seek(e, progressWrapper) {

@@ -4,22 +4,41 @@
       <img src="/logo.png" alt="Logo" width="24" height="24" style="border-radius: 4px;" />
       <div class="brand text-gradient">Sakura Encryptor</div>
       <div v-if="showBreadcrumbs" class="breadcrumb">
-        <span class="crumb clickable" @click="navigateTo('/')">🏠 根目录</span>
+        <span class="crumb clickable" @click="navigateTo('/')">🏠 {{ t('topbar.root') }}</span>
         <template v-for="(seg, i) in globalState.decryptedSegments" :key="i">
           <span class="crumb-sep">/</span>
           <span class="crumb clickable" @click="navigateTo(breadcrumbPath(i))">{{ seg }}</span>
         </template>
       </div>
     </div>
-    <n-button quaternary size="small" @click="handleLogout">退出</n-button>
+    <div class="topbar-actions">
+      <LanguageSwitcher icon-only />
+      <n-button quaternary size="small" :title="t('topbar.signOut')" @click="handleLogout">
+        <svg
+          class="logout-icon"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.7"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3" />
+          <path d="M10 8 6 12l4 4" />
+          <path d="M6 12h9" />
+        </svg>
+      </n-button>
+    </div>
   </header>
 </template>
 
 <script setup>
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { globalState } from '../../composables/useGlobalState.js'
 import { useLocalFiles } from '../../composables/useLocalFiles.js'
+import LanguageSwitcher from './LanguageSwitcher.vue'
 
 defineProps({
   showBreadcrumbs: { type: Boolean, default: false },
@@ -27,6 +46,7 @@ defineProps({
 
 const route = useRoute()
 const router = useRouter()
+const { t } = useI18n()
 const { clearFiles } = useLocalFiles()
 
 // Both /browse/:path and /local/:path expose the folder segments in the same
@@ -51,6 +71,27 @@ function handleLogout() {
 </script>
 
 <style scoped>
+.logout-icon {
+  width: 16px;
+  height: 16px;
+  display: block;
+  /* Door on the left, arrow leaving to the right: signing out, not in. */
+  transform: scaleX(-1);
+}
+
+/* The two icon buttons read as one cluster, not as two separate actions. */
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  flex-shrink: 0;
+}
+
+.topbar-actions :deep(.n-button) {
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
 .topbar {
   display: flex;
   align-items: center;
@@ -114,6 +155,7 @@ function handleLogout() {
 @media (max-width: 600px) {
   .topbar {
     padding: 10px 12px;
+    gap: 4px;
   }
 
   .brand {
@@ -122,6 +164,12 @@ function handleLogout() {
 
   .topbar-left {
     gap: 8px;
+  }
+
+  /* Icons are cheap: the touch target stays 32px tall, only the sides shrink. */
+  .topbar-actions :deep(.n-button) {
+    padding-left: 4px;
+    padding-right: 4px;
   }
 }
 </style>

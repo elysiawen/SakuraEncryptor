@@ -13,6 +13,7 @@ import {
     MULTIPART_MAX_RETRIES,
     MULTIPART_FALLBACK_STATUS,
 } from './remoteClient.js'
+import { t } from '../i18n/index.js'
 
 /**
  * Chunked upload: init → sequential chunks → complete.
@@ -39,7 +40,7 @@ export async function uploadMultipart(ctx, absPath, file, { onProgress } = {}) {
     })
     const initJson = await readJson(initRes)
     if (!initRes.ok || initJson?.code !== 200) {
-        const err = new Error(initJson?.message || '分片上传初始化失败')
+        const err = new Error(initJson?.message || t('errors.chunkInitFailed'))
         err.multipartUnsupported = MULTIPART_FALLBACK_STATUS.has(initRes.status)
         throw err
     }
@@ -49,7 +50,7 @@ export async function uploadMultipart(ctx, absPath, file, { onProgress } = {}) {
     const chunkSize = Number(session.chunk_size) || 10 * 1024 * 1024
     const totalChunks = Number(session.total_chunks) || Math.ceil(file.size / chunkSize)
     if (!uploadId) {
-        const err = new Error('分片上传响应缺少 upload_id')
+        const err = new Error(t('errors.chunkNoUploadId'))
         err.multipartUnsupported = true
         throw err
     }
@@ -82,7 +83,7 @@ export async function uploadMultipart(ctx, absPath, file, { onProgress } = {}) {
         })
         const completeJson = await readJson(completeRes)
         if (!completeRes.ok || completeJson?.code !== 200) {
-            throw new Error(completeJson?.message || '分片上传合并失败')
+            throw new Error(completeJson?.message || t('errors.chunkMergeFailed'))
         }
         onProgress?.(1)
         return completeJson.data
@@ -114,7 +115,7 @@ async function sendChunk(ctx, uploadId, index, blob) {
             await new Promise(resolve => setTimeout(resolve, 300 + attempt * 300))
             continue
         }
-        throw new Error(json?.message || `分片 ${index} 上传失败`)
+        throw new Error(json?.message || t('errors.chunkFailed', { index }))
     }
-    throw new Error(`分片 ${index} 上传失败：服务器持续繁忙，请稍后重试`)
+    throw new Error(t('errors.chunkBusy', { index }))
 }

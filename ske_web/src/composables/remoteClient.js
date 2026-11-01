@@ -8,6 +8,8 @@
  * per-provider session state and storage keys.
  */
 
+import { t } from '../i18n/index.js'
+
 /** Error carrying the API `code`; 402 means a TOTP code is required. */
 export class RemoteError extends Error {
     constructor(code, message) {
@@ -107,7 +109,7 @@ export async function login(server, username, password, otpCode = '', label = 'A
         throw new RemoteError(
             json.code,
             json.code === 402
-                ? '该账号已开启两步验证，请输入动态验证码'
+                ? t('errors.otpRequired')
                 : (json.message || `${label} login failed`)
         )
     }
@@ -213,7 +215,7 @@ export async function rename(ctx, absPath, newName) {
         body: JSON.stringify({ path: absPath, name: newName }),
     })
     const json = await res.json()
-    if (json.code !== 200) throw new Error(json.message || '重命名失败')
+    if (json.code !== 200) throw new Error(json.message || t('errors.renameFailed'))
     return json.data
 }
 
@@ -228,7 +230,7 @@ export async function mkdir(ctx, absPath) {
         body: JSON.stringify({ path: absPath }),
     })
     const json = await res.json()
-    if (json.code !== 200) throw new Error(json.message || '创建文件夹失败')
+    if (json.code !== 200) throw new Error(json.message || t('errors.mkdirFailed'))
     return json.data
 }
 
@@ -285,7 +287,7 @@ async function uploadForm(ctx, absPath, file, asTask = false) {
 
     const json = await readJson(res)
     if (!res.ok || json?.code !== 200) {
-        throw new Error(json?.message || '上传文件失败')
+        throw new Error(json?.message || t('errors.remoteUploadFailed'))
     }
     return json.data
 }
@@ -293,7 +295,7 @@ async function uploadForm(ctx, absPath, file, asTask = false) {
 export function normalizeUploadPath(path) {
     const trimmed = (path || '').trim()
     if (!trimmed || trimmed === '/') {
-        throw new Error('上传文件路径不能为空')
+        throw new Error(t('errors.uploadPathEmpty'))
     }
     const withLeadingSlash = trimmed.startsWith('/') ? trimmed : `/${trimmed}`
     return encodeURI(withLeadingSlash)
@@ -310,7 +312,7 @@ export async function remove(ctx, absDir, names) {
         body: JSON.stringify({ dir: absDir, names }),
     })
     const json = await res.json()
-    if (json.code !== 200) throw new Error(json.message || '删除失败')
+    if (json.code !== 200) throw new Error(json.message || t('errors.deleteFailed'))
     return json.data
 }
 

@@ -18,8 +18,8 @@
       />
       <FileIcon v-else class="fallback-icon" :item="item" />
 
-      <span v-if="isVideo" class="play-badge" title="视频">▶</span>
-      <span v-if="encrypted" class="badge" title="加密文件">🔒</span>
+      <span v-if="isVideo" class="play-badge" :title="t('tag.video')">▶</span>
+      <span v-if="encrypted" class="badge" :title="t('tag.encrypted')">🔒</span>
       <span v-if="!item.is_dir && item.size" class="badge size-badge">
         {{ formatSize(item.size) }}
       </span>
@@ -31,6 +31,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import FileIcon from '../common/FileIcon.vue'
 import { formatSize, isEncryptedFileName } from '../../composables/useFileDetection.js'
 import {
@@ -47,6 +48,8 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['click', 'contextmenu'])
+
+const { t } = useI18n()
 
 const root = ref(null)
 const thumbUrl = ref('')

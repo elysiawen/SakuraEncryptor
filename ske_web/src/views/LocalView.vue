@@ -29,6 +29,7 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import DefaultLayout from '../layouts/DefaultLayout.vue'
 import FileBrowser from '../components/file-browser/FileBrowser.vue'
 import LoadingState from '../components/common/LoadingState.vue'
@@ -43,6 +44,7 @@ import {
   useLocalDirectory,
 } from '../composables/useLocalDirectory.js'
 
+const { t } = useI18n()
 const { state: filesState, registerFiles } = useLocalFiles()
 const { state: source } = useLocalDirectory()
 const folderInput = ref(null)
@@ -58,35 +60,35 @@ const gate = computed(() => {
   switch (source.status) {
     case LOCAL_STATUS.NEEDS_PERMISSION:
       return {
-        title: '本地目录需要重新授权',
-        description: `浏览器不会跨刷新保留文件夹访问权限。点一下即可重新连接「${source.folderName}」，无需再去找目录。`,
-        action: '重新授权',
+        title: t('local.needsPermissionTitle'),
+        description: t('local.needsPermissionBody', { name: source.folderName }),
+        action: t('local.reauthorize'),
       }
     case LOCAL_STATUS.DENIED:
       return {
-        title: '本地目录的访问权限已被拒绝',
-        description: '请在浏览器的网站设置里允许读取该文件夹，或重新选择一个。',
-        action: '重新选择文件夹',
+        title: t('local.deniedTitle'),
+        description: t('local.deniedBody'),
+        action: t('local.repickFolder'),
       }
     case LOCAL_STATUS.ERROR:
       return {
-        title: '无法恢复本地目录',
-        description: source.message || '请重新选择文件夹。',
-        action: '重新选择文件夹',
+        title: t('local.errorTitle'),
+        description: source.message || t('local.errorFallback'),
+        action: t('local.repickFolder'),
       }
     case LOCAL_STATUS.UNSUPPORTED:
       return {
-        title: '本地目录未连接',
-        description: '当前浏览器不支持记住文件夹（Firefox / Safari），刷新后需要重新选择；Chrome / Edge 可以自动恢复。',
-        action: '选择文件夹',
+        title: t('local.unsupportedTitle'),
+        description: t('local.unsupportedBody'),
+        action: t('local.pickFolder'),
       }
     default:
       return {
-        title: '本地目录未连接',
+        title: t('local.disconnectedTitle'),
         description: supportsDirectoryHandles
-          ? '选择一个文件夹即可浏览。之后刷新会自动尝试恢复上次的目录。'
-          : '当前浏览器不支持记住文件夹，请选择文件夹后继续。',
-        action: '选择文件夹',
+          ? t('local.disconnectedRestorable')
+          : t('local.disconnectedPlain'),
+        action: t('local.pickFolder'),
       }
   }
 })
@@ -106,7 +108,7 @@ async function onReconnect() {
     } catch (err) {
       // Dismissing the picker is not a failure.
       if (err?.name !== 'AbortError') {
-        source.message = err.message || '无法读取该文件夹'
+        source.message = err.message || t('errors.readFolderFailed')
         source.status = LOCAL_STATUS.ERROR
       }
     }

@@ -6,7 +6,7 @@
     <Transition name="panel">
       <div v-if="visible" class="playlist-panel glass-card">
         <div class="playlist-header">
-          <span class="playlist-title">播放列表</span>
+          <span class="playlist-title">{{ t('playlist.title') }}</span>
           <span class="playlist-count">{{ items.length }} {{ label }}</span>
           <button class="close-btn" @click="$emit('close')">✕</button>
         </div>
@@ -29,13 +29,17 @@
 
 <script setup>
 import { nextTick, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 const props = defineProps({
   items: { type: Array, default: () => [] },
   currentIndex: { type: Number, default: -1 },
   visible: { type: Boolean, default: false },
-  label: { type: String, default: '首' },
+  /** Count noun, already translated by the caller ("个" / "items"). */
+  label: { type: String, default: '' },
 })
+
+const { t } = useI18n()
 
 defineEmits(['close', 'select'])
 

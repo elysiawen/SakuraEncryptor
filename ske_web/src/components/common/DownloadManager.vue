@@ -1,7 +1,7 @@
 <template>
   <div v-if="hasTasks" ref="managerRef" class="dl-manager" :style="managerStyle">
     <!-- Toggle Button -->
-    <button class="dl-fab" @click="expanded = !expanded" :title="`${activeCount} 个下载中`">
+    <button class="dl-fab" @click="expanded = !expanded" :title="t('download.activeCount', { count: activeCount })">
       <span class="dl-fab-icon" :class="{ pulse: activeCount > 0 }">⬇️</span>
       <span v-if="activeCount > 0" class="dl-badge">{{ activeCount }}</span>
     </button>
@@ -10,8 +10,8 @@
     <Transition name="panel">
       <div v-if="expanded" class="dl-panel glass-card" :style="mobilePanelStyle">
         <div class="dl-header">
-          <span class="dl-title">下载管理</span>
-          <button class="dl-clear" @click="clearCompleted" title="清除已完成">清除</button>
+          <span class="dl-title">{{ t('download.title') }}</span>
+          <button class="dl-clear" @click="clearCompleted" :title="t('download.clearCompleted')">{{ t('download.clear') }}</button>
         </div>
 
         <div class="dl-list">
@@ -24,11 +24,11 @@
                   <span v-if="task.speed > 0" class="dl-speed">{{ formatSpeed(task.speed) }}</span>
                 </template>
                 <template v-else-if="task.status === 'paused'">
-                  ⏸ 暂停 · {{ formatBytes(task.loaded) }}{{ task.total ? ' / ' + formatBytes(task.total) : '' }}
+                  {{ t('download.paused') }} · {{ formatBytes(task.loaded) }}{{ task.total ? ' / ' + formatBytes(task.total) : '' }}
                 </template>
-                <template v-else-if="task.status === 'completed'">✅ 完成</template>
-                <template v-else-if="task.status === 'cancelled'">⛔ 已取消</template>
-                <template v-else-if="task.status === 'failed'">❌ {{ task.error }}</template>
+                <template v-else-if="task.status === 'completed'">{{ t('download.completed') }}</template>
+                <template v-else-if="task.status === 'cancelled'">{{ t('download.cancelled') }}</template>
+                <template v-else-if="task.status === 'failed'">{{ t('download.failed', { error: task.error }) }}</template>
               </span>
             </div>
 
@@ -47,31 +47,31 @@
                 v-if="task.status === 'downloading'"
                 class="dl-btn"
                 @click="pauseTask(task.id)"
-                title="暂停"
+                :title="t('download.pause')"
               >⏸</button>
               <button
                 v-if="task.status === 'paused'"
                 class="dl-btn"
                 @click="resumeTask(task.id)"
-                title="继续"
+                :title="t('download.resume')"
               >▶</button>
               <button
                 v-if="task.status === 'downloading' || task.status === 'paused'"
                 class="dl-btn"
                 @click="cancelTask(task.id)"
-                title="取消"
+                :title="t('download.cancel')"
               >✕</button>
               <button
                 v-if="task.status === 'failed' || task.status === 'cancelled'"
                 class="dl-btn"
                 @click="retryTask(task.id)"
-                title="重试"
+                :title="t('download.retry')"
               >↻</button>
               <button
                 v-if="task.status !== 'downloading' && task.status !== 'paused'"
                 class="dl-btn"
                 @click="removeTask(task.id)"
-                title="移除"
+                :title="t('download.remove')"
               >✕</button>
             </div>
           </div>
@@ -83,9 +83,11 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useDownloadManager } from '../../composables/useDownloadManager.js'
 import { useFabManager, FAB_BASE_DESKTOP, FAB_BASE_MOBILE, FAB_SIZE, FAB_GAP } from '../../composables/useFabManager.js'
 
+const { t } = useI18n()
 const { tasks, activeCount, hasTasks, cancelTask, pauseTask, resumeTask, retryTask, removeTask, clearCompleted } = useDownloadManager()
 const { count } = useFabManager()
 const managerRef = ref(null)

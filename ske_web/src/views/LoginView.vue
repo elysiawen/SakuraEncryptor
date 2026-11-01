@@ -1,34 +1,37 @@
 <template>
   <div class="login-page">
+    <div class="login-lang">
+      <LanguageSwitcher />
+    </div>
     <div class="login-wrapper">
       <div class="orb orb-1"></div>
       <div class="orb orb-2"></div>
 
       <div class="login-header">
         <h1>Sakura Encryptor</h1>
-        <p class="subtitle">极简、美观、安全的高性能流式解密播放器</p>
+        <p class="subtitle">{{ t('login.subtitle') }}</p>
       </div>
 
       <div class="login-card glass-card">
         <!-- Tab Switcher -->
         <div class="tab-switcher">
           <button class="tab-btn" :class="{ active: currentTab === 'alist' }" @click="selectTab('alist')">
-            AList 云端
+            {{ t('login.tabAlist') }}
           </button>
           <button class="tab-btn" :class="{ active: currentTab === 'openlist' }" @click="selectTab('openlist')">
-            OpenList 云端
+            {{ t('login.tabOpenlist') }}
           </button>
           <button class="tab-btn" :class="{ active: currentTab === 'local' }" @click="selectTab('local')">
-            本地库
+            {{ t('login.tabLocal') }}
           </button>
         </div>
 
         <form @submit.prevent="handleUnifiedSubmit" class="login-form">
           <!-- AList / OpenList Tab -->
           <div v-if="isCloud" class="tab-content transition-fade">
-            <div class="section-label">{{ providerLabel }} 连接配置</div>
+            <div class="section-label">{{ t('login.cloudConfig', { provider: providerLabel }) }}</div>
             <div class="form-group">
-              <label for="cloud-server">服务器地址</label>
+              <label for="cloud-server">{{ t('login.server') }}</label>
               <n-input
                 id="cloud-server"
                 v-model:value="cloudServer"
@@ -38,25 +41,25 @@
             </div>
             <div class="form-row">
               <div class="form-group">
-                <label for="cloud-user">用户名</label>
+                <label for="cloud-user">{{ t('login.username') }}</label>
                 <n-input id="cloud-user" v-model:value="cloudUser" placeholder="admin" />
               </div>
               <div class="form-group">
-                <label for="cloud-pass">密码</label>
+                <label for="cloud-pass">{{ t('login.password') }}</label>
                 <n-input id="cloud-pass" v-model:value="cloudPass" type="password" show-password-on="click" placeholder="••••••" />
               </div>
             </div>
             <div class="form-group">
-              <label for="cloud-root">{{ providerLabel }} 根目录 (可选)</label>
+              <label for="cloud-root">{{ t('login.rootPath', { provider: providerLabel }) }}</label>
               <n-input id="cloud-root" v-model:value="cloudRootPath" placeholder="/" :input-props="{ name: 'cloud-root', 'data-bw-fieldname': 'cloud-root' }" />
             </div>
             <!-- AList and OpenList both answer 402 when 2FA is enabled. -->
             <div v-if="isCloud && otpRequired" class="form-group">
-              <label for="cloud-otp">两步验证码</label>
+              <label for="cloud-otp">{{ t('login.otp') }}</label>
               <n-input
                 id="cloud-otp"
                 v-model:value="otpCode"
-                placeholder="6 位动态验证码"
+                :placeholder="t('login.otpPlaceholder')"
                 maxlength="6"
                 :input-props="{ autocomplete: 'one-time-code' }"
               />
@@ -65,13 +68,15 @@
 
           <!-- Local Tab -->
           <div v-else class="tab-content transition-fade">
-            <div class="section-label">本地文件/文件夹</div>
+            <div class="section-label">{{ t('login.localSection') }}</div>
             <div class="local-picker-zone" @click="triggerFolderPicker">
               <div class="picker-icon">📂</div>
               <div class="picker-text">
-                <span v-if="localFileCount === 0">点击选择文件夹</span>
-                <span v-else-if="localDirName">已选择「{{ localDirName }}」共 {{ localFileCount }} 个文件</span>
-                <span v-else>已选择 {{ localFileCount }} 个文件</span>
+                <span v-if="localFileCount === 0">{{ t('login.chooseFolder') }}</span>
+                <span v-else-if="localDirName">
+                  {{ t('login.selectedDir', { name: localDirName, count: localFileCount }) }}
+                </span>
+                <span v-else>{{ t('login.selectedFiles', { count: localFileCount }) }}</span>
               </div>
               <input
                 type="file" ref="folderInput" class="hidden-input"
@@ -79,21 +84,21 @@
                 @change="onLocalFilesChange"
               />
             </div>
-            <p class="hint-text">通过浏览器的 File System API 安全读取，完全离线运行</p>
+            <p class="hint-text">{{ t('login.localHint') }}</p>
           </div>
 
           <div class="divider"></div>
 
           <!-- Master Password -->
-          <div class="section-label">加密主密码</div>
+          <div class="section-label">{{ t('login.masterSection') }}</div>
           <div class="form-group">
-            <label for="master-pw">主密码（解密 .ske 文件必备）</label>
+            <label for="master-pw">{{ t('login.masterLabel') }}</label>
             <n-input
               id="master-pw"
               v-model:value="masterPassword"
               type="password"
               show-password-on="click"
-              placeholder="输入加密时使用的密码"
+              :placeholder="t('login.masterPlaceholder')"
               :input-props="{ name: 'master-pw', 'data-bw-fieldname': 'master-pw' }"
             />
           </div>
@@ -108,7 +113,7 @@
             :loading="loading"
             style="margin-top: 8px; height: 44px; font-size: 15px;"
           >
-            {{ isCloud ? '🔓 登录' : '🚀 浏览本地库' }}
+            {{ isCloud ? t('login.signIn') : t('login.browseLocal') }}
           </n-button>
         </form>
       </div>
@@ -119,11 +124,14 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { storeAndPostKey } from '../composables/useCrypto.js'
 import { login as remoteLogin, getProvider, savedServer, rememberServer, PROVIDER_LABELS } from '../composables/useRemoteStorage.js'
 import { useLocalFiles } from '../composables/useLocalFiles.js'
 import { pickLocalDirectory, supportsDirectoryHandles } from '../composables/useLocalDirectory.js'
+import LanguageSwitcher from '../components/common/LanguageSwitcher.vue'
 
+const { t } = useI18n()
 const router = useRouter()
 const { registerFiles, state: localState } = useLocalFiles()
 
@@ -173,7 +181,7 @@ async function triggerFolderPicker() {
       localFileCount.value = localState.files.length
     } catch (err) {
       // Closing the picker is a normal action, not a failure.
-      if (err?.name !== 'AbortError') error.value = err.message || '无法读取该文件夹'
+      if (err?.name !== 'AbortError') error.value = err.message || t('errors.readFolderFailed')
     }
     return
   }
@@ -205,7 +213,7 @@ async function handleUnifiedSubmit() {
       // showDirectoryPicker already scanned and registered the folder; the
       // <input> fallback still needs registering here.
       if (!localState.isReady) {
-        if (selectedFiles.value.length === 0) throw new Error('请先选择一个文件夹或文件')
+        if (selectedFiles.value.length === 0) throw new Error(t('errors.pickFolderFirst'))
         await registerFiles(selectedFiles.value)
       }
       router.push('/local/')
@@ -213,7 +221,7 @@ async function handleUnifiedSubmit() {
   } catch (err) {
     // OpenList 2FA: keep the form open and ask for the one-time code.
     if (err?.needsOtp) otpRequired.value = true
-    error.value = err.message || '连接失败，请检查配置'
+    error.value = err.message || t('errors.loginFailed')
   } finally {
     loading.value = false
   }
@@ -229,6 +237,13 @@ async function handleUnifiedSubmit() {
   padding: 24px;
   position: relative;
   overflow: hidden;
+}
+
+.login-lang {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 2;
 }
 
 .login-wrapper {

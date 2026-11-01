@@ -17,6 +17,23 @@ const el = {
   auto: document.getElementById('auto'),
 }
 
+/**
+ * Applies the browser UI language to the static markup.
+ *
+ * Chrome resolves `chrome.i18n` against the browser's own setting, so there is
+ * no language selector to build: every string either carries a `data-i18n`
+ * attribute or goes through `t()` from shared.js when rendered.
+ */
+function localize() {
+  document.documentElement.lang = chrome.i18n.getUILanguage()
+  for (const node of document.querySelectorAll('[data-i18n]')) {
+    node.textContent = t(node.dataset.i18n)
+  }
+  for (const node of document.querySelectorAll('[data-i18n-placeholder]')) {
+    node.placeholder = t(node.dataset.i18nPlaceholder)
+  }
+}
+
 function setStatus(text, tone = '') {
   el.status.textContent = text
   el.status.className = `status${tone ? ' ' + tone : ''}`
@@ -46,7 +63,7 @@ async function render() {
   const appOrigin = await activePageOrigin()
 
   // The permission, not the stored flag, is the truth. Chrome closes the popup
-  // while its prompt is on screen, so a grant made from the 「自动添加」toggle
+  // while its prompt is on screen, so a grant made from the auto-add toggle
   // can land without the click that asked for it ever writing `auto: true`.
   // Left alone, the box renders off while the grant exists, and every rule the
   // background then adds is judged against a flag that disagrees with reality.
@@ -57,13 +74,15 @@ async function render() {
 
   el.enabled.checked = state.enabled
   el.auto.checked = state.auto
-  el.origin.textContent = appOrigin || '未获取到（请在应用页面打开）'
+  el.origin.textContent = appOrigin || t('unknownOrigin')
+  // The row ellipsises a long origin; the tooltip keeps it readable.
+  el.origin.title = appOrigin
 
   if (pending && !state.domains.includes(pending)) {
     // Chrome kills the panel while the permission prompt is up, so the click
     // that asks for the grant cannot be the one that saves the domain — the
     // background's `permissions.onAdded` does that instead. So: one click, one
-    // 「允许」, done. The granted branch is only left for a grant that predates
+    // "Allow", done. The granted branch is only left for a grant that predates
     // the domain (upgrade, or a prompt dismissed then allowed elsewhere).
     const needed = [originPattern(pending)]
     if (appOrigin) needed.push(`${appOrigin}/*`)
@@ -71,9 +90,8 @@ async function render() {
 
     el.pending.hidden = false
     el.pending.textContent = granted
-      ? `已获得 ${pending} 的访问权限，点「添加」即可完成。`
-      : `检测到被跨域拦截的网盘 ${pending}。点「添加」并在弹框中点「允许」就会自动加入，` +
-        '本面板被关闭不用管；回到网页刷新即可解密。'
+      ? t('pendingGranted', [pending])
+      : t('pendingDetected', [pending])
     el.domain.value = pending
   } else {
     el.pending.hidden = true
@@ -84,7 +102,7 @@ async function render() {
   if (state.domains.length === 0) {
     const empty = document.createElement('li')
     empty.className = 'empty'
-    empty.textContent = '还没有添加域名'
+    empty.textContent = t('emptyList')
     el.list.append(empty)
   }
 
@@ -95,30 +113,27 @@ async function render() {
 
     const name = document.createElement('span')
     name.textContent = domain
+    name.title = domain
 
     const matches = await countMatches(domain)
     if (matches === 0 && state.enabled) unmatched++
 
-    const badge = document.createElement('span')
-    badge.className = `badge ${matches > 0 ? 'ok' : matches === 0 ? 'bad' : 'unknown'}`
-    badge.textContent = matches > 0 ? '规则命中' : matches === 0 ? '未命中' : '无法自检'
-
     const remove = document.createElement('button')
     remove.type = 'button'
     remove.className = 'remove'
-    remove.textContent = '移除'
+    remove.textContent = t('removeButton')
     remove.addEventListener('click', () => removeDomain(domain))
 
-    row.append(name, badge, remove)
+    row.append(name, remove)
     el.list.append(row)
   }
 
   if (!state.enabled) {
-    setStatus('已暂停', 'off')
+    setStatus(t('statusPaused'), 'off')
   } else if (unmatched > 0) {
-    setStatus('规则未命中，请重新添加域名', 'error')
+    setStatus(t('statusMissed'), 'error')
   } else {
-    setStatus('规则已生效', 'on')
+    setStatus(t('statusOk'), 'on')
   }
 }
 
@@ -127,14 +142,14 @@ async function addDomain(raw) {
 
   const appOrigin = await activePageOrigin()
   if (!appOrigin) {
-    throw new Error('请先在 Sakura Encryptor 网页上打开本插件，再添加域名')
+    throw new Error(t('errOpenOnAppPage'))
   }
 
   // Recorded before the prompt, because this document will not survive it:
   // Chrome closes the panel while the prompt is up, so everything after
   // `request()` here may never run. `permissions.onAdded` in the background
   // picks the domain back up and finishes the job — that is what turns
-  // 「添加」+ «允许» into one step instead of two.
+  // "Add" + "Allow" into one step instead of two.
   await writePending(domain)
 
   // Asked for with no further `await` in between: Chrome only grants the prompt
@@ -154,7 +169,7 @@ async function addDomain(raw) {
 
   if (!granted) {
     await writePending('')
-    throw new Error('没有获得域名或页面来源的访问权限')
+    throw new Error(t('errPermissionDenied'))
   }
 
   const state = await readState()
@@ -190,9 +205,9 @@ el.form.addEventListener('submit', async (event) => {
     const domain = await addDomain(el.domain.value)
     el.domain.value = ''
     await render()
-    setStatus(`已生效：${domain}`, 'on')
+    setStatus(t('statusApplied', [domain]), 'on')
   } catch (err) {
-    setStatus(err.message || '添加失败', 'error')
+    setStatus(err.message || t('errAddFailed'), 'error')
   } finally {
     el.add.disabled = false
   }
@@ -206,7 +221,7 @@ el.auto.addEventListener('change', async () => {
     const granted = await chrome.permissions.request({ origins: ['*://*/*'] })
     if (!granted) {
       el.auto.checked = false
-      setStatus('没有获得全站权限，仍按域名逐个授权', 'off')
+      setStatus(t('statusNoAllSites'), 'off')
       return
     }
     // Rules added while the grant was missing were inert; rebuilding them here
@@ -214,7 +229,7 @@ el.auto.addEventListener('change', async () => {
     await writeState({ ...state, auto: true })
     await syncRules()
     await render()
-    setStatus('自动模式已开启', 'on')
+    setStatus(t('statusAutoOn'), 'on')
     return
   }
 
@@ -228,7 +243,7 @@ el.auto.addEventListener('change', async () => {
   const converted = needed.length === 0 || (await chrome.permissions.request({ origins: needed }))
   if (!converted) {
     el.auto.checked = true
-    setStatus('未授权逐个域名，保持自动模式', 'off')
+    setStatus(t('statusKeepAuto'), 'off')
     return
   }
 
@@ -240,12 +255,12 @@ el.auto.addEventListener('change', async () => {
   if (await chrome.permissions.contains({ origins: ['*://*/*'] })) {
     await writeState({ ...state, auto: true })
     el.auto.checked = true
-    setStatus('没能撤销全站权限，仍保持自动模式', 'error')
+    setStatus(t('statusAllSitesKept'), 'error')
     return
   }
 
   await render()
-  setStatus('已转为逐个域名授权', 'on')
+  setStatus(t('statusPerDomain'), 'on')
 })
 
 el.enabled.addEventListener('change', async () => {
@@ -258,6 +273,7 @@ el.enabled.addEventListener('change', async () => {
 // Rebuilt on open rather than only on change: a reloaded extension keeps its
 // dynamic rules, and rules written by an older version would silently keep the
 // old behaviour.
+localize()
 syncRules()
   .then(render)
-  .catch((err) => setStatus(err.message || '读取状态失败', 'error'))
+  .catch((err) => setStatus(err.message || t('errReadState'), 'error'))

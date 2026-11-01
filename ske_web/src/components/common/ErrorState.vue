@@ -1,18 +1,22 @@
 <template>
   <div class="error-state">
     <n-alert type="error" :bordered="false" style="max-width: 400px;">
-      {{ message }}
+      {{ message || t('common.loadFailed') }}
     </n-alert>
-    <n-button quaternary @click="$emit('retry')">重试</n-button>
+    <n-button quaternary @click="$emit('retry')">{{ t('common.retry') }}</n-button>
   </div>
 </template>
 
 <script setup>
+import { useI18n } from 'vue-i18n'
+
 defineProps({
-  message: { type: String, default: '加载失败' },
+  message: { type: String, default: '' },
 })
 
 defineEmits(['retry'])
+
+const { t } = useI18n()
 </script>
 
 <style scoped>

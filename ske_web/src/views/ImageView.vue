@@ -1,7 +1,7 @@
 <template>
   <div class="image-view" :class="{ 'comic-mode': comicMode }">
     <MediaTopbar
-      :title="decryptedName || '加载中…'"
+      :title="decryptedName || t('image.loading')"
       :download-url="downloadUrl"
       :download-name="decryptedName"
       :download-size="downloadSize"
@@ -16,11 +16,11 @@
           size="small"
           @click="toggleComicMode"
         >
-          <span class="desktop-text">{{ comicMode ? '🖼 单页' : '📖 条漫' }}</span>
+          <span class="desktop-text">{{ comicMode ? t('image.single') : t('image.strip') }}</span>
           <span class="mobile-text">{{ comicMode ? '🖼' : '📖' }}</span>
         </n-button>
         <n-button quaternary size="small" @click="showPlaylist = !showPlaylist">
-          <span class="desktop-text">📋 列表</span>
+          <span class="desktop-text">📋 {{ t('player.playlist') }}</span>
           <span class="mobile-text">📋</span>
         </n-button>
       </template>
@@ -53,7 +53,7 @@
 
     <div v-if="error" class="error-overlay">
       <n-alert type="error" :bordered="false">{{ error }}</n-alert>
-      <n-button type="primary" @click="resolve">重试</n-button>
+      <n-button type="primary" @click="resolve">{{ t('common.retry') }}</n-button>
     </div>
 
     <!-- Rotation button (meaningless when pages are stacked vertically) -->
@@ -62,7 +62,7 @@
       class="rotate-btn glass-card"
       :class="{ 'ui-hidden': !uiVisible }"
       @click="viewerRef?.rotateImage()"
-      title="旋转"
+      :title="t('image.rotate')"
     >
       🔄
     </button>
@@ -73,7 +73,7 @@
         class="nav-btn prev glass-card"
         :class="{ 'ui-hidden': !uiVisible }"
         @click="playlist.goPrev()"
-        title="上一张"
+        :title="t('image.prev')"
       >
         ❮
       </button>
@@ -81,7 +81,7 @@
         class="nav-btn next glass-card"
         :class="{ 'ui-hidden': !uiVisible }"
         @click="playlist.goNext()"
-        title="下一张"
+        :title="t('image.next')"
       >
         ❯
       </button>
@@ -91,7 +91,7 @@
       :items="playlist.items.value"
       :current-index="activeIndex"
       :visible="showPlaylist"
-      label="张"
+      :label="t('playlist.unitImage')"
       @close="showPlaylist = false"
       @select="onPlaylistSelect"
     />
@@ -101,6 +101,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import MediaTopbar from '../components/media-player/MediaTopbar.vue'
 import ImageViewer from '../components/media-player/ImageViewer.vue'
 import ComicReader from '../components/media-player/ComicReader.vue'
@@ -110,6 +111,7 @@ import { usePlaylist } from '../composables/usePlaylist.js'
 import { toDownloadUrl } from '../composables/useFileDownload.js'
 
 const route = useRoute()
+const { t } = useI18n()
 const { decryptedName, playUrl, isEncrypted, rawUrl, rawSize, error, resolve, goBack, isLocal } = useFileResolver()
 const playlist = usePlaylist('image')
 

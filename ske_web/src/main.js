@@ -2,6 +2,7 @@ import { createApp } from 'vue'
 import naive, { darkTheme } from 'naive-ui'
 import App from './App.vue'
 import router from './router.js'
+import { i18n } from './i18n/index.js'
 import './theme/global.css'
 import './theme/naive-overrides.css'
 
@@ -94,4 +95,4 @@ if ('serviceWorker' in navigator) {
 }
 
 // ── Mount App ─────────────────────────────────────────────────
-createApp(App).use(naive).use(router).mount('#app')
+createApp(App).use(naive).use(i18n).use(router).mount('#app')

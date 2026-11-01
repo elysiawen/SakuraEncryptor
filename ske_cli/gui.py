@@ -29,6 +29,7 @@ from ske_cli.crypto import (
     encrypt_file,
     encrypt_name,
 )
+from ske_cli.i18n import get_language, set_language, t
 
 SKE_EXT = ".ske"
 
@@ -48,7 +49,11 @@ BORDER = "#2a2a5a"
 class SkeGui(TkinterDnD.Tk):
     def __init__(self):
         super().__init__()
-        self.title("Sakura Encryptor Client")
+        # Widgets whose label is a catalog key, re-applied on language change.
+        self._text_widgets: list[tuple[tk.Widget, str]] = []
+        self._tab_keys: dict[tk.Widget, str] = {}
+        self._busy = False
+        self.title(t("gui.window_title"))
         
         # Set icon
         try:
@@ -107,11 +112,55 @@ class SkeGui(TkinterDnD.Tk):
                    foreground=[("active", FG), ("selected", ACCENT)],
                    background=[("active", BG_CARD)])
 
+        # ── Language selector ───────────────────────────────────
+        # Clam's stock combobox is a light grey box; give it the card palette
+        # so it reads as part of the header instead of a foreign control.
+        style.configure("Lang.TCombobox",
+                         fieldbackground=BG_INPUT, background=BG_CARD, foreground=FG,
+                         arrowcolor=FG_DIM, insertcolor=FG,
+                         bordercolor=BORDER, lightcolor=BORDER, darkcolor=BG_CARD,
+                         padding=(8, 4), borderwidth=1, relief="flat")
+        style.map("Lang.TCombobox",
+                   fieldbackground=[("readonly", BG_INPUT), ("disabled", BG_CARD)],
+                   foreground=[("readonly", FG), ("disabled", FG_DIM)],
+                   background=[("active", BG_INPUT), ("readonly", BG_CARD)],
+                   arrowcolor=[("active", ACCENT), ("focus", ACCENT)],
+                   bordercolor=[("focus", ACCENT), ("active", "#4a4a8a"), ("!focus", BORDER)],
+                   lightcolor=[("focus", ACCENT)],
+                   darkcolor=[("focus", ACCENT)],
+                   selectbackground=[("readonly", BG_INPUT)],
+                   selectforeground=[("readonly", FG)])
+
+        # The drop-down itself is a plain Listbox, styled through the option
+        # database rather than ttk.
+        for pattern, value in (
+            ("*TCombobox*Listbox.background", BG_CARD),
+            ("*TCombobox*Listbox.foreground", FG),
+            ("*TCombobox*Listbox.selectBackground", ACCENT),
+            ("*TCombobox*Listbox.selectForeground", "#ffffff"),
+            ("*TCombobox*Listbox.borderWidth", 0),
+            ("*TCombobox*Listbox.font", ("Segoe UI", 10)),
+        ):
+            self.option_add(pattern, value)
+
         # ── Header ──────────────────────────────────────────────
         header = ttk.Frame(self)
         header.pack(fill="x", padx=24, pady=(20, 10))
-        ttk.Label(header, text="🌸 Sakura Encryptor", style="Title.TLabel").pack(anchor="w")
-        ttk.Label(header, text="安全的一键加密解决方案", style="Sub.TLabel").pack(anchor="w", pady=(2, 0))
+
+        brand = ttk.Frame(header)
+        brand.pack(side="left", fill="x", expand=True)
+        ttk.Label(brand, text="🌸 Sakura Encryptor", style="Title.TLabel").pack(anchor="w")
+        self._bind_text(ttk.Label(brand, style="Sub.TLabel"), "gui.subtitle").pack(anchor="w", pady=(2, 0))
+
+        # Language switch: the names stay in their own language so both read
+        # correctly whichever one is active.
+        self.lang_var = tk.StringVar(value="中文" if get_language() == "zh" else "English")
+        lang_box = ttk.Combobox(
+            header, textvariable=self.lang_var, values=("中文", "English"),
+            state="readonly", width=8, style="Lang.TCombobox",
+        )
+        lang_box.pack(side="right", anchor="n")
+        lang_box.bind("<<ComboboxSelected>>", self._on_language_change)
 
         # ── Global Password Field (Moved here) ──────────────────
         pw_card = ttk.Frame(self, style="Card.TFrame", padding=(20, 10))
@@ -119,13 +168,14 @@ class SkeGui(TkinterDnD.Tk):
         
         row_pw = ttk.Frame(pw_card, style="Card.TFrame")
         row_pw.pack(fill="x")
-        ttk.Label(row_pw, text="🔑 主密码", style="CardDim.TLabel", width=10).pack(side="left")
+        self._bind_text(ttk.Label(row_pw, style="CardDim.TLabel", width=10), "gui.password").pack(side="left")
         self.pw_var = tk.StringVar()
         self.pw_entry = ttk.Entry(row_pw, textvariable=self.pw_var, show="●")
         self.pw_entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
         self.show_pw = tk.BooleanVar(value=False)
-        ttk.Checkbutton(row_pw, text="显示", variable=self.show_pw,
-                        command=self._toggle_pw).pack(side="right")
+        self.show_pw_box = self._bind_text(ttk.Checkbutton(row_pw, variable=self.show_pw,
+                        command=self._toggle_pw), "gui.show_password")
+        self.show_pw_box.pack(side="right")
 
         # ── Tabs ────────────────────────────────────────────────
         self.notebook = ttk.Notebook(self)
@@ -134,8 +184,9 @@ class SkeGui(TkinterDnD.Tk):
         self.files_tab = ttk.Frame(self.notebook)
         self.text_tab = ttk.Frame(self.notebook)
 
-        self.notebook.add(self.files_tab, text=" 📂 文件模式 ")
-        self.notebook.add(self.text_tab, text=" 🔤 文本转换 ")
+        for frame, key in ((self.files_tab, "gui.tab_files"), (self.text_tab, "gui.tab_text")):
+            self.notebook.add(frame, text=t(key))
+            self._tab_keys[frame] = key
 
         # ── Files Tab ──────────────────────────────────────────
         card = ttk.Frame(self.files_tab, style="Card.TFrame", padding=20)
@@ -144,51 +195,53 @@ class SkeGui(TkinterDnD.Tk):
         # Source dir
         row_src = ttk.Frame(card, style="Card.TFrame")
         row_src.pack(fill="x", pady=(0, 10))
-        ttk.Label(row_src, text="源", style="CardDim.TLabel", width=10).pack(side="left")
+        self._bind_text(ttk.Label(row_src, style="CardDim.TLabel", width=10), "gui.source").pack(side="left")
         self.src_var = tk.StringVar()
         src_entry = ttk.Entry(row_src, textvariable=self.src_var)
         src_entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
         src_entry.drop_target_register(DND_FILES)
         src_entry.dnd_bind("<<Drop>>", lambda e: self._on_drop(e, self.src_var))
         
-        ttk.Button(row_src, text="选文件…", style="Ghost.TButton",
-                   command=lambda: self._browse_file(self.src_var)).pack(side="right", padx=(0, 4))
-        ttk.Button(row_src, text="选目录…", style="Ghost.TButton",
-                   command=lambda: self._browse(self.src_var)).pack(side="right")
+        self._bind_text(ttk.Button(row_src, style="Ghost.TButton",
+                   command=lambda: self._browse_file(self.src_var)), "gui.choose_file").pack(side="right", padx=(0, 4))
+        self._bind_text(ttk.Button(row_src, style="Ghost.TButton",
+                   command=lambda: self._browse(self.src_var)), "gui.choose_dir").pack(side="right")
 
         # Dest dir
         row_dst = ttk.Frame(card, style="Card.TFrame")
         row_dst.pack(fill="x", pady=(0, 10))
-        ttk.Label(row_dst, text="输出目录", style="CardDim.TLabel", width=10).pack(side="left")
+        self._bind_text(ttk.Label(row_dst, style="CardDim.TLabel", width=10), "gui.output").pack(side="left")
         self.dst_var = tk.StringVar()
         dst_entry = ttk.Entry(row_dst, textvariable=self.dst_var)
         dst_entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
         dst_entry.drop_target_register(DND_FILES)
         dst_entry.dnd_bind("<<Drop>>", lambda e: self._on_drop(e, self.dst_var))
 
-        ttk.Button(row_dst, text="浏览…", style="Ghost.TButton",
-                   command=lambda: self._browse(self.dst_var)).pack(side="right")
+        self._bind_text(ttk.Button(row_dst, style="Ghost.TButton",
+                   command=lambda: self._browse(self.dst_var)), "gui.browse").pack(side="right")
 
         # Options row
         row_opt = ttk.Frame(card, style="Card.TFrame")
         row_opt.pack(fill="x", pady=(8, 0))
         self.include_root_var = tk.BooleanVar(value=False)
-        cb = ttk.Checkbutton(row_opt, text=" 📂 包含根目录 (Include Root Folder)", 
-                             variable=self.include_root_var, style="Card.TCheckbutton")
+        cb = self._bind_text(ttk.Checkbutton(row_opt, variable=self.include_root_var,
+                             style="Card.TCheckbutton"), "gui.include_root")
         cb.pack(side="left")
         
         # Add a small hint
-        ttk.Label(row_opt, text="💡 勾选后将加密文件夹本身及其内部结构", 
-                  style="CardDim.TLabel", font=("Segoe UI", 8)).pack(side="left", padx=(12, 0))
+        self._bind_text(ttk.Label(row_opt, style="CardDim.TLabel", font=("Segoe UI", 8)),
+                        "gui.include_root_hint").pack(side="left", padx=(12, 0))
 
         # Action buttons
         actions = ttk.Frame(self.files_tab)
         actions.pack(fill="x", pady=(4, 8))
 
-        self.btn_encrypt = ttk.Button(actions, text="🔒 一键加密", style="Accent.TButton", command=self._start_encrypt)
+        self.btn_encrypt = self._bind_text(ttk.Button(actions, style="Accent.TButton",
+                                     command=self._start_encrypt), "gui.encrypt")
         self.btn_encrypt.pack(side="left", padx=(0, 12))
 
-        self.btn_decrypt = ttk.Button(actions, text="🔓 解密还原", style="Accent.TButton", command=self._start_decrypt)
+        self.btn_decrypt = self._bind_text(ttk.Button(actions, style="Accent.TButton",
+                                     command=self._start_decrypt), "gui.decrypt")
         self.btn_decrypt.pack(side="left")
 
         # Progress
@@ -197,11 +250,11 @@ class SkeGui(TkinterDnD.Tk):
         self.progress = ttk.Progressbar(prog_frame, style="green.Horizontal.TProgressbar",
                                          mode="determinate", maximum=100)
         self.progress.pack(fill="x")
-        self.status_var = tk.StringVar(value="就绪")
+        self.status_var = tk.StringVar(value=t("gui.status_ready"))
         ttk.Label(prog_frame, textvariable=self.status_var, style="Sub.TLabel").pack(anchor="w", pady=(4, 0))
 
         # Log
-        log_label = ttk.Label(self.files_tab, text="日志", style="Sub.TLabel")
+        log_label = self._bind_text(ttk.Label(self.files_tab, style="Sub.TLabel"), "gui.log")
         log_label.pack(anchor="w")
 
         log_frame = ttk.Frame(self.files_tab)
@@ -224,13 +277,13 @@ class SkeGui(TkinterDnD.Tk):
         tcard = ttk.Frame(self.text_tab, style="Card.TFrame", padding=20)
         tcard.pack(fill="both", expand=True, pady=10)
 
-        ttk.Label(tcard, text="输入文本", style="CardDim.TLabel").pack(anchor="w")
+        self._bind_text(ttk.Label(tcard, style="CardDim.TLabel"), "gui.text_input").pack(anchor="w")
         self.text_in = tk.Text(tcard, bg=BG_INPUT, fg=FG, insertbackground=FG,
                                height=6, font=("Segoe UI", 10), bd=0, highlightthickness=1,
                                highlightbackground=BORDER, highlightcolor=ACCENT2)
         self.text_in.pack(fill="x", pady=(4, 12))
 
-        ttk.Label(tcard, text="输出结果", style="CardDim.TLabel").pack(anchor="w")
+        self._bind_text(ttk.Label(tcard, style="CardDim.TLabel"), "gui.text_output").pack(anchor="w")
         self.text_out = tk.Text(tcard, bg=BG_INPUT, fg=SUCCESS, insertbackground=FG,
                                 height=6, font=("Cascadia Code", 10), bd=0, highlightthickness=1,
                                 highlightbackground=BORDER, highlightcolor=SUCCESS)
@@ -238,14 +291,34 @@ class SkeGui(TkinterDnD.Tk):
 
         tactions = ttk.Frame(tcard, style="Card.TFrame")
         tactions.pack(fill="x")
-        ttk.Button(tactions, text="🔒 文本加密", style="Accent.TButton", 
-                   command=self._text_encrypt).pack(side="left", padx=(0, 8))
-        ttk.Button(tactions, text="🔓 文本解密", style="Accent.TButton", 
-                   command=self._text_decrypt).pack(side="left")
-        ttk.Button(tactions, text="📋 复制结果", style="Ghost.TButton", 
-                   command=self._copy_result).pack(side="right")
+        self._bind_text(ttk.Button(tactions, style="Accent.TButton",
+                   command=self._text_encrypt), "gui.text_encrypt").pack(side="left", padx=(0, 8))
+        self._bind_text(ttk.Button(tactions, style="Accent.TButton",
+                   command=self._text_decrypt), "gui.text_decrypt").pack(side="left")
+        self._bind_text(ttk.Button(tactions, style="Ghost.TButton",
+                   command=self._copy_result), "gui.copy").pack(side="right")
 
     # ── Helpers ─────────────────────────────────────────────────
+    def _bind_text(self, widget: tk.Widget, key: str) -> tk.Widget:
+        """Set a widget's label from the catalog and keep it for translation."""
+        widget.configure(text=t(key))
+        self._text_widgets.append((widget, key))
+        return widget
+
+    def _on_language_change(self, _event=None) -> None:
+        set_language("zh" if self.lang_var.get() == "中文" else "en")
+        self._retranslate()
+
+    def _retranslate(self) -> None:
+        """Re-apply the catalog to everything built from keys."""
+        self.title(t("gui.window_title"))
+        for widget, key in self._text_widgets:
+            widget.configure(text=t(key))
+        for tab, key in self._tab_keys.items():
+            self.notebook.tab(tab, text=t(key))
+        if not self._busy:
+            self.status_var.set(t("gui.status_ready"))
+
     def _browse(self, var: tk.StringVar):
         path = filedialog.askdirectory()
         if path:
@@ -272,25 +345,26 @@ class SkeGui(TkinterDnD.Tk):
         self.log_text.configure(state="disabled")
 
     def _set_busy(self, busy: bool):
+        self._busy = busy
         state = "disabled" if busy else "!disabled"
         self.btn_encrypt.state([state])
         self.btn_decrypt.state([state])
 
     def _validate(self) -> bool:
         if not self.src_var.get():
-            messagebox.showwarning("提示", "请选择源目录")
+            messagebox.showwarning(t("gui.notice"), t("gui.need_source"))
             return False
         if not self.dst_var.get():
-            messagebox.showwarning("提示", "请选择输出目录")
+            messagebox.showwarning(t("gui.notice"), t("gui.need_output"))
             return False
         if not self.pw_var.get():
-            messagebox.showwarning("提示", "请输入主密码")
+            messagebox.showwarning(t("gui.notice"), t("gui.need_password"))
             return False
         if not Path(self.src_var.get()).exists():
-            messagebox.showerror("错误", "源文件/目录不存在")
+            messagebox.showerror(t("gui.error"), t("gui.source_missing"))
             return False
         if not Path(self.dst_var.get()).is_dir():
-            messagebox.showerror("错误", "输出必须是一个目录")
+            messagebox.showerror(t("gui.error"), t("gui.output_not_dir"))
             return False
         return True
 
@@ -322,8 +396,8 @@ class SkeGui(TkinterDnD.Tk):
                     all_items.append(Path(root) / f)
 
         total = len(all_items)
-        self.after(0, lambda: self._log(f"扫描到 {total} 个项目", "info"))
-        self.after(0, lambda: self.status_var.set(f"处理中… 0/{total}"))
+        self.after(0, lambda: self._log(t("gui.scanned", count=total), "info"))
+        self.after(0, lambda: self.status_var.set(t("gui.processing", done=0, total=total)))
 
         done = 0
         errors = 0
@@ -354,26 +428,27 @@ class SkeGui(TkinterDnD.Tk):
                     enc_fname = encrypt_name(item.name, key) + SKE_EXT
                     dst_file = enc_dir / enc_fname
                     encrypt_file(item, dst_file, password)
-                    msg = f"  ✓ {rel_str}"
+                    msg = t("gui.item_file", name=rel_str)
                 else:
-                    msg = f"  📁 {rel_str} (文件夹已同步)"
+                    msg = t("gui.item_dir_encrypted", name=rel_str)
 
                 done += 1
                 pct = int(done / total * 100) if total else 100
                 self.after(0, lambda d=done, p=pct, m=msg: (
                     self.progress.__setitem__("value", p),
-                    self.status_var.set(f"加密中… {d}/{total}"),
+                    self.status_var.set(t("gui.encrypting_progress", done=d, total=total)),
                     self._log(m, "ok"),
                 ))
             except Exception as exc:
                 errors += 1
                 done += 1
-                self.after(0, lambda r=rel_str, e=str(exc): self._log(f"  ✗ {r}: {e}", "err"))
+                self.after(0, lambda r=rel_str, e=str(exc): self._log(
+                    t("gui.item_failed", name=r, error=e), "err"))
 
         self.after(0, lambda: (
-            self.status_var.set(f"完成 — 成功 {done - errors}/{total}，失败 {errors}"),
+            self.status_var.set(t("gui.finished", ok=done - errors, total=total, errors=errors)),
             self.progress.__setitem__("value", 100),
-            self._log(f"加密完成：{done - errors} 成功，{errors} 失败", "info"),
+            self._log(t("gui.encrypt_done", ok=done - errors, errors=errors), "info"),
             self._set_busy(False),
         ))
 
@@ -406,8 +481,8 @@ class SkeGui(TkinterDnD.Tk):
                         all_items.append(Path(root) / f)
 
         total = len(all_items)
-        self.after(0, lambda: self._log(f"扫描到 {total} 个项目", "info"))
-        self.after(0, lambda: self.status_var.set(f"解密中… 0/{total}"))
+        self.after(0, lambda: self._log(t("gui.scanned", count=total), "info"))
+        self.after(0, lambda: self.status_var.set(t("gui.processing", done=0, total=total)))
 
         done = 0
         errors = 0
@@ -437,26 +512,27 @@ class SkeGui(TkinterDnD.Tk):
                         raise Exception("Failed to decrypt filename")
                     dst_file = dec_dir / dec_fname
                     decrypt_file(item, dst_file, password)
-                    msg = f"  ✓ → {dec_fname}"
+                    msg = t("gui.item_file", name=dec_fname)
                 else:
-                    msg = f"  📁 已恢复目录结构"
+                    msg = t("gui.item_dir_decrypted")
 
                 done += 1
                 pct = int(done / total * 100) if total else 100
                 self.after(0, lambda d=done, p=pct, m=msg: (
                     self.progress.__setitem__("value", p),
-                    self.status_var.set(f"解密中… {d}/{total}"),
+                    self.status_var.set(t("gui.decrypting_progress", done=d, total=total)),
                     self._log(m, "ok"),
                 ))
             except Exception as exc:
                 errors += 1
                 done += 1
-                self.after(0, lambda r=rel_str, e=str(exc): self._log(f"  ✗ {r}: {e}", "err"))
+                self.after(0, lambda r=rel_str, e=str(exc): self._log(
+                    t("gui.item_failed", name=r, error=e), "err"))
 
         self.after(0, lambda: (
-            self.status_var.set(f"完成 — 成功 {done - errors}/{total}，失败 {errors}"),
+            self.status_var.set(t("gui.finished", ok=done - errors, total=total, errors=errors)),
             self.progress.__setitem__("value", 100),
-            self._log(f"解密完成：{done - errors} 成功，{errors} 失败", "info"),
+            self._log(t("gui.decrypt_done", ok=done - errors, errors=errors), "info"),
             self._set_busy(False),
         ))
 
@@ -464,7 +540,7 @@ class SkeGui(TkinterDnD.Tk):
     def _text_encrypt(self):
         password = self.pw_var.get()
         if not password:
-            messagebox.showwarning("提示", "文本转换也需要先输入主密码")
+            messagebox.showwarning(t("gui.notice"), t("gui.text_need_password"))
             return
         
         plain = self.text_in.get("1.0", "end-1c").strip()
@@ -477,12 +553,12 @@ class SkeGui(TkinterDnD.Tk):
             self.text_out.delete("1.0", "end")
             self.text_out.insert("1.0", cipher)
         except Exception as e:
-            messagebox.showerror("错误", f"加密失败: {e}")
+            messagebox.showerror(t("gui.error"), t("gui.text_encrypt_failed", error=e))
 
     def _text_decrypt(self):
         password = self.pw_var.get()
         if not password:
-            messagebox.showwarning("提示", "文本转换也需要先输入主密码")
+            messagebox.showwarning(t("gui.notice"), t("gui.text_need_password"))
             return
             
         cipher = self.text_in.get("1.0", "end-1c").strip()
@@ -495,14 +571,14 @@ class SkeGui(TkinterDnD.Tk):
             self.text_out.delete("1.0", "end")
             self.text_out.insert("1.0", plain)
         except Exception as e:
-            messagebox.showerror("错误", f"解密失败 (可能是密码错误或输入格式不正确): {e}")
+            messagebox.showerror(t("gui.error"), t("gui.text_decrypt_failed", error=e))
 
     def _copy_result(self):
         res = self.text_out.get("1.0", "end-1c").strip()
         if res:
             self.clipboard_clear()
             self.clipboard_append(res)
-            self.status_var.set("已复制到剪贴板")
+            self.status_var.set(t("gui.copied"))
 
 
 def main():

@@ -9,6 +9,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { listDir } from './useRemoteStorage.js'
 import { getNameKeyFromSession, decryptName } from './useCrypto.js'
 import { isAudio, isVideo, isImage } from './useFileDetection.js'
+import { t } from '../i18n/index.js'
 
 const ROUTE_PREFIX = { audio: '/listen/', video: '/play/', image: '/view/' }
 const TYPE_CHECK = { audio: isAudio, video: isVideo, image: isImage }
@@ -78,7 +79,7 @@ export function usePlaylist(type) {
 
       currentIndex.value = filtered.findIndex(item => item.encName === encFileName)
     } catch (err) {
-      error.value = err.message || '加载播放列表失败'
+      error.value = err.message || t('errors.playlistLoadFailed')
     } finally {
       loading.value = false
     }

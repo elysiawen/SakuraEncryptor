@@ -239,6 +239,21 @@ jobs:
             console.error('expected manifest_version 3, got ' + m.manifest_version);
             process.exit(1);
           }
+          // The manifest text is localised now: Chrome refuses to load the
+          // extension when default_locale has no messages.json, or when a
+          // __MSG_key__ is missing from it — and the zip still looks fine here.
+          const locale = path.join(root, '_locales', m.default_locale || '', 'messages.json');
+          if (!fs.existsSync(locale)) {
+            console.error('default_locale 缺少对应的 _locales 文件: ' + (m.default_locale || '(未设置)'));
+            process.exit(1);
+          }
+          const messages = JSON.parse(fs.readFileSync(locale, 'utf8'));
+          const tokens = [...new Set(JSON.stringify(m).match(/__MSG_[A-Za-z0-9_]+__/g) || [])];
+          const missingKeys = tokens.map((s) => s.slice(6, -2)).filter((k) => !messages[k]);
+          if (missingKeys.length) {
+            console.error('manifest 引用了 default_locale 中缺失的文案: ' + missingKeys.join(', '));
+            process.exit(1);
+          }
           console.log('manifest ok: ' + m.name + ' v' + m.version + ', ' + refs.length + ' referenced files present');
           "
 

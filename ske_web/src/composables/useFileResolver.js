@@ -8,6 +8,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { getFileInfo } from './useRemoteStorage.js'
 import { getNameKeyFromSession, decryptName } from './useCrypto.js'
 import { buildDecryptProxyUrl } from './useDecryptProxy.js'
+import { t } from '../i18n/index.js'
 
 export function useFileResolver() {
   const route = useRoute()
@@ -58,7 +59,7 @@ export function useFileResolver() {
         rawSize.value = 0
       } else {
         const info = await getFileInfo(fullPath)
-        if (!info.url) throw new Error('无法获取文件链接')
+        if (!info.url) throw new Error(t('errors.noFileUrl'))
         rawUrl.value = info.url
         rawSize.value = info.size || 0
       }
@@ -84,7 +85,7 @@ export function useFileResolver() {
       loading.value = false
       return { playUrl: playUrl.value, decryptedName: decryptedName.value, isEncrypted: isEncrypted.value, isLocal: isLocal.value }
     } catch (err) {
-      error.value = err.message || '文件加载失败'
+      error.value = err.message || t('errors.fileLoadFailed')
       loading.value = false
       throw err
     }

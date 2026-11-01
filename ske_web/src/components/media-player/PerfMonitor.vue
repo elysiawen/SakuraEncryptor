@@ -1,36 +1,36 @@
 <template>
   <div class="perf-bar glass-card">
-    <div class="perf-item" title="视频帧率">
+    <div class="perf-item" :title="t('perf.fps')">
       <span class="perf-icon">🎞️</span>
       <span class="perf-value">{{ perf.fps }}</span>
       <span class="perf-unit">FPS</span>
     </div>
-    <div class="perf-item" :class="{ 'perf-warn': perf.droppedPct > 5 }" title="丢帧率">
+    <div class="perf-item" :class="{ 'perf-warn': perf.droppedPct > 5 }" :title="t('perf.droppedRate')">
       <span class="perf-icon">📉</span>
       <span class="perf-value">{{ perf.dropped }}</span>
-      <span class="perf-unit">丢帧</span>
+      <span class="perf-unit">{{ t('perf.dropped') }}</span>
     </div>
-    <div class="perf-item" title="JS 堆内存使用">
+    <div class="perf-item" :title="t('perf.heap')">
       <span class="perf-icon">🧠</span>
       <span class="perf-value">{{ perf.heapUsed }}</span>
       <span class="perf-unit">/ {{ perf.heapTotal }}</span>
     </div>
-    <div class="perf-item" title="已传输数据量">
+    <div class="perf-item" :title="t('perf.transferred')">
       <span class="perf-icon">📡</span>
       <span class="perf-value">{{ perf.netTransferred }}</span>
-      <span class="perf-unit">传输</span>
+      <span class="perf-unit">{{ t('perf.transfer') }}</span>
     </div>
-    <div class="perf-item" title="缓存命中率">
+    <div class="perf-item" :title="t('perf.cacheRate')">
       <span class="perf-icon">💾</span>
       <span class="perf-value">{{ perf.cacheHitRate }}</span>
-      <span class="perf-unit">缓存</span>
+      <span class="perf-unit">{{ t('perf.cache') }}</span>
     </div>
-    <div class="perf-item" title="实时解密延迟 (每块)">
+    <div class="perf-item" :title="t('perf.decryptLatency')">
       <span class="perf-icon">⚡</span>
       <span class="perf-value">{{ perf.decryptLatency }}</span>
       <span class="perf-unit">ms</span>
     </div>
-    <div class="perf-item" title="实时下载网速">
+    <div class="perf-item" :title="t('perf.speed')">
       <span class="perf-icon">🌐</span>
       <span class="perf-value">{{ perf.netSpeed }}</span>
       <span class="perf-unit">/s</span>
@@ -39,9 +39,13 @@
 </template>
 
 <script setup>
+import { useI18n } from 'vue-i18n'
+
 defineProps({
   perf: { type: Object, required: true },
 })
+
+const { t } = useI18n()
 </script>
 
 <style scoped>

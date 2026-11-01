@@ -28,7 +28,7 @@
       <n-spin v-else size="small" />
     </div>
 
-    <div v-if="items.length === 0" class="page-hint">没有可阅读的图片</div>
+    <div v-if="items.length === 0" class="page-hint">{{ t('comic.empty') }}</div>
   </div>
 </template>
 
@@ -45,6 +45,7 @@
  * IntersectionObserver resolves only the pages within ~800 px of the viewport.
  */
 import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { getFileInfo } from '../../composables/useRemoteStorage.js'
 import { buildDecryptProxyUrl } from '../../composables/useDecryptProxy.js'
 import { getPasswordFromSession } from '../../composables/useCrypto.js'
@@ -70,6 +71,7 @@ const scrollerRef = ref(null)
 const urls = ref({})
 const failed = ref({})
 
+const { t } = useI18n()
 const { dismissBanner } = useUpstreamAlerts()
 
 // One diagnosis per reader: every page of a chapter comes from the same host and
@@ -80,7 +82,7 @@ const { detail, examine } = useFailureDiagnosis(() => failedProxyUrl)
 
 /** Why this page failed, when one cause is known. */
 function failureText() {
-  return detail.value || '加载失败，点击重试'
+  return detail.value || t('comic.pageFailed')
 }
 
 /**
@@ -123,7 +125,7 @@ async function resolveUrl(item) {
 
   pushPasswordToSW()
   const info = await getFileInfo(path)
-  if (!info.url) throw new Error('无法获取文件链接')
+  if (!info.url) throw new Error(t('errors.noFileUrl'))
   return item.encName.toLowerCase().endsWith('.ske')
     ? buildDecryptProxyUrl(info.url, info.size)
     : info.url

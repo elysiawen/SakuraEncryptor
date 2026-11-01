@@ -22,13 +22,13 @@ importScripts('shared.js')
  * Chrome tears the panel down while its permission prompt is on screen, so the
  * click that asked for a grant never reaches the code after `request()`: the
  * document that would have saved the domain is already gone. The grant event
- * outlives it, so it is the only place that can see 「允许」 actually happened —
+ * outlives it, so it is the only place that can see "Allow" actually happened —
  * and doing the work here is what makes one click enough.
  *
  * Two ways a grant arrives:
- *   - the all-sites origin from 「自动添加检测到的网盘」 → the flag it could not
- *     save
- *   - a drive's own origin from the popup's 「添加」 prompt → the domain it could
+ *   - the all-sites origin from the popup's auto-add toggle → the flag it could
+ *     not save
+ *   - a drive's own origin from the popup's "Add" prompt → the domain it could
  *     not save, still sitting in `pending`
  *
  * (Do not write the all-sites pattern into a block comment: its tail closes the

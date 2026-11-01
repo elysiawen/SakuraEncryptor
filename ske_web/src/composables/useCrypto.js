@@ -11,6 +11,8 @@
  *   Body: AES-256-GCM(chunk) | tag(16) per block
  */
 
+import { t } from '../i18n/index.js'
+
 const KDF_ITERATIONS = 100_000
 const MAX_KDF_ITERATIONS = 2_000_000
 // Must match NAME_SALT in ske_cli/crypto.py — deterministic name encryption.
@@ -202,7 +204,7 @@ export function getPasswordFromSession() {
  * fetching ~40 KB instead of a 1 MiB block.
  */
 export async function encryptFileContent(file, password) {
-    if (!password) throw new Error('缺少加密主密码')
+    if (!password) throw new Error(t('errors.missingMasterPassword'))
 
     const iterations = KDF_ITERATIONS
     const salt = crypto.getRandomValues(new Uint8Array(SALT_SIZE))

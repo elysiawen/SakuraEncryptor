@@ -27,7 +27,7 @@
       :style="uploadFabBottom"
       :disabled="upload.loading"
       @click="openUploadPicker"
-      title="上传文件"
+      :title="t('browser.upload')"
     >
       📤
     </button>
@@ -35,7 +35,7 @@
     <!-- Single toggle: shows the view it switches TO. -->
     <button
       class="view-fab"
-      :title="viewMode === 'grid' ? '切换到列表视图' : '切换到网格视图'"
+      :title="viewMode === 'grid' ? t('browser.toListView') : t('browser.toGridView')"
       @click="viewMode = viewMode === 'grid' ? 'list' : 'grid'"
     >
       {{ viewMode === 'grid' ? '☰' : '▦' }}
@@ -45,7 +45,7 @@
       class="refresh-fab"
       :class="{ spinning: loading }"
       @click="() => loadCurrentPath(false, true)"
-      title="刷新"
+      :title="t('browser.refresh')"
     >
       🔄
     </button>
@@ -60,49 +60,49 @@
           @click.stop
         >
           <div v-if="!menu.item" class="ctx-item" @click="startNewFolder">
-            <span>📁</span> 新建文件夹
+            <span>📁</span> {{ t('browser.newFolder') }}
           </div>
           <div
             v-if="menu.item && !menu.item.is_dir && isRemote"
             class="ctx-item"
             @click="startDownload"
           >
-            <span>⬇️</span> 下载
+            <span>⬇️</span> {{ t('common.download') }}
           </div>
           <div v-if="menu.item" class="ctx-item" @click="startRename">
-            <span>✏️</span> 重命名
+            <span>✏️</span> {{ t('browser.rename') }}
           </div>
           <div v-if="menu.item" class="ctx-item ctx-danger" @click="confirmDelete">
-            <span>🗑️</span> 删除
+            <span>🗑️</span> {{ t('common.delete') }}
           </div>
         </div>
       </Transition>
     </Teleport>
 
     <!-- New Folder Dialog -->
-    <n-modal v-model:show="mkdir.show" preset="card" title="新建文件夹" class="ske-modal" style="max-width: 380px;">
+    <n-modal v-model:show="mkdir.show" preset="card" :title="t('browser.newFolder')" class="ske-modal" style="max-width: 380px;">
       <n-input
         v-model:value="mkdir.name"
-        placeholder="文件夹名称"
+        :placeholder="t('browser.folderNamePlaceholder')"
         @keyup.enter="doMkdir"
         :input-props="{ autocomplete: 'off' }"
       />
       <div class="modal-option">
         <n-checkbox v-model:checked="mkdir.encrypt">
-          加密
+          {{ t('browser.encrypt') }}
         </n-checkbox>
       </div>
       <template #action>
         <div class="modal-actions">
-          <n-button class="modal-btn" quaternary @click="mkdir.show = false">取消</n-button>
-          <n-button class="modal-btn" type="primary" :loading="mkdir.loading" @click="doMkdir">创建</n-button>
+          <n-button class="modal-btn" quaternary @click="mkdir.show = false">{{ t('common.cancel') }}</n-button>
+          <n-button class="modal-btn" type="primary" :loading="mkdir.loading" @click="doMkdir">{{ t('common.create') }}</n-button>
         </div>
       </template>
     </n-modal>
 
     <!-- Upload Dialog -->
-    <n-modal v-model:show="upload.show" preset="card" title="上传文件" class="ske-modal" style="max-width: 440px;">
-      <p class="modal-desc">已选择 {{ upload.files.length }} 个文件</p>
+    <n-modal v-model:show="upload.show" preset="card" :title="t('browser.upload')" class="ske-modal" style="max-width: 440px;">
+      <p class="modal-desc">{{ t('browser.selectedCount', { count: upload.files.length }) }}</p>
       <div v-if="upload.files.length" class="upload-file-list">
         <div
           v-for="file in upload.files"
@@ -115,41 +115,41 @@
       </div>
       <div class="modal-option">
         <n-checkbox v-model:checked="upload.encrypt">
-          加密上传
+          {{ t('browser.encryptUpload') }}
         </n-checkbox>
       </div>
       <p v-if="upload.progressText" class="upload-progress">{{ upload.progressText }}</p>
       <template #action>
         <div class="modal-actions">
-          <n-button class="modal-btn" quaternary :disabled="upload.loading" @click="resetUpload">取消</n-button>
-          <n-button class="modal-btn" type="primary" :loading="upload.loading" @click="doUpload">上传</n-button>
+          <n-button class="modal-btn" quaternary :disabled="upload.loading" @click="resetUpload">{{ t('common.cancel') }}</n-button>
+          <n-button class="modal-btn" type="primary" :loading="upload.loading" @click="doUpload">{{ t('common.upload') }}</n-button>
         </div>
       </template>
     </n-modal>
 
     <!-- Rename Dialog -->
-    <n-modal v-model:show="rename.show" preset="card" title="重命名" class="ske-modal" style="max-width: 380px;">
+    <n-modal v-model:show="rename.show" preset="card" :title="t('browser.rename')" class="ske-modal" style="max-width: 380px;">
       <n-input
         v-model:value="rename.newName"
-        placeholder="输入新名称"
+        :placeholder="t('browser.newNamePlaceholder')"
         @keyup.enter="doRename"
         :input-props="{ autocomplete: 'off' }"
       />
       <template #action>
         <div class="modal-actions">
-          <n-button class="modal-btn" quaternary @click="rename.show = false">取消</n-button>
-          <n-button class="modal-btn" type="primary" :loading="rename.loading" @click="doRename">确定</n-button>
+          <n-button class="modal-btn" quaternary @click="rename.show = false">{{ t('common.cancel') }}</n-button>
+          <n-button class="modal-btn" type="primary" :loading="rename.loading" @click="doRename">{{ t('common.confirm') }}</n-button>
         </div>
       </template>
     </n-modal>
 
     <!-- Delete Confirm -->
-    <n-modal v-model:show="del.show" preset="card" title="确认删除" class="ske-modal" style="max-width: 380px;">
-      <p class="modal-desc">确定要删除「{{ del.item?.decName }}」吗？此操作不可撤销。</p>
+    <n-modal v-model:show="del.show" preset="card" :title="t('browser.confirmDeleteTitle')" class="ske-modal" style="max-width: 380px;">
+      <p class="modal-desc">{{ t('browser.confirmDeleteBody', { name: del.item?.decName }) }}</p>
       <template #action>
         <div class="modal-actions">
-          <n-button class="modal-btn" quaternary @click="del.show = false">取消</n-button>
-          <n-button class="modal-btn" type="error" :loading="del.loading" @click="doDelete">删除</n-button>
+          <n-button class="modal-btn" quaternary @click="del.show = false">{{ t('common.cancel') }}</n-button>
+          <n-button class="modal-btn" type="error" :loading="del.loading" @click="doDelete">{{ t('common.delete') }}</n-button>
         </div>
       </template>
     </n-modal>
@@ -159,6 +159,7 @@
 <script setup>
 import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import FileGrid from './FileGrid.vue'
 import { getNameKeyFromSession, getPasswordFromSession, decryptName, encryptName, encryptFileContent } from '../../composables/useCrypto.js'
 import { globalState } from '../../composables/useGlobalState.js'
@@ -179,6 +180,7 @@ const isRemote = computed(() => props.mode !== 'local')
 
 const route = useRoute()
 const router = useRouter()
+const { t, locale } = useI18n()
 const { register: registerFab, unregister: unregisterFab, getOrder } = useFabManager()
 const { addTask: addDownloadTask } = useDownloadManager()
 
@@ -276,7 +278,7 @@ async function doMkdir() {
     mkdir.show = false
     await loadCurrentPath(false, true)
   } catch (err) {
-    error.value = err.message || '创建文件夹失败'
+    error.value = err.message || t('errors.mkdirFailed')
   } finally {
     mkdir.loading = false
   }
@@ -295,7 +297,7 @@ function handleUploadSelect(event) {
   if (!selected.length) return
   upload.files = selected
   upload.encrypt = true
-  upload.progressText = `已选择 ${selected.length} 个文件`
+  upload.progressText = t('browser.selectedCount', { count: selected.length })
   upload.show = true
   event.target.value = ''
 }
@@ -319,12 +321,16 @@ async function doUpload() {
     const password = getPasswordFromSession()
 
     if (upload.encrypt && (!nameKey || !password)) {
-      throw new Error('缺少加密主密码，无法加密上传')
+      throw new Error(t('errors.missingMasterPasswordUpload'))
     }
 
     for (let i = 0; i < upload.files.length; i++) {
       const sourceFile = upload.files[i]
-      const label = `正在上传 ${i + 1}/${upload.files.length}: ${sourceFile.name}`
+      const label = t('browser.uploading', {
+        current: i + 1,
+        total: upload.files.length,
+        name: sourceFile.name,
+      })
       upload.progressText = label
 
       let targetName = sourceFile.name
@@ -349,7 +355,7 @@ async function doUpload() {
     resetUpload(true)
     await loadCurrentPath(false, true)
   } catch (err) {
-    error.value = err.message || '上传失败'
+    error.value = err.message || t('errors.uploadFailed')
   } finally {
     upload.loading = false
   }
@@ -381,7 +387,7 @@ async function doRename() {
     rename.show = false
     await loadCurrentPath(false, true)
   } catch (err) {
-    error.value = err.message || '重命名失败'
+    error.value = err.message || t('errors.renameFailed')
   } finally {
     rename.loading = false
   }
@@ -407,7 +413,7 @@ async function doDelete() {
     del.show = false
     await loadCurrentPath(false, true)
   } catch (err) {
-    error.value = err.message || '删除失败'
+    error.value = err.message || t('errors.deleteFailed')
   } finally {
     del.loading = false
   }
@@ -422,7 +428,7 @@ async function startDownload() {
   try {
     const absPath = joinPath(getRoutePath(), item.encName)
     const info = await getFileInfo(absPath)
-    if (!info.url) throw new Error('无法获取下载链接')
+    if (!info.url) throw new Error(t('errors.noDownloadUrl'))
 
     if (isEncryptedFileName(item.encName)) {
       // Decrypt through the Service Worker so the user gets the plaintext file.
@@ -440,7 +446,7 @@ async function startDownload() {
       total: info.size || item.size || 0,
     })
   } catch (err) {
-    error.value = err.message || '下载失败'
+    error.value = err.message || t('errors.downloadFailed')
   }
 }
 
@@ -508,7 +514,7 @@ async function loadCurrentPath(_, refresh = false) {
 
     content.sort((a, b) => {
       if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1
-      return a.decName.localeCompare(b.decName, 'zh-CN')
+      return a.decName.localeCompare(b.decName, locale.value)
     })
 
     items.value = content
@@ -526,7 +532,7 @@ async function loadCurrentPath(_, refresh = false) {
       globalState.decryptedSegments = pathParts
     }
   } catch (err) {
-    error.value = err.message || '加载失败'
+    error.value = err.message || t('errors.loadFailed')
   } finally {
     loading.value = false
   }

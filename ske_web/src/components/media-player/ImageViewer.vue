@@ -7,12 +7,12 @@
   >
     <div v-if="loading && !error" class="loading-overlay">
       <n-spin size="large" />
-      <p>{{ isEncrypted ? '正在解密并加载图片…' : '正在加载图片…' }}</p>
+      <p>{{ isEncrypted ? t('viewer.decrypting') : t('viewer.loading') }}</p>
     </div>
 
     <div v-if="error" class="error-overlay">
       <n-alert type="error" :bordered="false">{{ errorText }}</n-alert>
-      <n-button type="primary" @click="$emit('retry')">重试</n-button>
+      <n-button type="primary" @click="$emit('retry')">{{ t('common.retry') }}</n-button>
     </div>
 
     <div
@@ -41,6 +41,7 @@
 
 <script setup>
 import { computed, ref, watch, onMounted, onUnmounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import ZoomControls from './ZoomControls.vue'
 import { useUpstreamAlerts } from '../../composables/useUpstreamAlerts.js'
 import { useFailureDiagnosis } from '../../composables/useDecryptDiagnosis.js'
@@ -58,10 +59,11 @@ const loading = ref(true)
 // Marker only: the sentence shown comes from the diagnosis, not from here.
 const error = ref('')
 
+const { t } = useI18n()
 const { dismissBanner } = useUpstreamAlerts()
 const { detail, examine, reset: resetDiagnosis } = useFailureDiagnosis(() => props.src)
 
-const errorText = computed(() => detail.value || '图片加载失败，正在检查原因…')
+const errorText = computed(() => detail.value || t('viewer.loadFailed'))
 
 const zoom = ref(1)
 const rotation = ref(0)

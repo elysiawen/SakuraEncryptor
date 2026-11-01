@@ -1,5 +1,6 @@
 import { reactive } from 'vue';
 import { useLocalFiles } from './useLocalFiles.js';
+import { t } from '../i18n/index.js';
 
 /**
  * Remembers the picked folder across page reloads.
@@ -171,7 +172,7 @@ export async function restoreLocalDirectory() {
         return state.status;
     } catch (err) {
         state.status = LOCAL_STATUS.ERROR;
-        state.message = err?.message || '无法恢复本地目录';
+        state.message = err?.message || t('errors.restoreLocalFailed');
         return state.status;
     } finally {
         state.restoring = false;
@@ -200,7 +201,7 @@ export async function reconnectLocalDirectory() {
         state.message = '';
     } catch (err) {
         state.status = LOCAL_STATUS.ERROR;
-        state.message = err?.message || '无法读取该文件夹';
+        state.message = err?.message || t('errors.readFolderFailed');
     }
     return state.status;
 }

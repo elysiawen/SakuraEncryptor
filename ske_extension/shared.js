@@ -11,6 +11,18 @@ const STORAGE_ENABLED = 'enabled'
 const STORAGE_PENDING = 'pending'
 const STORAGE_AUTO = 'auto'
 
+/**
+ * Localised string for the browser's UI language (`_locales/`).
+ *
+ * Shared by the popup and the worker, so the popup gets `t` without loading a
+ * second copy. `getMessage` answers with the default locale's text when a
+ * translation is missing, and with an empty string when the key itself is
+ * unknown — returning the key makes that mistake visible rather than blank.
+ */
+function t(name, substitutions) {
+  return chrome.i18n.getMessage(name, substitutions) || name
+}
+
 /** @returns {{ domains: string[], enabled: boolean, auto: boolean }} */
 async function readState() {
   const stored = await chrome.storage.local.get([
@@ -107,12 +119,12 @@ async function syncRules() {
 /** Accepts a pasted URL, a host, or a wildcard; returns a bare hostname. */
 function normalizeDomain(raw) {
   const trimmed = String(raw || '').trim().toLowerCase()
-  if (!trimmed) throw new Error('请输入域名')
+  if (!trimmed) throw new Error(t('errDomainRequired'))
 
   const withoutScheme = trimmed.replace(/^[a-z]+:\/\//, '')
   const host = withoutScheme.split('/')[0].split(':')[0].replace(/^\*\./, '')
   if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(host)) {
-    throw new Error('域名格式不正确')
+    throw new Error(t('errDomainInvalid'))
   }
   return host
 }

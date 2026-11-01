@@ -15,6 +15,7 @@
         "mp4box": "^2.5.0",
         "naive-ui": "^2.44.1",
         "vue": "^3.5.0",
+        "vue-i18n": "^11.4.16",
         "vue-router": "^4.5.0"
     },
     "devDependencies": {
