@@ -17,7 +17,7 @@
             <circle v-else :cx="shape.cx" :cy="shape.cy" :r="shape.r" />
           </template>
         </svg>
-        <span>{{ item.label }}</span>
+        <span>{{ $t(item.labelKey) }}</span>
       </RouterLink>
     </nav>
 
@@ -36,29 +36,29 @@
           <circle cx="12" cy="12" r="4.1" />
           <path d="M12 3v2.2M12 18.8V21M3 12h2.2M18.8 12H21M5.7 5.7l1.5 1.5M16.8 16.8l1.5 1.5M18.3 5.7l-1.5 1.5M7.2 16.8l-1.5 1.5" />
         </svg>
-        <span>{{ theme === 'light' ? '浅色' : '深色' }}</span>
+        <span>{{ theme === 'light' ? $t('sidebar.themeLight') : $t('sidebar.themeDark') }}</span>
       </button>
 
       <button
         v-if="session.lock.enabled"
         class="ghost utility-btn"
         type="button"
-        title="锁定应用"
+        :title="$t('sidebar.lockAction')"
         @click="onLock"
       >
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
           <path d="M7 11V8a5 5 0 0 1 10 0v3" />
           <path d="M5.5 11h13V19a1.5 1.5 0 0 1-1.5 1.5H7A1.5 1.5 0 0 1 5.5 19v-8z" />
         </svg>
-        <span>锁定</span>
+        <span>{{ $t('sidebar.lock') }}</span>
       </button>
     </div>
 
     <RouterLink to="/profiles" class="profile" :class="{ empty: !activeProfile }">
       <div class="avatar">{{ initials }}</div>
       <div class="info">
-        <div class="name">{{ activeProfile?.name || '未选择配置' }}</div>
-        <div class="server">{{ activeProfile?.server || '添加云端账号' }}</div>
+        <div class="name">{{ activeProfile?.name || $t('sidebar.noProfile') }}</div>
+        <div class="server">{{ activeProfile?.server || $t('sidebar.addAccount') }}</div>
       </div>
       <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
         <path d="M9 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round" />
@@ -73,11 +73,14 @@ import { useRoute } from 'vue-router'
 import MusicBar from './MusicBar.vue'
 import { activeProfile, attempt, lock, session } from '../state/session.js'
 import { currentTheme, toggleTheme } from '../state/theme.js'
+import { t } from '../i18n.js'
 
 const route = useRoute()
 
 const theme = ref(currentTheme())
-const themeLabel = computed(() => (theme.value === 'light' ? '切换到深色主题' : '切换到浅色主题'))
+const themeLabel = computed(() =>
+  theme.value === 'light' ? t('sidebar.switchToDark') : t('sidebar.switchToLight'),
+)
 
 async function onTheme() {
   theme.value = await toggleTheme()
@@ -90,22 +93,22 @@ function onLock() {
 const items = [
   {
     to: '/encrypt',
-    label: '加密工作台',
+    labelKey: 'nav.encrypt',
     shapes: [{ d: 'M7 11V8a5 5 0 0 1 10 0v3' }, { d: 'M5.5 11h13V19a1.5 1.5 0 0 1-1.5 1.5H7A1.5 1.5 0 0 1 5.5 19v-8z' }],
   },
   {
     to: '/browse',
-    label: '云端库',
+    labelKey: 'nav.browse',
     shapes: [{ d: 'M7 18h10a4 4 0 0 0 .4-8A6 6 0 0 0 6 11a3.5 3.5 0 0 0 1 7z' }],
   },
   {
     to: '/local',
-    label: '本地库',
+    labelKey: 'nav.local',
     shapes: [{ d: 'M4 8a2 2 0 0 1 2-2h3.5l2 2H18a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8z' }],
   },
   {
     to: '/transfers',
-    label: '传输',
+    labelKey: 'nav.transfers',
     // Two arrows, one per direction: the page carries uploads as well.
     shapes: [
       { d: 'M12 4v16' },
@@ -115,7 +118,7 @@ const items = [
   },
   {
     to: '/settings',
-    label: '设置',
+    labelKey: 'nav.settings',
     shapes: [
       { d: 'M4 8h16' },
       { d: 'M4 16h16' },
@@ -131,7 +134,7 @@ function isActive(item) {
 
 const initials = computed(() => {
   const name = activeProfile.value?.name?.trim()
-  return name ? name.slice(0, 1).toUpperCase() : '云'
+  return name ? name.slice(0, 1).toUpperCase() : t('sidebar.avatarFallback')
 })
 </script>
 

@@ -6,6 +6,10 @@
  * shared later without rewriting state plumbing.
  */
 import { computed, reactive } from 'vue'
+// `i18n.js` imports this module for `patchSettings`, so this is a cycle. It is a
+// lazy one: `t` is only ever called from functions, never while either module
+// body runs, and ES bindings resolve it by then.
+import { t } from '../i18n.js'
 
 const api = window.ske
 let toastSeq = 0
@@ -40,12 +44,12 @@ export const isLocked = computed(() => session.lock.enabled && !session.lock.unl
 /** Unwrap the `{ ok, error }` envelope every IPC handler returns. */
 async function call(promise) {
   const res = await promise
-  if (!res?.ok) throw new Error(res?.error || '操作失败')
+  if (!res?.ok) throw new Error(res?.error || t('errors.operationFailed'))
   return res
 }
 
 function requireApi() {
-  if (!api) throw new Error('preload 桥不可用，请通过 Electron 启动')
+  if (!api) throw new Error(t('errors.bridgeUnavailable'))
   return api
 }
 
@@ -77,7 +81,7 @@ export async function attempt(fn, { success } = {}) {
 
 export async function bootstrap() {
   if (!api) {
-    session.bootError = 'preload 桥不可用：请通过桌面应用启动，而不是直接打开网页。'
+    session.bootError = t('errors.bridgeUnavailableLong')
     session.ready = true
     return
   }
@@ -177,8 +181,15 @@ export async function activateProfile(id) {
   session.activeId = res.activeId
 }
 
+/**
+ * Persist a settings patch.
+ *
+ * Returns the whole answer rather than just `settings`: `settings:get` and
+ * `settings:patch` both report `locale`, the concrete language the main process
+ * resolved — `auto` can only be resolved where `app.getLocale()` is available.
+ */
 export async function patchSettings(patch) {
   const res = await call(requireApi().settings.patch(patch))
   session.settings = res.settings
-  return res.settings
+  return res
 }

@@ -22,9 +22,11 @@
       <div class="titlebar-left">
         <span class="badge">
           <span class="eq" :class="{ on: state.playing }" aria-hidden="true"><i /><i /><i /></span>
-          正在播放
+          {{ $t('player.playing') }}
         </span>
-        <span class="title" :title="track.title || state.name">{{ track.title || '音乐' }}</span>
+        <span class="title" :title="track.title || state.name">
+          {{ track.title || $t('player.trackFallback') }}
+        </span>
       </div>
 
       <div class="actions">
@@ -50,7 +52,7 @@
           class="icon"
           :class="{ active: listOpen }"
           type="button"
-          :title="listOpen ? '收起播放列表' : '播放列表'"
+          :title="listOpen ? $t('player.playlistCollapse') : $t('player.playlist')"
           @click="listOpen = !listOpen"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
@@ -59,13 +61,18 @@
           </svg>
         </button>
 
-        <button class="icon" type="button" title="最小化" @click="minimize">
+        <button class="icon" type="button" :title="$t('titleBar.minimize')" @click="minimize">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
             <path d="M6 12h12" />
           </svg>
         </button>
 
-        <button class="icon" type="button" :title="maximized ? '还原' : '最大化'" @click="toggleMaximize">
+        <button
+          class="icon"
+          type="button"
+          :title="maximized ? $t('titleBar.restore') : $t('titleBar.maximize')"
+          @click="toggleMaximize"
+        >
           <svg v-if="maximized" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
             <rect x="5" y="8" width="11" height="11" rx="1.4" />
             <path d="M9 8V6.4A1.4 1.4 0 0 1 10.4 5H18a1.4 1.4 0 0 1 1.4 1.4V14" />
@@ -75,7 +82,12 @@
           </svg>
         </button>
 
-        <button class="icon" type="button" title="关闭窗口（继续播放）" @click="closeWindow">
+        <button
+          class="icon"
+          type="button"
+          :title="$t('player.closeWindowKeepPlaying')"
+          @click="closeWindow"
+        >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
             <path d="M7 7l10 10M17 7L7 17" />
           </svg>
@@ -86,17 +98,22 @@
     <main class="stage">
       <p v-if="state.error" class="empty">
         {{ state.error }}
-        <button class="ghost sm" type="button" @click="retry">重试</button>
+        <button class="ghost sm" type="button" @click="retry">{{ $t('common.retry') }}</button>
       </p>
 
       <div v-else-if="!state.url" class="empty">
         <span v-if="state.loading && !bridgeError" class="spinner" />
-        <p>{{ bridgeError || (state.loading ? '正在解密…' : '暂无播放内容') }}</p>
+        <p>
+          {{
+            bridgeError ||
+            (state.loading ? $t('player.decrypting') : $t('player.empty'))
+          }}
+        </p>
         <button v-if="bridgeError" class="ghost sm" type="button" @click="retryBridge">
-          重试
+          {{ $t('common.retry') }}
         </button>
         <button v-else-if="!state.loading" class="ghost sm" type="button" @click="closeWindow">
-          关闭窗口
+          {{ $t('player.closeWindow') }}
         </button>
       </div>
 
@@ -145,8 +162,10 @@
                no-lyrics note below the middle of the stage. -->
           <div v-if="!lyric.lines.length" class="lyric-empty">
             <span class="art-glyph" aria-hidden="true">♪</span>
-            <strong>{{ lyric.loading ? '歌词加载中…' : '这首歌没有可用的歌词' }}</strong>
-            <span>把同名的 .lrc 放在音频旁边即可显示</span>
+            <strong>
+              {{ lyric.loading ? $t('player.lyricsLoading') : $t('player.lyricsEmpty') }}
+            </strong>
+            <span>{{ $t('player.lyricsHint') }}</span>
           </div>
         </section>
       </template>
@@ -164,7 +183,7 @@
           :value="state.currentTime"
           :style="{ '--p': `${percent}%` }"
           :disabled="!state.duration"
-          aria-label="播放进度"
+          :aria-label="$t('player.progress')"
           @input="onSeek"
         />
         <span class="time mono">{{ formatTime(state.duration) }}</span>
@@ -224,23 +243,45 @@
           </svg>
         </button>
 
-        <button class="round" type="button" title="上一首" :disabled="total < 2" @click="send('prev')">
+        <button
+          class="round"
+          type="button"
+          :title="$t('player.previous')"
+          :disabled="total < 2"
+          @click="send('prev')"
+        >
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h2v14H6zM19 5.4 9.5 12l9.5 6.6z" /></svg>
         </button>
 
-        <button class="round main" type="button" :title="state.playing ? '暂停（空格）' : '播放（空格）'" @click="send('toggle')">
+        <button
+          class="round main"
+          type="button"
+          :title="state.playing ? $t('player.pauseSpace') : $t('player.playSpace')"
+          @click="send('toggle')"
+        >
           <svg v-if="state.playing" viewBox="0 0 24 24" fill="currentColor">
             <path d="M8 5h3.2v14H8zM12.8 5H16v14h-3.2z" />
           </svg>
           <svg v-else viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.2 19 12 8 18.8z" /></svg>
         </button>
 
-        <button class="round" type="button" title="下一首" :disabled="total < 2" @click="send('next')">
+        <button
+          class="round"
+          type="button"
+          :title="$t('player.next')"
+          :disabled="total < 2"
+          @click="send('next')"
+        >
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 5h2v14h-2zM5 5.4 14.5 12 5 18.6z" /></svg>
         </button>
 
         <div class="volume">
-          <button class="round flat" type="button" :title="muted ? '取消静音' : '静音'" @click="onMute">
+          <button
+            class="round flat"
+            type="button"
+            :title="muted ? $t('player.unmute') : $t('player.mute')"
+            @click="onMute"
+          >
             <svg v-if="muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
               <path d="M4 9.5h3.2L12 5.5v13l-4.8-4H4z" />
               <path d="M16 9.5l4 5M20 9.5l-4 5" />
@@ -260,7 +301,7 @@
               step="0.01"
               :value="muted ? 0 : state.volume"
               :style="{ '--p': `${(muted ? 0 : state.volume) * 100}%` }"
-              aria-label="音量"
+              :aria-label="$t('player.volume')"
               @input="onVolume"
             />
           </div>
@@ -271,7 +312,7 @@
     <Transition name="fade">
       <aside v-if="listOpen && total" class="queue" @click.stop>
         <div class="queue-head">
-          <span>播放列表</span>
+          <span>{{ $t('player.playlist') }}</span>
           <span class="count mono">{{ total }}</span>
         </div>
         <div class="queue-body">
@@ -294,7 +335,8 @@
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { formatTime, PLAY_MODE_LABELS } from '../state/player.js'
+import { formatTime, PLAY_MODE_KEYS } from '../state/player.js'
+import { t } from '../i18n.js'
 import { session } from '../state/session.js'
 import { describeTrack, ensureTags } from '../state/track-tags.js'
 import { copyText } from '../utils/clipboard.js'
@@ -347,7 +389,9 @@ const track = computed(() => describeTrack(state.url, state.name))
 const mimeLabel = computed(() => (state.mime || 'audio').replace(/^audio\//, '').toUpperCase())
 const sizeLabel = computed(() => (state.size ? formatSize(state.size) : ''))
 const muted = computed(() => state.muted || state.volume === 0)
-const modeLabel = computed(() => `${PLAY_MODE_LABELS[state.mode] || PLAY_MODE_LABELS.list}（点击切换）`)
+const modeLabel = computed(() =>
+  t('player.modeClick', { mode: t(PLAY_MODE_KEYS[state.mode] || PLAY_MODE_KEYS.list) }),
+)
 const percent = computed(() =>
   state.duration ? Math.min(100, (state.currentTime / state.duration) * 100) : 0,
 )
@@ -506,17 +550,17 @@ watch(
 function send(type, value) {
   const command = window.ske?.player?.command
   if (!command) {
-    bridgeError.value = '主程序版本过旧，请完全退出应用后重新打开'
+    bridgeError.value = t('player.bridgeOutdated')
     return Promise.resolve(null)
   }
 
   return command({ type, value })
     .then((res) => {
-      if (res && res.ok === false) bridgeError.value = res.error || '主窗口没有响应'
+      if (res && res.ok === false) bridgeError.value = res.error || t('player.hostNoResponse')
       return res
     })
     .catch((err) => {
-      bridgeError.value = err?.message || '主窗口没有响应'
+      bridgeError.value = err?.message || t('player.hostNoResponse')
       return null
     })
 }
@@ -526,7 +570,7 @@ function armStallTimer() {
   stalledTimer = setTimeout(() => {
     if (synced) return
     state.loading = false
-    bridgeError.value = '无法连接主窗口：音轨可能已停止，或应用升级后尚未重启'
+    bridgeError.value = t('player.bridgeLost')
   }, 4000)
 }
 
@@ -571,9 +615,9 @@ const linkState = ref('')
 let linkTimer = 0
 
 const copyTitle = computed(() => {
-  if (linkState.value === 'copied') return '链接已复制，可粘贴到外部播放器；关闭应用后失效'
-  if (linkState.value === 'failed') return '复制失败，请重试'
-  return '复制解密播放链接'
+  if (linkState.value === 'copied') return t('player.linkCopied')
+  if (linkState.value === 'failed') return t('errors.copyFailed')
+  return t('player.linkCopy')
 })
 
 async function copyLink() {

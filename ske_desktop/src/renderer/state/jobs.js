@@ -5,6 +5,7 @@
  * costs one message per ~150 ms instead of an IPC round-trip per tick.
  */
 import { reactive } from 'vue'
+import { t } from '../i18n.js'
 
 export const jobs = reactive({
   items: [],
@@ -39,13 +40,13 @@ export function unsubscribeJobs() {
 
 export async function addJob({ srcPath, destDir, password }) {
   const res = await window.ske.jobs.add({ srcPath, destDir, password })
-  if (!res?.ok) throw new Error(res?.error || '无法加入队列')
+  if (!res?.ok) throw new Error(res?.error || t('errors.enqueueJobFailed'))
   return res.job
 }
 
 export async function cancelJob(id) {
   const res = await window.ske.jobs.cancel(id)
-  if (!res?.ok) throw new Error(res?.error || '无法取消')
+  if (!res?.ok) throw new Error(res?.error || t('errors.cancelJobFailed'))
 }
 
 export async function clearFinished() {

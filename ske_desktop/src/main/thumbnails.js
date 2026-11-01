@@ -11,6 +11,7 @@
  */
 import { execFile } from 'node:child_process'
 import fsp from 'node:fs/promises'
+import { t } from './i18n.js'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import ffmpegStatic from 'ffmpeg-static'
@@ -120,7 +121,7 @@ export async function makeThumbnail(srcPath) {
   if (!isVideo && !IMAGE_EXT.has(ext)) return null
 
   const tools = await resolveTools()
-  if (!tools) throw new Error('缺少内置 ffmpeg，无法生成预览图')
+  if (!tools) throw new Error(t('errors.noFfmpeg'))
 
   let stat
   try {

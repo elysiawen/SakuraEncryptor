@@ -12,7 +12,7 @@
         ref="passwordInput"
         v-model="password"
         type="password"
-        placeholder="启动密码"
+        :placeholder="$t('lock.password')"
         autocomplete="off"
         :disabled="busy || remain > 0"
         @keydown.enter="focusCode"
@@ -27,16 +27,18 @@
         inputmode="numeric"
         autocomplete="one-time-code"
         maxlength="6"
-        placeholder="6 位验证码"
+        :placeholder="$t('lock.codePlaceholder')"
         :disabled="busy || remain > 0"
         @input="onCodeInput"
       />
 
       <p v-if="error" class="error">{{ error }}</p>
-      <p v-else-if="remain > 0" class="error">尝试过多，{{ remain }} 秒后可重试</p>
+      <p v-else-if="remain > 0" class="error">
+        {{ $t('lock.tooManyAttempts', { seconds: remain }) }}
+      </p>
 
       <button class="primary" type="submit" :disabled="!canSubmit || busy || remain > 0">
-        {{ busy ? '验证中…' : '解锁' }}
+        {{ busy ? $t('lock.verifying') : $t('lock.unlock') }}
       </button>
     </form>
   </div>
@@ -45,6 +47,7 @@
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { session, unlock } from '../state/session.js'
+import { t } from '../i18n.js'
 
 const password = ref('')
 const code = ref('')
@@ -69,10 +72,10 @@ const needsTotp = computed(() => factors.value.includes('totp'))
 const anyOf = computed(() => factors.value.length > 1 && session.lock.match === 'any')
 
 const hint = computed(() => {
-  if (anyOf.value) return '启动密码或验证码，任一通过即可'
-  if (needsPassword.value && needsTotp.value) return '需要启动密码和验证码都通过'
-  if (needsTotp.value) return '输入令牌应用中的 6 位验证码'
-  return '输入启动密码以解锁'
+  if (anyOf.value) return t('lock.hintAny')
+  if (needsPassword.value && needsTotp.value) return t('lock.hintBoth')
+  if (needsTotp.value) return t('lock.hintTotp')
+  return t('lock.hintPassword')
 })
 
 /** In "any" mode one filled field is enough; otherwise every shown field is required. */

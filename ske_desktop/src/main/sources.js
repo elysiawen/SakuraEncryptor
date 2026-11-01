@@ -7,6 +7,7 @@
  */
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
+import { t } from './i18n.js'
 
 /** A file on this machine, read through a persistent handle for cheap seeks. */
 export class LocalSource {
@@ -18,7 +19,7 @@ export class LocalSource {
 
   async open() {
     const stat = await fsp.stat(this.filePath)
-    if (!stat.isFile()) throw new Error('不是文件')
+    if (!stat.isFile()) throw new Error(t('errors.notAFile'))
     this.size = stat.size
     this.handle = await fsp.open(this.filePath, 'r')
     return this
@@ -62,7 +63,7 @@ export class HttpSource {
       redirect: 'follow',
     })
     if (!res.ok && res.status !== 206) {
-      throw new Error(`上游返回 ${res.status}，无法读取加密文件`)
+      throw new Error(t('errors.upstreamReadFailed', { status: res.status }))
     }
     // Drain the probe body; Node keeps the socket busy otherwise. A server that
     // ignored Range has just handed us the whole file, so keep it instead.
@@ -80,7 +81,7 @@ export class HttpSource {
       const length = Number(res.headers.get('content-length'))
       if (res.status === 206) {
         // A 206 without Content-Range is unusable: we cannot map block offsets.
-        throw new Error('上游返回了分段响应但没有 Content-Range，无法定位数据块')
+        throw new Error(t('errors.upstreamNoRange'))
       }
       if (Number.isFinite(length) && length > 0) {
         // No range support at all: whole-file reads only. Seeking will be slow
@@ -91,7 +92,7 @@ export class HttpSource {
           this.whole = Buffer.from(probeBody)
         }
       } else {
-        throw new Error('无法确定上游文件大小')
+        throw new Error(t('errors.upstreamUnknownSize'))
       }
     }
     return this
@@ -112,7 +113,7 @@ export class HttpSource {
           this.wholeTask = null
         }
       }
-      if (!this.whole) throw new Error('上游读取失败')
+      if (!this.whole) throw new Error(t('errors.upstreamRead'))
       return this.whole.subarray(offset, offset + length)
     }
 
@@ -122,7 +123,7 @@ export class HttpSource {
       redirect: 'follow',
     })
     if (res.status !== 206 && res.status !== 200) {
-      throw new Error(`上游返回 ${res.status}`)
+      throw new Error(t('errors.upstreamStatus', { status: res.status }))
     }
     const buffer = Buffer.from(await res.arrayBuffer())
     return buffer.length > length ? buffer.subarray(0, length) : buffer
@@ -130,7 +131,7 @@ export class HttpSource {
 
   async #fetchWhole() {
     const res = await fetch(this.url, { headers: this.headers, redirect: 'follow' })
-    if (!res.ok) throw new Error(`上游返回 ${res.status}`)
+    if (!res.ok) throw new Error(t('errors.upstreamStatus', { status: res.status }))
     const whole = Buffer.from(await res.arrayBuffer())
     this.size = whole.length
     this.whole = whole

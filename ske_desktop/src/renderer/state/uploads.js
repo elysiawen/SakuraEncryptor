@@ -7,6 +7,7 @@
  * while the user browses another folder.
  */
 import { reactive } from 'vue'
+import { t } from '../i18n.js'
 
 export const uploads = reactive({
   items: [],
@@ -43,7 +44,7 @@ export async function refreshUploads() {
  */
 export async function prepareUploads(paths) {
   const res = await window.ske.uploads.prepare(paths)
-  if (!res?.ok) throw new Error(res?.error || '无法读取拖入的文件')
+  if (!res?.ok) throw new Error(res?.error || t('errors.readDroppedFailed'))
   return res.files || []
 }
 
@@ -61,20 +62,20 @@ export async function enqueueUploads({ sessionId, path, files, encrypt = true })
   }))
 
   const res = await window.ske.uploads.add({ sessionId, path, files: plainFiles, encrypt })
-  if (!res?.ok) throw new Error(res?.error || '无法加入上传队列')
+  if (!res?.ok) throw new Error(res?.error || t('errors.enqueueUploadFailed'))
   if (res.uploads) uploads.items = res.uploads
   return res.jobs
 }
 
 export async function cancelUpload(id) {
   const res = await window.ske.uploads.cancel(id)
-  if (!res?.ok) throw new Error(res?.error || '取消失败')
+  if (!res?.ok) throw new Error(res?.error || t('errors.cancelFailed'))
   if (res.uploads) uploads.items = res.uploads
 }
 
 export async function clearUploads() {
   const res = await window.ske.uploads.clear()
-  if (!res?.ok) throw new Error(res?.error || '清理失败')
+  if (!res?.ok) throw new Error(res?.error || t('errors.cleanFailed'))
   if (res.uploads) uploads.items = res.uploads
 }
 

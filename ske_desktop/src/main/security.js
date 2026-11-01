@@ -22,6 +22,7 @@ import { app, safeStorage } from 'electron'
 import crypto from 'node:crypto'
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import { t } from './i18n.js'
 import { decodeSecret, encodeBase32, generateSecret, otpauthUri, verifyCode } from './totp.js'
 
 const SCRYPT = { N: 16384, r: 8, p: 1, keylen: 64 }
@@ -39,8 +40,6 @@ export const MIN_PASSWORD_LENGTH = 6
 /** How several configured factors combine. Mirrors `AppLockMatch` on Android. */
 export const MATCH_ALL = 'all'
 export const MATCH_ANY = 'any'
-
-const FACTOR_LABELS = { password: '密码', totp: '验证码' }
 
 export class Security {
   constructor() {
@@ -128,10 +127,10 @@ export class Security {
   async setPassword(password, currentPassword) {
     const value = String(password || '')
     if (value.length < MIN_PASSWORD_LENGTH) {
-      throw new Error(`启动密码至少 ${MIN_PASSWORD_LENGTH} 位`)
+      throw new Error(t('errors.passwordTooShort', { count: MIN_PASSWORD_LENGTH }))
     }
     if (this.record.password && !this.verify(currentPassword)) {
-      throw new Error('当前密码不正确')
+      throw new Error(t('errors.wrongCurrentPassword'))
     }
     const salt = crypto.randomBytes(16)
     this.record.password = {
@@ -194,7 +193,7 @@ export class Security {
    */
   beginTotp() {
     if (!this.#canSeal()) {
-      throw new Error('系统未提供安全存储（密钥环或凭据管理器），无法绑定 TOTP')
+      throw new Error(t('errors.noKeystore'))
     }
     const secret = encodeBase32(generateSecret())
     return { secret, uri: otpauthUri(secret) }
@@ -209,10 +208,10 @@ export class Security {
    */
   async confirmTotp(code, secretInput) {
     const secret = decodeSecret(secretInput)
-    if (!secret) throw new Error('密钥格式不正确，应为 Base32 字符串或 otpauth 链接')
-    if (!verifyCode(secret, code)) throw new Error('验证码不正确或已过期')
+    if (!secret) throw new Error(t('errors.badSecret'))
+    if (!verifyCode(secret, code)) throw new Error(t('errors.wrongCode'))
     if (!this.#canSeal()) {
-      throw new Error('系统未提供安全存储（密钥环或凭据管理器），无法绑定 TOTP')
+      throw new Error(t('errors.noKeystore'))
     }
 
     this.record.totp = {
@@ -242,8 +241,8 @@ export class Security {
 
   /** Turn the whole lock off. Every configured factor has to be proven. */
   async disable({ password = '', totp = '' } = {}) {
-    if (this.record.password && !this.verify(password)) throw new Error('密码不正确')
-    if (this.record.totp && !this.verifyTotp(totp)) throw new Error('验证码不正确或已过期')
+    if (this.record.password && !this.verify(password)) throw new Error(t('errors.wrongPassword'))
+    if (this.record.totp && !this.verifyTotp(totp)) throw new Error(t('errors.wrongCode'))
 
     this.record.password = null
     this.record.totp = null
@@ -268,7 +267,7 @@ export class Security {
       return this.state()
     }
     if (Date.now() < this.lockedUntil) {
-      throw new Error('尝试过于频繁，请稍后再试')
+      throw new Error(t('errors.tooManyAttempts'))
     }
 
     const required = this.factors()
@@ -300,9 +299,9 @@ export class Security {
   #failureMessage(required, passed) {
     const missing = required.filter((factor) => !passed.has(factor))
     const problems = missing.map((factor) =>
-      factor === 'totp' ? '验证码不正确或已过期' : '密码不正确',
+      factor === 'totp' ? t('errors.wrongCode') : t('errors.wrongPassword'),
     )
-    return problems.join('；') || '验证不通过'
+    return problems.join(t('errors.joiner')) || t('errors.verifyFailed')
   }
 
   lock() {

@@ -24,27 +24,25 @@
         v-model="currentPassword"
         type="password"
         autocomplete="off"
-        placeholder="当前密码"
+        :placeholder="$t('lock.currentPassword')"
       />
       <input
         ref="passwordField"
         v-model="password"
         type="password"
         autocomplete="new-password"
-        :placeholder="`新密码，至少 ${minPassword} 位`"
+        :placeholder="$t('lock.newPasswordHint', { min: minPassword })"
       />
     </template>
 
     <template v-else-if="mode === 'totp'">
-      <p class="dlg-desc">
-        用验证器应用扫描或导入下面的 otpauth 链接，再输入它显示的 6 位验证码。
-      </p>
+      <p class="dlg-desc">{{ $t('lock.totpScanHint') }}</p>
 
       <!-- The default path is "take this new key". Reusing a token the user
            already registered is the exception, so it lives behind a link
            instead of sitting in the middle of the form looking mandatory. -->
       <template v-if="!useExisting">
-        <div class="mono secret">{{ secret || '正在生成密钥…' }}</div>
+        <div class="mono secret">{{ secret || $t('lock.generatingSecret') }}</div>
         <div v-if="uri" class="mono uri" :title="uri">{{ uri }}</div>
       </template>
 
@@ -54,11 +52,9 @@
           v-model="pasted"
           class="mono"
           autocomplete="off"
-          placeholder="粘贴 Base32 密钥或 otpauth 链接"
+          :placeholder="$t('lock.pasteSecret')"
         />
-        <p class="hint">
-          使用验证器里已有的那个密钥，绑定后两边的验证码会一致。
-        </p>
+        <p class="hint">{{ $t('lock.existingHint') }}</p>
       </template>
 
       <input
@@ -67,7 +63,7 @@
         class="code"
         inputmode="numeric"
         maxlength="6"
-        placeholder="6 位验证码"
+        :placeholder="$t('lock.codePlaceholder')"
         @input="onCodeInput"
       />
 
@@ -78,11 +74,11 @@
           type="button"
           @click="emit('regenerate')"
         >
-          换一个密钥
+          {{ $t('lock.regenerate') }}
         </button>
         <span />
         <button class="link" type="button" @click="toggleExisting">
-          {{ useExisting ? '改用新生成的密钥' : '已经在验证器里？' }}
+          {{ useExisting ? $t('lock.useNew') : $t('lock.alreadyHave') }}
         </button>
       </div>
     </template>
@@ -94,7 +90,7 @@
         v-model="currentPassword"
         type="password"
         autocomplete="off"
-        placeholder="当前密码"
+        :placeholder="$t('lock.currentPassword')"
       />
       <input
         v-if="hasTotp"
@@ -102,19 +98,21 @@
         class="code"
         inputmode="numeric"
         maxlength="6"
-        placeholder="6 位验证码"
+        :placeholder="$t('lock.codePlaceholder')"
         @input="onCodeInput"
       />
     </template>
 
     <template #footer>
-      <button class="ghost" type="button" :disabled="busy" @click="cancel">取消</button>
+      <button class="ghost" type="button" :disabled="busy" @click="cancel">
+        {{ $t('common.cancel') }}
+      </button>
       <button
         :class="mode === 'disable' ? 'danger' : 'primary'"
         type="submit"
         :disabled="busy || !canSubmit"
       >
-        {{ busy ? '处理中…' : confirmText }}
+        {{ busy ? $t('common.processing') : confirmText }}
       </button>
     </template>
   </AppDialog>
@@ -123,6 +121,7 @@
 <script setup>
 import { computed, nextTick, ref, watch } from 'vue'
 import AppDialog from './AppDialog.vue'
+import { t } from '../i18n.js'
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
@@ -151,28 +150,28 @@ const passwordField = ref(null)
 const pastedField = ref(null)
 
 const title = computed(() => {
-  if (props.mode === 'totp') return '绑定 TOTP 身份验证器'
-  if (props.mode === 'disable') return '关闭启动锁'
-  return props.hasPassword ? '修改启动密码' : '设置启动密码'
+  if (props.mode === 'totp') return t('lock.titleTotp')
+  if (props.mode === 'disable') return t('lock.titleDisable')
+  return props.hasPassword ? t('lock.titleChangePassword') : t('lock.titleSetPassword')
 })
 
 const description = computed(() => {
   if (props.mode === 'disable') {
-    const factors = [props.hasPassword ? '密码' : '', props.hasTotp ? 'TOTP' : '']
+    const factors = [props.hasPassword ? t('lock.factorPassword') : '', props.hasTotp ? 'TOTP' : '']
       .filter(Boolean)
-      .join('与')
-    return `${factors} 会一并清除，需要先验证当前已启用的方式。`
+      .join(t('lock.factorJoin'))
+    return t('lock.disableWarning', { factors })
   }
   if (props.mode === 'password' && props.hasPassword) {
-    return '修改后下次启动生效，当前会话保持解锁。'
+    return t('lock.passwordChangedHint')
   }
   return ''
 })
 
 const confirmText = computed(() => {
-  if (props.mode === 'totp') return '确认绑定'
-  if (props.mode === 'disable') return '关闭启动锁'
-  return props.hasPassword ? '修改' : '启用'
+  if (props.mode === 'totp') return t('lock.confirmBind')
+  if (props.mode === 'disable') return t('lock.titleDisable')
+  return props.hasPassword ? t('lock.confirmChange') : t('lock.confirmEnable')
 })
 
 const canSubmit = computed(() => {

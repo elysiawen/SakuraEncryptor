@@ -17,24 +17,35 @@ import fs from 'node:fs'
  * @param {() => void} options.onShow
  * @param {() => void} options.onNewWindow
  * @param {() => void} options.onQuit
+ * @param {(key: string) => string} options.t  main-process translator
  */
-export function createTray({ iconPath, onShow, onNewWindow, onQuit }) {
+export function createTray({ iconPath, onShow, onNewWindow, onQuit, t }) {
   const image =
     iconPath && fs.existsSync(iconPath)
       ? nativeImage.createFromPath(iconPath)
       : nativeImage.createEmpty()
 
   const tray = new Tray(image)
-  tray.setToolTip('Sakura Encryptor')
 
-  const menu = Menu.buildFromTemplate([
-    { label: '显示主窗口', click: onShow },
-    { label: '新建窗口', click: onNewWindow },
-    { type: 'separator' },
-    { label: '退出', click: onQuit },
-  ])
+  /**
+   * Labels are baked into the native menu when it is built, so a language
+   * switch has to build a whole new menu — mutating the old one is not a thing
+   * Electron offers. `refresh` is attached to the tray because that is what the
+   * settings channel needs a handle on.
+   */
+  tray.refresh = () => {
+    tray.setToolTip(t('tray.tooltip'))
+    tray.setContextMenu(
+      Menu.buildFromTemplate([
+        { label: t('tray.showWindow'), click: onShow },
+        { label: t('tray.newWindow'), click: onNewWindow },
+        { type: 'separator' },
+        { label: t('tray.quit'), click: onQuit },
+      ]),
+    )
+  }
 
-  tray.setContextMenu(menu)
+  tray.refresh()
   tray.on('click', onShow)
   // Windows fires double-click instead of click when the shell has one configured.
   tray.on('double-click', onShow)

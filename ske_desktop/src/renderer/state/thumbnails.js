@@ -24,6 +24,7 @@
  * (only for entries whose envelope is missing) instead of for every tile.
  */
 import { reactive } from 'vue'
+import { t } from '../i18n.js'
 import { cloud } from './cloud.js'
 
 const MAX_CACHE = 300
@@ -205,7 +206,7 @@ async function openMedia(entry) {
     path: entry.path,
     name: entry.name,
   })
-  if (!res?.ok) throw new Error(res?.error || '无法解密文件')
+  if (!res?.ok) throw new Error(res?.error || t('errors.decryptFileFailed'))
   return res
 }
 

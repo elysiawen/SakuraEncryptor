@@ -3,19 +3,17 @@
     <!-- Locked: the local password is independent of every cloud profile. -->
     <div v-if="!local.unlocked" class="gate">
       <form class="gate-card" @submit.prevent="unlock">
-        <h2>解锁本地库</h2>
-        <p>
-          本地文件用一套独立的密码加密，与云端配置无关。密码只保留在内存中，重启应用后需要重新输入。
-        </p>
+        <h2>{{ $t('local.unlockTitle') }}</h2>
+        <p>{{ $t('local.unlockDesc') }}</p>
         <input
           v-model="password"
           type="password"
           autocomplete="off"
-          placeholder="本地加密密码"
+          :placeholder="$t('local.passwordPlaceholder')"
           :disabled="busy"
         />
         <button class="primary" type="submit" :disabled="busy || !password">
-          {{ busy ? '验证中…' : '解锁' }}
+          {{ busy ? $t('local.verifying') : $t('local.unlock') }}
         </button>
       </form>
     </div>
@@ -35,7 +33,7 @@
             </button>
           </template>
         </nav>
-        <span v-else class="muted">未选择目录</span>
+        <span v-else class="muted">{{ $t('local.noRoot') }}</span>
 
         <div class="tools">
           <button
@@ -45,27 +43,27 @@
             :disabled="!local.entries.length && !selectMode"
             @click="toggleSelectMode"
           >
-            {{ selectMode ? '完成' : '多选' }}
+            {{ selectMode ? $t('common.done') : $t('files.selectMode') }}
           </button>
-          <button class="ghost sm" type="button" @click="pick">选择目录</button>
+          <button class="ghost sm" type="button" @click="pick">{{ $t('local.pickDir') }}</button>
           <button class="ghost sm" type="button" :disabled="!local.root" @click="loadLocal(local.path)">
-            刷新
+            {{ $t('files.refresh') }}
           </button>
-          <button class="ghost sm" type="button" @click="lock">锁定</button>
+          <button class="ghost sm" type="button" @click="lock">{{ $t('local.lock') }}</button>
         </div>
       </div>
 
       <div v-if="selectMode" class="sel-bar">
-        <span class="sel-count">已选 {{ selected.size }} 项</span>
+        <span class="sel-count">{{ $t('files.selectedCount', { count: selected.size }) }}</span>
         <div class="sel-actions">
-          <button class="ghost sm" type="button" @click="selectAll">全选</button>
+          <button class="ghost sm" type="button" @click="selectAll">{{ $t('files.selectAll') }}</button>
           <button
             class="ghost sm"
             type="button"
             :disabled="!selected.size"
             @click="clearSelection"
           >
-            取消选择
+            {{ $t('files.clearSelection') }}
           </button>
           <button
             class="ghost sm"
@@ -73,7 +71,7 @@
             :disabled="!downloadableSelected.length"
             @click="downloadSelected"
           >
-            下载
+            {{ $t('files.download') }}
           </button>
           <button
             class="danger sm"
@@ -81,7 +79,7 @@
             :disabled="!selected.size"
             @click="openDeleteSelected"
           >
-            删除
+            {{ $t('common.delete') }}
           </button>
         </div>
       </div>
@@ -90,9 +88,9 @@
         <EmptyState
           v-if="!local.root"
           icon="📁"
-          title="选择一个本地目录"
-          description="直接读取磁盘上的加密文件与普通文件，不需要上传，也不需要浏览器授权。"
-          action-text="选择文件夹"
+          :title="$t('local.emptyRootTitle')"
+          :description="$t('local.emptyRootDesc')"
+          :action-text="$t('local.emptyRootAction')"
           @action="pick"
         />
 
@@ -101,17 +99,17 @@
         <EmptyState
           v-else-if="local.error"
           icon="⚠"
-          :title="'无法读取目录'"
+          :title="$t('local.readFailed')"
           :description="local.error"
-          action-text="重试"
+          :action-text="$t('common.retry')"
           @action="loadLocal(local.path)"
         />
 
         <EmptyState
           v-else-if="!local.entries.length"
           icon="🗂"
-          title="这个目录是空的"
-          description="用加密工作台把文件加密到此处，它们就会出现在这里。"
+          :title="$t('files.emptyDirTitle')"
+          :description="$t('local.emptyDirDesc')"
         />
 
         <div v-else class="rows" @click.self="clearSelection">
@@ -150,11 +148,11 @@
 
       <PromptDialog
         :visible="mkdir.show"
-        title="新建文件夹"
-        description="名称默认加密成 token 写进目录；取消勾选则使用明文名称。"
-        placeholder="文件夹名称"
-        confirm-text="创建"
-        checkbox-label="加密名称"
+        :title="$t('files.mkdirTitle')"
+        :description="$t('local.mkdirDesc')"
+        :placeholder="$t('files.folderNamePlaceholder')"
+        :confirm-text="$t('files.create')"
+        :checkbox-label="$t('files.encryptName')"
         :checked-by-default="true"
         :busy="mkdir.busy"
         :error="mkdir.error"
@@ -164,11 +162,11 @@
 
       <PromptDialog
         :visible="rename.show"
-        :title="rename.target?.isDir ? '重命名文件夹' : '重命名'"
-        description="加密条目会重新加密为新名字，未加密的条目保持明文。"
-        placeholder="新名称"
+        :title="rename.target?.isDir ? $t('files.renameFolder') : $t('files.rename')"
+        :description="$t('files.renameDesc')"
+        :placeholder="$t('files.newNamePlaceholder')"
         :initial-value="rename.target?.name || ''"
-        confirm-text="重命名"
+        :confirm-text="$t('files.rename')"
         :busy="rename.busy"
         :error="rename.error"
         @cancel="rename.show = false"
@@ -177,7 +175,7 @@
 
       <ConfirmDialog
         :visible="removal.show"
-        title="确认删除"
+        :title="$t('files.deleteTitle')"
         :description="removalDescription"
         :busy="removal.busy"
         :error="removal.error"
@@ -220,6 +218,7 @@ import {
 } from '../state/local.js'
 import { playEntry } from '../state/player.js'
 import { enqueueDownload } from '../state/downloads.js'
+import { t } from '../i18n.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -254,7 +253,7 @@ async function openFromQuery() {
 
     const entry = local.entries.find((item) => !item.isDir && item.name === file)
     if (entry) activate(entry)
-    else toast(`该目录中没有找到 ${file}`, 'error')
+    else toast(t('local.notFound', { file }), 'error')
   } catch (err) {
     toast(err.message, 'error')
   } finally {
@@ -267,7 +266,7 @@ async function unlock() {
   try {
     await unlockLocal(password.value)
     password.value = ''
-    toast('本地库已解锁', 'ok')
+    toast(t('local.unlocked'), 'ok')
   } catch (err) {
     toast(err.message, 'error')
   } finally {
@@ -278,7 +277,7 @@ async function unlock() {
 async function pick() {
   try {
     if (!local.unlocked) {
-      toast('请先解锁本地库', 'error')
+      toast(t('local.needUnlock'), 'error')
       return
     }
     await chooseRoot()
@@ -289,7 +288,7 @@ async function pick() {
 
 async function lock() {
   await lockLocal()
-  toast('本地库已锁定')
+  toast(t('local.lockedToast'))
 }
 
 // ── Selection ──
@@ -408,11 +407,11 @@ function activate(entry) {
     return
   }
   if (entry.locked) {
-    toast('该文件无法解密，请检查密码', 'error')
+    toast(t('local.decryptFailed'), 'error')
     return
   }
   if (!PLAYABLE_KINDS.has(entry.kind)) {
-    toast('暂不支持播放该类型的文件', 'error')
+    toast(t('local.unsupported'), 'error')
     return
   }
 
@@ -432,7 +431,7 @@ function activate(entry) {
 async function download(entry) {
   try {
     await enqueueDownload({ mode: 'local', path: entry.path, name: entry.name })
-    toast(`已加入下载：${entry.name}`, 'ok')
+    toast(t('files.queuedOne', { name: entry.name }), 'ok')
   } catch (err) {
     toast(err.message, 'error')
   }
@@ -457,14 +456,14 @@ async function downloadMany(entries) {
     }
   }
 
-  if (added) toast(`已加入下载：${added} 个文件`, 'ok')
+  if (added) toast(t('files.queuedMany', { count: added }), 'ok')
   if (failure) toast(failure.message, 'error')
 }
 
 function downloadSelected() {
   const files = downloadableSelected.value
   if (!files.length) {
-    toast('选中的项目里没有可下载的加密文件', 'error')
+    toast(t('local.nothingDownloadable'), 'error')
     return
   }
   downloadMany(files)
@@ -500,8 +499,8 @@ function buildMenu(entry, players = []) {
   if (!entry) {
     return grouped([
       [
-        { label: '新建文件夹', icon: '📁', action: openMkdir },
-        { label: '刷新', icon: '🔄', action: () => loadLocal(local.path) },
+        { label: t('files.mkdirTitle'), icon: '📁', action: openMkdir },
+        { label: t('files.refresh'), icon: '🔄', action: () => loadLocal(local.path) },
       ],
     ])
   }
@@ -516,16 +515,16 @@ function buildMenu(entry, players = []) {
     return grouped([
       [
         {
-          label: `下载 ${files.length} 个文件`,
+          label: t('files.downloadCount', { count: files.length }),
           icon: '⤓',
           disabled: !files.length,
           action: () => downloadMany(files),
         },
       ],
-      [{ label: '取消选择', icon: '✕', action: clearSelection }],
+      [{ label: t('files.clearSelection'), icon: '✕', action: clearSelection }],
       [
         {
-          label: `删除 ${targets.length} 项`,
+          label: t('files.deleteCount', { count: targets.length }),
           icon: '🗑️',
           danger: true,
           action: () => openDeleteMany(targets),
@@ -541,20 +540,20 @@ function buildMenu(entry, players = []) {
   // Only containers are worth writing out again: a plain file already is one.
   if (!entry.isDir && entry.encrypted) {
     file.push({
-      label: '下载',
+      label: t('files.download'),
       icon: '⤓',
       disabled: entry.locked,
       action: () => download(entry),
     })
   }
-  file.push({ label: '重命名', icon: '✏️', action: () => openRename(entry) })
+  file.push({ label: t('files.rename'), icon: '✏️', action: () => openRename(entry) })
 
   const playback = []
   if (copyable(entry)) {
     playback.push(
-      { label: '复制播放链接', icon: '🔗', disabled: entry.locked, action: () => copyLink(entry) },
+      { label: t('files.copyLink'), icon: '🔗', disabled: entry.locked, action: () => copyLink(entry) },
       {
-        label: '外部播放器',
+        label: t('files.externalPlayer'),
         icon: '🎬',
         disabled: entry.locked,
         // Second level: which player. Detection happens in the main process.
@@ -563,7 +562,7 @@ function buildMenu(entry, players = []) {
     )
   }
 
-  const destroy = [{ label: '删除', icon: '🗑️', danger: true, action: () => openDelete(entry) }]
+  const destroy = [{ label: t('common.delete'), icon: '🗑️', danger: true, action: () => openDelete(entry) }]
 
   return grouped([file, playback, destroy])
 }
@@ -578,7 +577,7 @@ function buildMenu(entry, players = []) {
 async function copyLink(entry) {
   try {
     await copyEntryLink({ mode: 'local', path: entry.path, name: entry.name })
-    toast('播放链接已复制，可粘贴到 mpv / VLC 等播放器；复制其他文件或退出应用后失效', 'ok')
+    toast(t('files.linkCopied'), 'ok')
   } catch (err) {
     toast(err.message, 'error')
   }
@@ -596,7 +595,7 @@ async function playExternal(entry, exe = '') {
       { mode: 'local', path: entry.path, name: entry.name },
       exe,
     )
-    toast(`已用 ${res.player || '外部播放器'} 打开；播放期间请保持应用运行`, 'ok')
+    toast(t('files.openedWith', { player: res.player || t('files.externalPlayer') }), 'ok')
   } catch (err) {
     toast(err.message, 'error')
   }
@@ -642,8 +641,8 @@ const removal = reactive({ show: false, targets: [], busy: false, error: '' })
 const removalDescription = computed(() => {
   const targets = removal.targets
   if (!targets.length) return ''
-  if (targets.length === 1) return `「${targets[0].name}」将从磁盘删除，此操作不可撤销。`
-  return `选中的 ${targets.length} 项将从磁盘删除，此操作不可撤销。`
+  if (targets.length === 1) return t('local.removeOne', { name: targets[0].name })
+  return t('local.removeMany', { count: targets.length })
 })
 
 function openMkdir() {
@@ -657,7 +656,7 @@ async function submitMkdir({ text, checked }) {
   try {
     await makeFolder(local.path, text, checked)
     mkdir.show = false
-    toast(`已创建文件夹：${text}`, 'ok')
+    toast(t('files.created', { name: text }), 'ok')
   } catch (err) {
     mkdir.error = err.message
   } finally {
@@ -684,7 +683,7 @@ async function submitRename({ text }) {
   try {
     await renameEntry(target.path, text)
     rename.show = false
-    toast(`已重命名为：${text}`, 'ok')
+    toast(t('files.renamed', { name: text }), 'ok')
   } catch (err) {
     rename.error = err.message
   } finally {
@@ -727,10 +726,15 @@ async function submitDelete() {
     exitSelectMode()
 
     if (failed.length) {
-      toast(`${failed.length} 项删除失败：${failed[0].error}`, 'error')
+      toast(t('files.removeFailed', { count: failed.length, error: failed[0].error }), 'error')
       return
     }
-    toast(targets.length === 1 ? `已删除：${targets[0].name}` : `已删除 ${targets.length} 项`, 'ok')
+    toast(
+      targets.length === 1
+        ? t('files.removedOne', { name: targets[0].name })
+        : t('files.removedMany', { count: targets.length }),
+      'ok',
+    )
   } catch (err) {
     removal.error = err.message
   } finally {
@@ -750,8 +754,8 @@ function playableEntry(entry) {
  * files the user dropped in by hand, and only the containers need the password.
  */
 function tagLabel(entry) {
-  if (entry.locked) return '无法解密'
-  return entry.encrypted ? '加密' : '未加密'
+  if (entry.locked) return t('browse.tagLocked')
+  return entry.encrypted ? t('browse.tagEncrypted') : t('browse.tagPlain')
 }
 
 function tagClass(entry) {

@@ -18,6 +18,7 @@ import path from 'node:path'
 import { BACKENDS, DEFAULT_BACKEND, normalizeBackend } from './backends.js'
 import { backendDir, install, installed, uninstall } from './download.js'
 import { EmbeddedServer, randomPassword } from './server.js'
+import { t } from '../i18n.js'
 
 const MIN_PORT = 1024
 const MAX_PORT = 65535
@@ -70,7 +71,7 @@ export class EmbeddedService {
       installed: record ? { tag: record.tag, size: record.size, installedAt: record.installedAt } : null,
       username: this.server?.username || '',
       origin: this.origin,
-      backends: Object.values(BACKENDS).map(({ id, label, blurb }) => ({ id, label, blurb })),
+      backends: Object.values(BACKENDS).map(({ id, label, blurb }) => ({ id, label, blurb: t(blurb) })),
       minPort: MIN_PORT,
       maxPort: MAX_PORT,
     }
@@ -110,7 +111,7 @@ export class EmbeddedService {
    * @param {string} [backendId] switch backend while starting
    */
   async enable(backendId) {
-    if (this.busy) throw new Error('内置服务器正在处理上一条操作，请稍候')
+    if (this.busy) throw new Error(t('errors.busy'))
     this.busy = true
     try {
       const backend = normalizeBackend(backendId || this.settings.backend)
@@ -187,7 +188,7 @@ export class EmbeddedService {
   async setPort(port) {
     const value = Number(port)
     if (!Number.isInteger(value) || value < MIN_PORT || value > MAX_PORT) {
-      throw new Error(`端口需要在 ${MIN_PORT}-${MAX_PORT} 之间`)
+      throw new Error(t('errors.portRange', { min: MIN_PORT, max: MAX_PORT }))
     }
     await this.storage.patchSettings({ embedded: { port: value } })
     if (this.server && this.server.running) {
@@ -264,7 +265,7 @@ export class EmbeddedService {
 
   /** Field definitions for one driver, used to build the add/edit form. */
   async driverInfo(driver) {
-    if (!driver) throw new Error('缺少驱动名')
+    if (!driver) throw new Error(t('errors.driverMissing'))
     return this.#requireServer().driverInfo(driver)
   }
 
@@ -317,7 +318,7 @@ export class EmbeddedService {
   // --- internals -----------------------------------------------------------
 
   #requireServer() {
-    if (!this.server?.running) throw new Error('内置服务器未在运行，请先在设置中开启')
+    if (!this.server?.running) throw new Error(t('errors.serverNotRunning'))
     return this.server
   }
 
@@ -366,7 +367,7 @@ export class EmbeddedService {
     this.progress = null
     this.#setStatus(
       'error',
-      `${server.backend.label} 意外退出了（退出码 ${code}）。点“重试”可以重新启动；若是反复退出，可以换一个后端或重新安装它。`,
+      t('errors.crashed', { label: server.backend.label, code }),
     )
   }
 
@@ -398,7 +399,7 @@ export class EmbeddedService {
 
   async #syncProfile(backend, server) {
     const credentials = await server.credentials()
-    if (!credentials?.password) throw new Error('内置服务器的账号密码缺失')
+    if (!credentials?.password) throw new Error(t('errors.credentialsMissing'))
 
     // Take over as the active profile only when the user has not picked another
     // one: starting the local server must not yank them out of a remote library

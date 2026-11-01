@@ -1,0 +1,177 @@
+/**
+ * Errors that cross a process boundary.
+ *
+ * Main throws them and the renderer shows them verbatim in a toast, so they
+ * cannot live next to the screen that displays them: the same string is written
+ * in `main/ipc.js` and read in `BrowseView`. Keeping them in one namespace is
+ * what stops the two halves from describing the same failure differently.
+ */
+export default {
+  /** Guards in `main/ipc.js`, hit by any call the UI makes out of order. */
+  locked: '应用已锁定',
+  profileMissing: '配置不存在',
+  serverNotReady: '本地服务尚未就绪',
+  localLocked: '本地库尚未解锁',
+  cloudDisconnected: '云端会话已断开，请重新连接',
+  tooLargeText: '文本文件超过 2 MB，已跳过',
+  emptyFile: '文件内容为空',
+  subtitleMissing: '缺少字幕文件',
+  needSecret: '请填写加密密码，或先配置一个带媒体密码的云端配置',
+  emptyInput: '请先输入内容',
+  textDecryptFailed: '解密失败：加密密码错误，或这段文字不是本工具生成的密文',
+  needDownloadDir: '请先在设置里选择下载目录',
+  downloadIncomplete: '文件尚未下载完成',
+  windowClosed: '窗口已关闭',
+  playerItemMissing: '缺少要播放的文件',
+  playerHostMissing: '主窗口不可用，请重启应用',
+  externalOnly: '只能把解密流交给外部播放器',
+  nothingToCopy: '没有可复制的内容',
+  cancelled: '已取消',
+
+  /** Renderer-side fallbacks, used when main answered without its own message. */
+  openFailed: '无法打开文件',
+  openWindowFailed: '无法打开播放窗口',
+  connectFailed: '连接失败',
+  readDirFailed: '无法读取目录',
+  mkdirFailed: '创建文件夹失败',
+  renameFailed: '重命名失败',
+  deleteFailed: '删除失败',
+  unlockFailed: '解锁失败',
+  openDirFailed: '无法打开该目录',
+  downloadCancelledNoDir: '已取消下载，没有选择保存目录',
+  enqueueDownloadFailed: '无法加入下载队列',
+  enqueueUploadFailed: '无法加入上传队列',
+  enqueueJobFailed: '无法加入队列',
+  cancelFailed: '取消失败',
+  cancelJobFailed: '无法取消',
+  cleanFailed: '清理失败',
+  openFolderFailed: '无法打开所在文件夹',
+  copyFailed: '复制失败，请重试',
+  readDroppedFailed: '无法读取拖入的文件',
+  decryptFileFailed: '无法解密文件',
+  operationFailed: '操作失败',
+  launchPlayerFailed: '无法唤起外部播放器',
+  noPlayerConfigured: '未找到播放器，请在设置里指定',
+  playerDefault: '{name}（默认）',
+  bridgeUnavailable: 'preload 桥不可用，请通过 Electron 启动',
+  bridgeUnavailableLong: 'preload 桥不可用：请通过桌面应用启动，而不是直接打开网页。',
+
+  /** The lock screen: start-up password, TOTP, and the attempt limiter. */
+  passwordTooShort: '启动密码至少 {count} 位',
+  wrongPassword: '密码不正确',
+  wrongCurrentPassword: '当前密码不正确',
+  noKeystore: '系统未提供安全存储（密钥环或凭据管理器），无法绑定 TOTP',
+  badSecret: '密钥格式不正确，应为 Base32 字符串或 otpauth 链接',
+  wrongCode: '验证码不正确或已过期',
+  tooManyAttempts: '尝试过于频繁，请稍后再试',
+  verifyFailed: '验证不通过',
+  /** Joins a list of failures into one message; wide in CJK, a comma elsewhere. */
+  joiner: '；',
+
+  /** The local library and the names it validates. */
+  passwordEmpty: '密码不能为空',
+  noRoot: '尚未选择本地目录',
+  illegalPath: '非法路径',
+  folderExists: '同名文件夹已存在',
+  entryExists: '同名条目已存在',
+  cannotDeleteRoot: '不能删除库根目录',
+  labelFolder: '文件夹名称',
+  labelName: '名称',
+  labelEmpty: '「{label}」不能为空',
+  labelHasSlash: '「{label}」不能包含斜杠',
+  badToken: '无效的文件名 token',
+
+  /** Cloud profile editing. */
+  profileNameEmpty: '配置名称不能为空',
+  serverEmpty: '服务器地址不能为空',
+
+  /** Talking to an AList / OpenList server. */
+  connectTimeout: '连接服务器超时',
+  connectFailedReason: '无法连接服务器：{message}',
+  httpStatus: '服务器返回 HTTP {status}',
+  notJson: '服务器返回的不是 JSON，请检查地址是否为 {label} 服务',
+  apiFailed: '{label} 返回 {code}',
+  otpRequired: '该账号已开启两步验证，请输入动态验证码',
+  loginNoToken: '登录响应中没有 token',
+  profileNoServer: '配置缺少服务器地址',
+  profileNoMediaPassword: '该配置还没有媒体加密密码，请先在配置里填写',
+  profileNoMediaPasswordUpload: '该配置缺少媒体加密密码，无法加密上传',
+  cloudSessionExpired: '云端会话已失效，请重新连接',
+  entryGone: '该条目已不在当前列表中，请刷新后重试',
+  noRawUrl: '服务器没有返回下载地址',
+  uploadPathEmpty: '上传文件路径不能为空',
+  notAFile: '要上传的不是文件',
+  sourceNotFile: '源不是文件',
+  noMultipart: '{label} 客户端没有实现分片上传',
+  uploadFailedReason: '上传失败：{message}',
+  uploadFailedTarget: '{detail}（目标：{target}）',
+  multipartInitFailed: '分片上传初始化失败',
+  multipartInitFailedReason: '分片上传初始化失败：{message}',
+  multipartNoUploadId: '分片上传响应缺少 upload_id',
+  multipartCompleteFailed: '分片上传合并失败',
+  chunkFailed: '分片 {index} 上传失败：{message}',
+  chunkFailedShort: '分片 {index} 上传失败',
+  chunkBusy: '分片 {index} 上传失败：服务器持续繁忙，请稍后重试',
+
+  /** The upstream the decrypting proxy reads from. */
+  upstreamStatus: '上游返回 {status}',
+  upstreamReadFailed: '上游返回 {status}，无法读取加密文件',
+  upstreamNoRange: '上游返回了分段响应但没有 Content-Range，无法定位数据块',
+  upstreamUnknownSize: '无法确定上游文件大小',
+  upstreamRead: '上游读取失败',
+
+  /** The built-in server: its account, its mounts, its process. */
+  accountUnreadable: '无法读取内置服务器账号',
+  accountNameEmpty: '账号不能为空',
+  accountPasswordMissing: '缺少内置服务器密码',
+  credentialsMissing: '内置服务器的账号密码缺失',
+  mountPathEmpty: '挂载路径不能为空',
+  storageIdMissing: '缺少存储 id',
+  storageGone: '存储不存在',
+  storageFieldEmpty: '「{name}」不能为空',
+  storageFieldEmptyHelp: '「{name}」不能为空：{help}',
+  portInUse: '端口 {port} 已被占用（可能本机已经跑着一个 AList/OpenList，或上次未正常退出），请在设置里换一个端口',
+  busy: '内置服务器正在处理上一条操作，请稍候',
+  portRange: '端口需要在 {min}-{max} 之间',
+  driverMissing: '缺少驱动名',
+  serverNotRunning: '内置服务器未在运行，请先在设置中开启',
+  loginFailed: '{label} 登录失败',
+  requestFailed: '请求失败',
+  crashed: '{label} 意外退出了（退出码 {code}）。点“重试”可以重新启动；若是反复退出，可以换一个后端或重新安装它。',
+  startedThenExited: '{label} 启动后立即退出：{tail}',
+  startTimedOut: '{label} 启动超时：{tail}',
+  noOutput: '没有输出',
+  maintenanceFailed: '执行 {label} 维护命令失败：{message}',
+  logStartFailed: '启动失败：{message}',
+  logExited: '{label} 已退出（code {code}）',
+  logStorageListFailed: '读取存储列表失败：{message}',
+  logDefaultStorageFailed: '创建默认存储失败：{message}',
+
+  /** Fetching the server binary itself. */
+  githubRateLimited: '（GitHub 访问频率受限，请稍后再试）',
+  versionInfoFailed: '获取 {label} 版本信息失败：HTTP {status}{detail}',
+  githubTimeout: '访问 GitHub 超时，请检查网络或填写镜像',
+  downloadHttp: '下载失败：HTTP {status}',
+  noExecutable: '安装包内没有找到可执行文件',
+  downloadFailed: '下载失败：{message}',
+  checksumMismatch: '安装包校验失败（sha256 不匹配），已丢弃',
+  unsupportedPlatform: '该版本没有适用于当前平台的 {label} 安装包（{platform}/{arch}）',
+
+  /** Writing and reading containers. */
+  noPassword: '缺少加密密码',
+  badAad: 'AAD 前缀长度异常：{length}',
+
+  /** Downloads, uploads and the encrypt workbench. */
+  pathMissing: '缺少文件路径',
+  srcOrDestMissing: '缺少源路径或输出目录',
+  filesOrFoldersOnly: '只支持文件或文件夹',
+  noFiles: '没有要上传的文件',
+
+  /** The player window and the media proxy behind it. */
+  targetMissing: '缺少文件地址',
+  passwordMissing: '缺少密码',
+  sessionGone: '会话不存在或已关闭',
+  playerGone: '这个播放器已经不存在了，请重新选择',
+  noPlayer: '没有找到外部播放器，请在设置里指定，或用「复制播放链接」粘到播放器里',
+  noFfmpeg: '缺少内置 ffmpeg，无法生成预览图',
+}

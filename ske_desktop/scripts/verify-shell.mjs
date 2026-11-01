@@ -21,6 +21,7 @@ import { JobQueue } from '../src/main/jobs.js'
 import { DownloadQueue } from '../src/main/downloads.js'
 import { createTray } from '../src/main/tray.js'
 import { registerIpc } from '../src/main/ipc.js'
+import { applyLanguage, t } from '../src/main/i18n.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const rootDir = path.resolve(here, '..')
@@ -45,6 +46,12 @@ app.whenReady().then(async () => {
   const security = new Security()
 
   await storage.load()
+  // Pin the language: the default is `auto`, which follows the OS, and the
+  // assertions below are spelled in one language. `index.js` does this before
+  // any window exists; the harness has to match, or the tray below would be
+  // built from unresolved keys.
+  await storage.patchSettings({ language: 'zh-CN' })
+  applyLanguage(storage.settings.language, app.getLocale())
   await security.load()
 
   const server = await startServer({ registry, rendererDir: path.join(rootDir, 'out/renderer') })
@@ -140,6 +147,7 @@ app.whenReady().then(async () => {
     try {
       const tray = createTray({
         iconPath: path.join(rootDir, '..', 'icon.ico'),
+        t,
         onShow: () => {},
         onNewWindow: () => {},
         onQuit: () => {},
@@ -176,6 +184,62 @@ app.whenReady().then(async () => {
     )
     assert('设置写入成功', patched.ok && patched.settings?.cache?.blockEnabled === true)
     assert('设置深合并保留其他字段', patched.settings?.cache?.thumbLimitMB === 128, patched.settings?.cache?.thumbLimitMB)
+
+    // --- language switch ----------------------------------------------------
+    // Drives the real dropdown: a native `change` is what the settings card
+    // listens to, so this covers store → IPC → repaint end to end rather than
+    // asserting that a function exists.
+    //
+    // The window has to be shown first. `<Transition mode="out-in">` waits for
+    // `transitionend`, and a hidden BrowserWindow never paints, so the outgoing
+    // view would never leave and the route change would stall.
+    mainWindow.show()
+    await new Promise((resolve) => setTimeout(resolve, 400))
+
+    await mainWindow.webContents.executeJavaScript(`location.hash = '#/settings'`)
+    await new Promise((resolve) => setTimeout(resolve, 600))
+
+    const zhHeading = await mainWindow.webContents.executeJavaScript(
+      `(document.querySelector('.page-head h2') || {}).textContent || ''`,
+    )
+    assert('设置页使用中文标题', zhHeading.trim() === '设置', zhHeading.trim())
+
+    const switched = await mainWindow.webContents.executeJavaScript(`(() => {
+      const select = document.querySelector('select.lang')
+      if (!select) return false
+      select.value = 'en-US'
+      select.dispatchEvent(new Event('change'))
+      return true
+    })()`)
+    assert('语言下拉框可用', switched)
+    await new Promise((resolve) => setTimeout(resolve, 800))
+
+    const afterSwitch = await mainWindow.webContents.executeJavaScript(`({
+      heading: (document.querySelector('.page-head h2') || {}).textContent || '',
+      lang: document.documentElement.lang,
+      nav: (document.querySelector('.nav-item.active') || {}).textContent || '',
+      theme: (document.querySelector('.utility-btn') || {}).textContent || '',
+    })`)
+    assert('切换后标题为英文', afterSwitch.heading.trim() === 'Settings', afterSwitch.heading.trim())
+    assert('切换后 html lang 同步', afterSwitch.lang === 'en-US', afterSwitch.lang)
+    assert('切换后侧栏导航为英文', afterSwitch.nav.trim() === 'Settings', afterSwitch.nav.trim())
+    // The label follows the active theme ("Dark" on the default one), so only the
+    // language is asserted here.
+    assert('切换后主题按钮为英文', /^(Light|Dark)$/.test(afterSwitch.theme.trim()), afterSwitch.theme.trim())
+
+    const storedLanguage = await mainWindow.webContents.executeJavaScript(
+      `window.ske.settings.get().then((res) => res.settings.language)`,
+    )
+    assert('语言选择已落盘', storedLanguage === 'en-US', String(storedLanguage))
+
+    // Back to Chinese: the rest of the run keeps the expectations it started with.
+    await mainWindow.webContents.executeJavaScript(`(() => {
+      const select = document.querySelector('select.lang')
+      select.value = 'zh-CN'
+      select.dispatchEvent(new Event('change'))
+    })()`)
+    await new Promise((resolve) => setTimeout(resolve, 600))
+    mainWindow.hide()
 
     // --- launch lock --------------------------------------------------------
     const enabled = await mainWindow.webContents.executeJavaScript(

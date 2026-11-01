@@ -5,11 +5,16 @@
 // typing in the main window.
 import { createApp } from 'vue'
 import StageView from './components/StageView.vue'
+import i18n, { initLocale, listenLocaleChanges } from './i18n.js'
 import { initTheme, listenThemeChanges } from './state/theme.js'
 import './styles.css'
 
-// Same theme as the shell; also fills session.settings for the volume defaults.
+// Same theme and language as the shell; also fills session.settings for the
+// volume defaults.
 initTheme()
 listenThemeChanges()
+listenLocaleChanges()
 
-createApp(StageView).mount('#app')
+initLocale().finally(() => {
+  createApp(StageView).use(i18n).mount('#app')
+})

@@ -2,60 +2,69 @@
   <div class="page">
     <div class="page-head">
       <div>
-        <h2>设置</h2>
-        <p>所有设置保存在本机，不随账号同步。</p>
+        <h2>{{ $t('settings.title') }}</h2>
+        <p>{{ $t('settings.subtitle') }}</p>
       </div>
     </div>
 
     <section class="card">
-      <h3>启动锁</h3>
-      <p class="hint">
-        启动应用时先通过验证，可防止他人直接打开你的媒体库。密码与 TOTP 验证器可以单独使用，也可以组合：两个都启用时可选「任一通过」或「都通过」。这是应用级锁，不加密磁盘上的文件。
-      </p>
+      <h3>{{ $t('settings.appearance.title') }}</h3>
+      <p class="hint">{{ $t('settings.appearance.hint') }}</p>
+
+      <div class="switch-row">
+        <div>
+          <div class="label">{{ $t('settings.appearance.language') }}</div>
+          <div class="desc">{{ $t('settings.appearance.languageDesc') }}</div>
+        </div>
+        <select class="lang" :value="language" @change="onLanguageChange">
+          <option v-for="option in languageOptions" :key="option.value" :value="option.value">
+            {{ option.label }}
+          </option>
+        </select>
+      </div>
+    </section>
+
+    <section class="card">
+      <h3>{{ $t('settings.lock.title') }}</h3>
+      <p class="hint">{{ $t('settings.lock.hint') }}</p>
 
       <div class="status-line">
         <span class="badge" :class="{ ok: session.lock.enabled }">
-          {{ session.lock.enabled ? '已启用' : '未启用' }}
+          {{ session.lock.enabled ? $t('settings.lock.enabled') : $t('settings.lock.disabled') }}
         </span>
-        <span v-if="session.lock.hasPassword" class="badge">密码</span>
+        <span v-if="session.lock.hasPassword" class="badge">{{ $t('settings.lock.passwordBadge') }}</span>
         <span v-if="session.lock.hasTotp" class="badge">TOTP</span>
       </div>
 
       <div class="switch-row">
         <div>
-          <div class="label">启动密码</div>
-          <div class="desc">{{ session.lock.hasPassword ? '启动时需要输入密码' : '尚未设置' }}</div>
+          <div class="label">{{ $t('settings.lock.password') }}</div>
+          <div class="desc">
+            {{ session.lock.hasPassword ? $t('settings.lock.passwordSet') : $t('settings.lock.notSet') }}
+          </div>
         </div>
         <button class="ghost sm" type="button" @click="openLockDialog('password')">
-          {{ session.lock.hasPassword ? '修改' : '设置' }}
+          {{ session.lock.hasPassword ? $t('settings.lock.change') : $t('settings.lock.set') }}
         </button>
       </div>
 
       <div class="switch-row">
         <div>
-          <div class="label">TOTP 身份验证器</div>
+          <div class="label">{{ $t('settings.lock.totp') }}</div>
           <div class="desc">
-            {{
-              session.lock.hasTotp
-                ? '已绑定，启动时可要求输入 6 位验证码'
-                : '绑定后可用验证器应用中的 6 位验证码解锁'
-            }}
+            {{ session.lock.hasTotp ? $t('settings.lock.totpBound') : $t('settings.lock.totpUnbound') }}
           </div>
         </div>
         <button class="ghost sm" type="button" @click="toggleTotp">
-          {{ session.lock.hasTotp ? '解绑' : '绑定' }}
+          {{ session.lock.hasTotp ? $t('settings.lock.unbind') : $t('settings.lock.bind') }}
         </button>
       </div>
 
       <div v-if="session.lock.hasPassword && session.lock.hasTotp" class="switch-row">
         <div>
-          <div class="label">任一方式通过即可</div>
+          <div class="label">{{ $t('settings.lock.anyFactor') }}</div>
           <div class="desc">
-            {{
-              session.lock.match === 'any'
-                ? '密码或验证码任一通过就能进入'
-                : '密码和验证码必须都通过'
-            }}
+            {{ session.lock.match === 'any' ? $t('settings.lock.matchAny') : $t('settings.lock.matchAll') }}
           </div>
         </div>
         <input
@@ -67,8 +76,10 @@
       </div>
 
       <div v-if="session.lock.enabled" class="usage-foot">
-        <span class="desc">关闭后启动不再验证，已绑定的 TOTP 密钥一并清除。</span>
-        <button class="danger" type="button" @click="openLockDialog('disable')">关闭启动锁</button>
+        <span class="desc">{{ $t('settings.lock.disableHint') }}</span>
+        <button class="danger" type="button" @click="openLockDialog('disable')">
+          {{ $t('settings.lock.disable') }}
+        </button>
       </div>
     </section>
 
@@ -88,15 +99,12 @@
     />
 
     <section class="card">
-      <h3>内置服务器</h3>
-      <p class="hint">
-        在本机直接跑一个 AList 或 OpenList：文件留在这台电脑，不需要外部服务器或账号。
-        首次开启会从 GitHub 下载对应平台的程序包，之后都从本机启动；服务器只监听 127.0.0.1，局域网看不到它。
-      </p>
+      <h3>{{ $t('settings.embedded.title') }}</h3>
+      <p class="hint">{{ $t('settings.embedded.hint') }}</p>
 
       <div class="switch-row">
         <div>
-          <div class="label">运行状态</div>
+          <div class="label">{{ $t('settings.embedded.status') }}</div>
           <div class="desc">{{ embeddedLine }}</div>
         </div>
         <button
@@ -106,32 +114,40 @@
           :disabled="embeddedBusy"
           @click="toggleEmbedded"
         >
-          {{ embeddedBusy ? '处理中…' : embeddedState?.status === 'error' ? '重试' : '开启' }}
+          {{
+            embeddedBusy
+              ? $t('common.processing')
+              : embeddedState?.status === 'error'
+                ? $t('common.retry')
+                : $t('settings.embedded.enable')
+          }}
         </button>
         <button v-else class="ghost sm" type="button" :disabled="embeddedBusy" @click="toggleEmbedded">
-          关闭
+          {{ $t('common.close') }}
         </button>
       </div>
 
       <div class="row" style="margin-top: 12px">
-        <button class="ghost sm" type="button" @click="embeddedDialog = 'backend'">后端管理</button>
-        <button
-          class="ghost sm"
-          type="button"
-          :disabled="embeddedState?.status !== 'running'"
-          :title="embeddedState?.status !== 'running' ? '先开启服务器' : ''"
-          @click="embeddedDialog = 'account'"
-        >
-          账号密码
+        <button class="ghost sm" type="button" @click="embeddedDialog = 'backend'">
+          {{ $t('settings.embedded.backend') }}
         </button>
         <button
           class="ghost sm"
           type="button"
           :disabled="embeddedState?.status !== 'running'"
-          :title="embeddedState?.status !== 'running' ? '先开启服务器' : ''"
+          :title="embeddedState?.status !== 'running' ? $t('settings.embedded.startFirst') : ''"
+          @click="embeddedDialog = 'account'"
+        >
+          {{ $t('settings.embedded.account') }}
+        </button>
+        <button
+          class="ghost sm"
+          type="button"
+          :disabled="embeddedState?.status !== 'running'"
+          :title="embeddedState?.status !== 'running' ? $t('settings.embedded.startFirst') : ''"
           @click="embeddedDialog = 'storage'"
         >
-          存储管理
+          {{ $t('settings.embedded.storage') }}
         </button>
       </div>
     </section>
@@ -141,14 +157,12 @@
     <EmbeddedStorageDialog :visible="embeddedDialog === 'storage'" @close="embeddedDialog = null" />
 
     <section class="card">
-      <h3>缓存</h3>
+      <h3>{{ $t('settings.cache.title') }}</h3>
 
       <div class="switch-row">
         <div>
-          <div class="label">缩略图缓存到磁盘</div>
-          <div class="desc">
-            关闭后立即删除已写入的加密缓存；只是下次启动要重新拉取并解密预览
-          </div>
+          <div class="label">{{ $t('settings.cache.thumbTitle') }}</div>
+          <div class="desc">{{ $t('settings.cache.thumbDesc') }}</div>
         </div>
         <input
           type="checkbox"
@@ -160,8 +174,8 @@
 
       <div class="switch-row">
         <div>
-          <div class="label">磁盘上限</div>
-          <div class="desc">超出后按最久未用淘汰，调小时立刻裁剪</div>
+          <div class="label">{{ $t('settings.cache.limit') }}</div>
+          <div class="desc">{{ $t('settings.cache.limitDesc') }}</div>
         </div>
         <div class="row">
           <input
@@ -181,58 +195,75 @@
       <div class="usage">
         <div class="usage-row">
           <div>
-            <div class="label">缩略图</div>
+            <div class="label">{{ $t('settings.cache.thumb') }}</div>
             <div class="desc">
-              {{ usage.previews }} 张已解密 · {{ bytesLabel(usage.previewBytes) }} ·
-              {{ usage.urls }} 个预览地址
+              {{
+                $t('settings.cache.thumbUsage', {
+                  count: usage.previews,
+                  bytes: bytesLabel(usage.previewBytes),
+                  links: usage.urls,
+                })
+              }}
             </div>
             <div class="desc">
-              磁盘：{{ usage.thumbDisk }} 张加密缓存 · {{ bytesLabel(usage.thumbDiskBytes) }}
+              {{ $t('settings.cache.thumbDisk', { count: usage.thumbDisk, bytes: bytesLabel(usage.thumbDiskBytes) }) }}
             </div>
           </div>
-          <button class="ghost sm" type="button" @click="clearCache('previews')">清除</button>
+          <button class="ghost sm" type="button" @click="clearCache('previews')">
+            {{ $t('settings.cache.clear') }}
+          </button>
         </div>
 
         <div class="usage-row">
           <div>
-            <div class="label">解密块</div>
+            <div class="label">{{ $t('settings.cache.blocks') }}</div>
             <div class="desc">
-              {{ usage.blocks }} 块 · {{ bytesLabel(usage.blockBytes) }} · {{ usage.sessions }} 个会话
+              {{
+                $t('settings.cache.blockUsage', {
+                  count: usage.blocks,
+                  bytes: bytesLabel(usage.blockBytes),
+                  sessions: usage.sessions,
+                })
+              }}
             </div>
           </div>
-          <button class="ghost sm" type="button" @click="clearCache('blocks')">清除</button>
+          <button class="ghost sm" type="button" @click="clearCache('blocks')">
+            {{ $t('settings.cache.clear') }}
+          </button>
         </div>
 
         <div class="usage-row">
           <div>
-            <div class="label">下载地址</div>
-            <div class="desc">{{ usage.links }} 条签名链接，5 分钟后自动过期</div>
+            <div class="label">{{ $t('settings.cache.links') }}</div>
+            <div class="desc">{{ $t('settings.cache.linkUsage', { count: usage.links }) }}</div>
           </div>
-          <button class="ghost sm" type="button" @click="clearCache('links')">清除</button>
+          <button class="ghost sm" type="button" @click="clearCache('links')">
+            {{ $t('settings.cache.clear') }}
+          </button>
         </div>
       </div>
 
       <div class="usage-foot">
-        <span class="desc">全部清除不会打断播放；关闭会话会中断正在播放的内容。</span>
+        <span class="desc">{{ $t('settings.cache.footHint') }}</span>
         <div class="row">
-          <button class="ghost sm" type="button" @click="clearCache('all')">全部清除</button>
+          <button class="ghost sm" type="button" @click="clearCache('all')">
+            {{ $t('settings.cache.clearAll') }}
+          </button>
           <button class="ghost sm" type="button" :disabled="!usage.sessions" @click="clearCache('sessions')">
-            关闭全部会话
+            {{ $t('settings.cache.clearSessions') }}
           </button>
         </div>
       </div>
     </section>
 
     <section class="card">
-      <h3>播放</h3>
-      <p class="hint">
-        内置播放器覆盖 mp4 / webm 等常见容器；avi、wmv、flv、ts 与老编码可以交给外部播放器，直接读同一条解密流。
-      </p>
+      <h3>{{ $t('settings.playback.title') }}</h3>
+      <p class="hint">{{ $t('settings.playback.hint') }}</p>
 
       <div class="switch-row">
         <div>
-          <div class="label">方向键跳转步长</div>
-          <div class="desc">播放时按左右方向键前进或后退的秒数</div>
+          <div class="label">{{ $t('settings.playback.seekStep') }}</div>
+          <div class="desc">{{ $t('settings.playback.seekStepDesc') }}</div>
         </div>
         <div class="row">
           <input
@@ -243,14 +274,14 @@
             :value="playback.seekStep"
             @change="(e) => updatePlayback({ seekStep: clampNumber(e, 1, 60) })"
           />
-          <span class="unit">秒</span>
+          <span class="unit">{{ $t('settings.playback.secondsUnit') }}</span>
         </div>
       </div>
 
       <div class="switch-row">
         <div>
-          <div class="label">自动播放下一首</div>
-          <div class="desc">当前曲目结束后继续播放同一目录的下一项</div>
+          <div class="label">{{ $t('settings.playback.autoNext') }}</div>
+          <div class="desc">{{ $t('settings.playback.autoNextDesc') }}</div>
         </div>
         <input
           type="checkbox"
@@ -262,50 +293,52 @@
 
       <div class="switch-row">
         <div>
-          <div class="label">外部播放器</div>
+          <div class="label">{{ $t('settings.playback.externalPlayer') }}</div>
           <div class="desc" :title="playback.externalPlayer || undefined">
-            {{ playback.externalPlayer || '留空则自动寻找 mpv / VLC / PotPlayer；右键文件的「外部播放器」里还能临时换一个' }}
+            {{ playback.externalPlayer || $t('settings.playback.externalHint') }}
           </div>
         </div>
         <div class="row">
-          <button class="ghost sm" type="button" @click="pickPlayer">选择</button>
+          <button class="ghost sm" type="button" @click="pickPlayer">
+            {{ $t('settings.playback.choose') }}
+          </button>
           <button
             v-if="playback.externalPlayer"
             class="ghost sm"
             type="button"
             @click="updatePlayback({ externalPlayer: '' })"
           >
-            自动
+            {{ $t('settings.playback.automatic') }}
           </button>
         </div>
       </div>
     </section>
 
     <section class="card">
-      <h3>下载</h3>
-      <p class="hint">
-        下载会把 .ske 容器解密成普通文件写到本机。明文一旦离开应用就不再受加密保护，请选择合适的位置。
-      </p>
+      <h3>{{ $t('settings.download.title') }}</h3>
+      <p class="hint">{{ $t('settings.download.hint') }}</p>
 
       <div class="switch-row">
         <div>
-          <div class="label">保存位置</div>
+          <div class="label">{{ $t('settings.download.dir') }}</div>
           <div class="desc path mono" :title="download.dir || ''">
-            {{ download.dir || '尚未选择，首次下载时会询问' }}
+            {{ download.dir || $t('settings.download.dirEmpty') }}
           </div>
         </div>
-        <button class="ghost sm" type="button" @click="pickDownloadDir">选择目录</button>
+        <button class="ghost sm" type="button" @click="pickDownloadDir">
+          {{ $t('settings.download.pickDir') }}
+        </button>
       </div>
     </section>
 
     <section class="card">
-      <h3>窗口</h3>
-      <p class="hint">多窗口之间共享同一份设置与播放状态；托盘图标始终提供回到窗口的入口。</p>
+      <h3>{{ $t('settings.window.title') }}</h3>
+      <p class="hint">{{ $t('settings.window.hint') }}</p>
 
       <div class="switch-row">
         <div>
-          <div class="label">关闭时最小化到托盘</div>
-          <div class="desc">关闭窗口后应用继续在托盘运行，进行中的下载不会中断</div>
+          <div class="label">{{ $t('settings.window.closeToTray') }}</div>
+          <div class="desc">{{ $t('settings.window.closeToTrayDesc') }}</div>
         </div>
         <input
           type="checkbox"
@@ -317,17 +350,25 @@
     </section>
 
     <section class="card">
-      <h3>关于</h3>
+      <h3>{{ $t('settings.about.title') }}</h3>
       <div class="about">
-        <div class="kv"><span>版本</span><span class="mono">{{ session.info?.version || '—' }}</span></div>
-        <div class="kv"><span>平台</span><span class="mono">{{ session.info?.platform || '—' }}</span></div>
         <div class="kv">
-          <span>数据目录</span>
+          <span>{{ $t('settings.about.version') }}</span>
+          <span class="mono">{{ session.info?.version || '—' }}</span>
+        </div>
+        <div class="kv">
+          <span>{{ $t('settings.about.platform') }}</span>
+          <span class="mono">{{ session.info?.platform || '—' }}</span>
+        </div>
+        <div class="kv">
+          <span>{{ $t('settings.about.dataDir') }}</span>
           <span class="mono path" :title="session.info?.userData">{{ session.info?.userData || '—' }}</span>
         </div>
       </div>
       <div class="row" style="margin-top: 14px">
-        <RouterLink to="/diagnostics"><button class="ghost" type="button">播放诊断</button></RouterLink>
+        <RouterLink to="/diagnostics">
+          <button class="ghost" type="button">{{ $t('nav.diagnostics') }}</button>
+        </RouterLink>
       </div>
     </section>
   </div>
@@ -354,11 +395,30 @@ import {
   embedded,
   enableEmbedded,
   loadEmbedded,
+  statusDetail,
 } from '../state/embedded.js'
 import LockDialog from '../components/LockDialog.vue'
 import EmbeddedBackendDialog from '../components/EmbeddedBackendDialog.vue'
 import EmbeddedAccountDialog from '../components/EmbeddedAccountDialog.vue'
 import EmbeddedStorageDialog from '../components/EmbeddedStorageDialog.vue'
+import { LANGUAGE_AUTO, LOCALES } from '../../shared/i18n/config.js'
+import { languageChoice, setLocale, t } from '../i18n.js'
+
+/**
+ * The dropdown shows the user's *choice* — `auto` included — not the resolved
+ * locale. Someone who picked "follow system" should keep seeing that, rather
+ * than "简体中文" on a Chinese machine and "English" on the next one.
+ */
+const language = computed(() => languageChoice())
+
+const languageOptions = computed(() => [
+  { value: LANGUAGE_AUTO, label: t('settings.appearance.followSystem') },
+  ...LOCALES.map((entry) => ({ value: entry.code, label: entry.label })),
+])
+
+async function onLanguageChange(event) {
+  await setLocale(event.target.value)
+}
 
 /**
  * Mirrors `MIN_PASSWORD_LENGTH` in `src/main/security.js`.
@@ -418,7 +478,7 @@ async function clearCache(target) {
 
   const res = await window.ske.cache.clear(target)
   await refreshUsage()
-  toast(res?.ok ? '缓存已清除' : res?.error || '清除失败', res?.ok ? 'ok' : 'error')
+  toast(res?.ok ? t('settings.cache.cleared') : res?.error || t('settings.cache.clearFailed'), res?.ok ? 'ok' : 'error')
 }
 
 function bytesLabel(bytes) {
@@ -482,21 +542,13 @@ const embeddedBusy = computed(() => embedded.busy)
 const embeddedDialog = ref(null)
 
 /** One line is all the settings page says; details live on the dedicated page. */
-const embeddedLine = computed(() => {
-  const current = embedded.state
-  if (!current) return '正在读取状态…'
-  if (current.status === 'running') return `${current.backendLabel} 运行中 · ${current.origin}`
-  if (current.status === 'downloading') {
-    const progress = current.progress
-    if (progress?.phase === 'download' && progress.total) {
-      return `正在下载 ${current.backendLabel} ${Math.round((progress.received / progress.total) * 100)}%`
-    }
-    return '正在准备安装包…'
-  }
-  if (current.status === 'starting') return '正在启动…'
-  if (current.status === 'error') return current.error || '启动失败'
-  return current.installed ? `已下载 ${current.installed.tag}，尚未运行` : '未启用'
-})
+/**
+ * One sentence about the server, from the module that owns its state.
+ *
+ * The card used to compute this itself, which meant the same eight states were
+ * worded twice — here and in `statusDetail` — and drifted apart.
+ */
+const embeddedLine = computed(() => statusDetail(embedded.state))
 
 async function toggleEmbedded() {
   if (embedded.state?.status === 'running') await disableEmbedded()
@@ -539,7 +591,9 @@ function updateWindow(patch) {
 async function pickDownloadDir() {
   const picked = await window.ske.dialog.pickDirectory()
   if (!picked?.ok || !picked.path) return
-  attempt(() => patchSettings({ download: { dir: picked.path } }), { success: '下载目录已更新' })
+  attempt(() => patchSettings({ download: { dir: picked.path } }), {
+    success: t('settings.download.dirUpdated'),
+  })
 }
 
 /**
@@ -577,7 +631,7 @@ async function toggleTotp() {
     await openLockDialog('totp')
     return
   }
-  const ok = await attempt(() => unbindTotp(), { success: 'TOTP 已解绑' })
+  const ok = await attempt(() => unbindTotp(), { success: t('settings.lock.totpUnboundToast') })
   if (ok !== null) dialog.open = false
 }
 
@@ -592,13 +646,13 @@ async function submitLockDialog(payload) {
   try {
     if (dialog.mode === 'password') {
       await setLockPassword(payload.password, payload.currentPassword)
-      toast(hadPassword ? '启动密码已更新' : '启动密码已启用', 'ok')
+      toast(hadPassword ? t('settings.lock.passwordUpdated') : t('settings.lock.passwordEnabled'), 'ok')
     } else if (dialog.mode === 'totp') {
       await confirmTotp(payload.code, payload.secret)
-      toast('TOTP 已绑定', 'ok')
+      toast(t('settings.lock.totpBoundToast'), 'ok')
     } else {
       await disableLock({ password: payload.password, totp: payload.totp })
-      toast('启动锁已关闭', 'ok')
+      toast(t('settings.lock.disabledToast'), 'ok')
     }
     dialog.open = false
   } catch (err) {
@@ -610,6 +664,15 @@ async function submitLockDialog(payload) {
 </script>
 
 <style scoped>
+/* Fields are `width: 100%` globally, which would starve the label beside them. */
+.lang {
+  width: auto;
+  min-width: 148px;
+  flex: 0 0 auto;
+  padding: 6px 9px;
+  cursor: pointer;
+}
+
 .status-line {
   display: flex;
   gap: 8px;

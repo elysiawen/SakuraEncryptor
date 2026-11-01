@@ -20,6 +20,7 @@ import {
   normalizeUploadPath,
   readJson,
 } from './remote-client.js'
+import { t } from './i18n.js'
 
 export class OpenListClient extends RemoteClient {
   /** No other backend has the chunked endpoints yet. */
@@ -56,13 +57,13 @@ export class OpenListClient extends RemoteClient {
         signal,
       })
     } catch (err) {
-      if (err.name === 'AbortError') throw new Error('已取消')
-      throw new RemoteError(`分片上传初始化失败：${err.message}`)
+      if (err.name === 'AbortError') throw new Error(t('errors.cancelled'))
+      throw new RemoteError(t('errors.multipartInitFailedReason', { message: err.message }))
     }
 
     const initJson = await readJson(initRes)
     if (!initRes.ok || initJson?.code !== 200) {
-      const err = new RemoteError(initJson?.message || '分片上传初始化失败', initJson?.code)
+      const err = new RemoteError(initJson?.message || t('errors.multipartInitFailed'), initJson?.code)
       err.multipartUnsupported = MULTIPART_FALLBACK_STATUS.has(initRes.status)
       throw err
     }
@@ -72,7 +73,7 @@ export class OpenListClient extends RemoteClient {
     const chunkSize = Number(session.chunk_size) || 10 * 1024 * 1024
     const totalChunks = Number(session.total_chunks) || Math.ceil(size / chunkSize)
     if (!uploadId) {
-      const err = new RemoteError('分片上传响应缺少 upload_id')
+      const err = new RemoteError(t('errors.multipartNoUploadId'))
       err.multipartUnsupported = true
       throw err
     }
@@ -93,7 +94,7 @@ export class OpenListClient extends RemoteClient {
     try {
       for (let index = 0; index < totalChunks; index += 1) {
         if (received.has(index)) continue
-        if (signal?.aborted) throw new Error('已取消')
+        if (signal?.aborted) throw new Error(t('errors.cancelled'))
         const start = index * chunkSize
         const blob = file.slice(start, Math.min(size, start + chunkSize))
         const snapshot = await this.#sendChunk(uploadId, index, blob, signal)
@@ -108,12 +109,15 @@ export class OpenListClient extends RemoteClient {
       })
       const completeJson = await readJson(completeRes)
       if (!completeRes.ok || completeJson?.code !== 200) {
-        throw new RemoteError(completeJson?.message || '分片上传合并失败', completeJson?.code)
+        throw new RemoteError(
+          completeJson?.message || t('errors.multipartCompleteFailed'),
+          completeJson?.code,
+        )
       }
       onProgress?.(1)
       return true
     } catch (err) {
-      if (err.name === 'AbortError' || signal?.aborted) throw new Error('已取消')
+      if (err.name === 'AbortError' || signal?.aborted) throw new Error(t('errors.cancelled'))
       // Best effort: do not leave a session (and its temp chunks) behind. The
       // caller's signal is already aborted or failed, so this uses its own.
       fetch(`${this.server}/api/fs/multipart/abort`, {
@@ -126,7 +130,7 @@ export class OpenListClient extends RemoteClient {
 
   async #sendChunk(uploadId, index, blob, signal) {
     for (let attempt = 0; attempt < MULTIPART_MAX_RETRIES; attempt += 1) {
-      if (signal?.aborted) throw new Error('已取消')
+      if (signal?.aborted) throw new Error(t('errors.cancelled'))
 
       let res
       try {
@@ -142,7 +146,7 @@ export class OpenListClient extends RemoteClient {
         })
       } catch (err) {
         if (err.name === 'AbortError') throw err
-        throw new RemoteError(`分片 ${index} 上传失败：${err.message}`)
+        throw new RemoteError(t('errors.chunkFailed', { index, message: err.message }))
       }
 
       const json = await readJson(res)
@@ -152,8 +156,11 @@ export class OpenListClient extends RemoteClient {
         await delay(300 + attempt * 300, signal)
         continue
       }
-      throw new RemoteError(json?.message || `分片 ${index} 上传失败`, json?.code)
+      throw new RemoteError(
+        json?.message || t('errors.chunkFailedShort', { index }),
+        json?.code,
+      )
     }
-    throw new RemoteError(`分片 ${index} 上传失败：服务器持续繁忙，请稍后重试`)
+    throw new RemoteError(t('errors.chunkBusy', { index }))
   }
 }

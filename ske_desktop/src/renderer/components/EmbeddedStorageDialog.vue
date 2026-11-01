@@ -9,27 +9,29 @@
 <template>
   <AppDialog
     :visible="visible"
-    title="内置服务器 · 存储"
-    description="存储就是服务器能看到的目录或网盘。可以挂本地文件夹，也可以挂 WebDAV、S3 等任何一种驱动。"
+    :title="$t('embedded.storageTitle')"
+    :description="$t('embedded.storageDesc')"
     :width="660"
     :busy="busy"
     :dismissible="!adding && !editing"
     @cancel="close"
   >
-    <!-- An exited server carries its own reason (退出码 / 崩溃), which is more
-         useful than "it is not running". -->
+    <!-- An exited server carries its own reason (exit code / crash), which is
+         more useful than "it is not running". -->
     <p v-if="state?.status !== 'running'" class="hint">
       {{
         state?.status === 'error' && state?.error
           ? state.error
-          : '服务器没有在运行，先在设置里开启，再回来管理存储。'
+          : $t('embedded.storageOffline')
       }}
     </p>
 
     <template v-else>
       <div class="list-head">
-        <span class="label">已挂载 {{ storages.length }} 个</span>
-        <button class="primary sm" type="button" @click="adding = true">新增挂载</button>
+        <span class="label">{{ $t('embedded.storageMounted', { count: storages.length }) }}</span>
+        <button class="primary sm" type="button" @click="adding = true">
+          {{ $t('embedded.storageAdd') }}
+        </button>
       </div>
 
       <div class="storage-list">
@@ -38,34 +40,46 @@
             <div class="label mono">
               {{ item.mountPath }}
               <span class="badge" :class="{ warn: item.status !== 'work' }">
-                {{ item.status === 'work' ? '启用中' : '已停用' }}
+                {{
+                  item.status === 'work'
+                    ? $t('embedded.storageEnabled')
+                    : $t('embedded.storageDisabled')
+                }}
               </span>
               <span class="badge">{{ item.driver }}</span>
             </div>
             <div class="desc path" :title="item.rootPath">{{ item.rootPath || summarize(item) }}</div>
           </div>
           <div class="row">
-            <button class="ghost sm" type="button" :disabled="busy" @click="editing = item">编辑</button>
+            <button class="ghost sm" type="button" :disabled="busy" @click="editing = item">
+              {{ $t('common.edit') }}
+            </button>
             <button class="ghost sm" type="button" :disabled="busy" @click="toggleStorage(item)">
-              {{ item.status === 'work' ? '停用' : '启用' }}
+              {{
+                item.status === 'work'
+                  ? $t('embedded.storageDisable')
+                  : $t('embedded.storageEnable')
+              }}
             </button>
             <button
               class="ghost sm"
               type="button"
               :disabled="busy || item.mountPath === '/'"
-              :title="item.mountPath === '/' ? '默认存储不能删除，可以改它的配置' : ''"
+              :title="item.mountPath === '/' ? $t('embedded.storageDefaultLocked') : ''"
               @click="removeStorage(item)"
             >
-              {{ pendingDelete === item.id ? '确认删除' : '删除' }}
+              {{
+                pendingDelete === item.id
+                  ? $t('embedded.storageDeleteConfirm')
+                  : $t('common.delete')
+              }}
             </button>
           </div>
         </div>
-        <p v-if="!storages.length" class="desc">还没有存储，点上面的“新增挂载”开始。</p>
+        <p v-if="!storages.length" class="desc">{{ $t('embedded.storageEmpty') }}</p>
       </div>
 
-      <p class="hint">
-        停用只是让挂载从列表里消失，不会动文件；默认那个挂在 <code>/</code> 的存储不能删除。
-      </p>
+      <p class="hint">{{ $t('embedded.storageNote') }}</p>
 
       <!-- Both forms are their own modals: a driver can ask for twenty fields,
            and inline they pushed the list out of view. -->
@@ -74,7 +88,7 @@
     </template>
 
     <template #footer>
-      <button class="ghost" type="button" @click="close">关闭</button>
+      <button class="ghost" type="button" @click="close">{{ $t('common.close') }}</button>
     </template>
   </AppDialog>
 </template>
@@ -84,6 +98,7 @@ import { computed, ref, watch } from 'vue'
 import AppDialog from './AppDialog.vue'
 import StorageAddDialog from './StorageAddDialog.vue'
 import StorageEditDialog from './StorageEditDialog.vue'
+import { t } from '../i18n.js'
 import {
   deleteEmbeddedStorage,
   embedded,
@@ -137,7 +152,9 @@ async function removeStorage(item) {
 
 /** Non-Local drivers have no obvious one-line summary; show their driver name. */
 function summarize(item) {
-  return item.driver ? `${item.driver} 存储` : '未配置'
+  return item.driver
+    ? t('embedded.storageUnnamed', { driver: item.driver })
+    : t('embedded.storageUnconfigured')
 }
 
 /**

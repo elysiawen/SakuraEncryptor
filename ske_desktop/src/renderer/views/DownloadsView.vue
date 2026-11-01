@@ -2,16 +2,18 @@
   <div class="page">
     <div class="page-head">
       <div>
-        <h2>下载</h2>
-        <p>把云端或本地的 .ske 容器解密成普通文件。任务在后台继续，切换页面不影响进度。</p>
+        <h2>{{ $t('downloads.title') }}</h2>
+        <p>{{ $t('downloads.subtitle') }}</p>
       </div>
       <div class="tools">
-        <span class="dir mono" :title="destDir || '尚未选择'">
-          {{ destDir || '尚未选择下载目录' }}
+        <span class="dir mono" :title="destDir || $t('transfers.notChosen')">
+          {{ destDir || $t('transfers.notChosen') }}
         </span>
-        <button class="ghost sm" type="button" @click="pickDir">选择目录</button>
+        <button class="ghost sm" type="button" @click="pickDir">
+          {{ $t('transfers.pickDir') }}
+        </button>
         <button class="ghost sm" type="button" :disabled="!hasFinished" @click="clearFinished">
-          清除已完成
+          {{ $t('transfers.clearFinished') }}
         </button>
       </div>
     </div>
@@ -19,8 +21,8 @@
     <EmptyState
       v-if="!downloads.items.length"
       icon="⤓"
-      title="没有下载任务"
-      description="在云端库或本地库里点文件名右侧的下载按钮，任务会出现在这里。下载会写出明文文件，请确认目标位置合适。"
+      :title="$t('downloads.emptyTitle')"
+      :description="$t('downloads.emptyDesc')"
     />
 
     <div v-else class="list">
@@ -45,7 +47,7 @@
 
           <div class="actions">
             <button v-if="job.status === 'done'" class="ghost sm" type="button" @click="reveal(job)">
-              打开所在文件夹
+              {{ $t('transfers.reveal') }}
             </button>
             <button
               v-if="job.status === 'queued' || job.status === 'running'"
@@ -53,7 +55,7 @@
               type="button"
               @click="cancel(job)"
             >
-              取消
+              {{ $t('common.cancel') }}
             </button>
           </div>
         </div>
@@ -75,6 +77,7 @@ import {
   subscribeDownloads,
 } from '../state/downloads.js'
 import { formatSize } from '../state/cloud.js'
+import { t } from '../i18n.js'
 
 const destDir = computed(() => session.settings?.download?.dir || '')
 const hasFinished = computed(() =>
@@ -94,15 +97,15 @@ function percent(job) {
 function statusText(job) {
   switch (job.status) {
     case 'queued':
-      return '排队中'
+      return t('transfers.statusQueued')
     case 'running':
       return `${percent(job)}%`
     case 'done':
-      return '已完成'
+      return t('downloads.statusDone')
     case 'cancelled':
-      return '已取消'
+      return t('transfers.statusCancelled')
     default:
-      return '失败'
+      return t('transfers.statusFailed')
   }
 }
 
@@ -117,7 +120,7 @@ async function pickDir() {
   if (!picked?.ok || !picked.path) return
   try {
     await patchSettings({ download: { dir: picked.path } })
-    toast('下载目录已更新', 'ok')
+    toast(t('transfers.dirUpdated'), 'ok')
   } catch (err) {
     toast(err.message, 'error')
   }

@@ -12,6 +12,7 @@
  */
 import crypto from 'node:crypto'
 import fsp from 'node:fs/promises'
+import { t } from './i18n.js'
 import path from 'node:path'
 
 /**
@@ -87,8 +88,8 @@ export class DownloadQueue {
   }
 
   add({ mode = 'cloud', sessionId = '', path: plainPath, name, destDir } = {}) {
-    if (!plainPath) throw new Error('缺少文件路径')
-    if (!destDir) throw new Error('请先选择下载目录')
+    if (!plainPath) throw new Error(t('errors.pathMissing'))
+    if (!destDir) throw new Error(t('errors.needDownloadDir'))
 
     const job = {
       id: crypto.randomBytes(6).toString('hex'),
@@ -117,7 +118,7 @@ export class DownloadQueue {
   /** Resolve the container to a password plus a target `sources.js` understands. */
   async #source(job) {
     if (job.mode === 'local') {
-      if (!this.localLibrary?.unlocked) throw new Error('本地库尚未解锁')
+      if (!this.localLibrary?.unlocked) throw new Error(t('errors.localLocked'))
       return {
         target: this.localLibrary.filePath(job.path),
         password: this.localLibrary.password,
@@ -172,7 +173,7 @@ export class DownloadQueue {
 
       if (info.size > 0) {
         for await (const chunk of media.readRange(0, info.size - 1)) {
-          if (controller.signal.aborted) throw new Error('已取消')
+          if (controller.signal.aborted) throw new Error(t('errors.cancelled'))
           await handle.write(chunk)
           job.doneBytes += chunk.length
           this.#scheduleEmit()

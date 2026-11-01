@@ -1,8 +1,8 @@
 <template>
   <AppDialog
     :visible="visible"
-    :title="profile ? '编辑配置' : '新建配置'"
-    description="每个配置是一套 AList / OpenList 账号加一套独立的加密密码。"
+    :title="profile ? $t('profiles.dialogTitleEdit') : $t('profiles.dialogTitleNew')"
+    :description="$t('profiles.dialogDesc')"
     :width="460"
     :busy="busy"
     :error="error"
@@ -10,68 +10,76 @@
     @submit="submit"
   >
     <div class="field">
-      <label>配置名称</label>
-      <input v-model="form.name" placeholder="例如 家里 NAS" autofocus />
+      <label>{{ $t('profiles.nameField') }}</label>
+      <input v-model="form.name" :placeholder="$t('profiles.namePlaceholder')" autofocus />
     </div>
 
     <div class="field">
-      <label>服务端类型</label>
+      <label>{{ $t('profiles.providerField') }}</label>
       <select v-model="form.provider">
         <option value="alist">AList</option>
         <option value="openlist">OpenList</option>
       </select>
       <!-- 2FA codes are asked for on every login, because a one-time code
            cannot be stored. Both backends support it. -->
-      <span class="meta">
-        账号若开启了两步验证，连接时会提示输入动态验证码。
-      </span>
+      <span class="meta">{{ $t('profiles.otpHint') }}</span>
     </div>
 
     <div class="field">
-      <label>服务器地址</label>
+      <label>{{ $t('profiles.serverField') }}</label>
       <input v-model="form.server" :placeholder="serverPlaceholder" />
     </div>
 
     <div class="field">
-      <label>用户名</label>
-      <input v-model="form.username" :placeholder="`${providerLabel} 用户名`" autocomplete="off" />
+      <label>{{ $t('profiles.usernameField') }}</label>
+      <input
+        v-model="form.username"
+        :placeholder="$t('profiles.usernamePlaceholder', { provider: providerLabel })"
+        autocomplete="off"
+      />
     </div>
 
     <div class="field">
-      <label>{{ providerLabel }} 密码</label>
+      <label>{{ $t('profiles.passwordField', { provider: providerLabel }) }}</label>
       <input
         v-model="form.password"
         type="password"
         autocomplete="new-password"
-        :placeholder="profile?.hasPassword ? '已保存，留空则不修改' : `${providerLabel} 登录密码`"
+        :placeholder="
+          profile?.hasPassword
+            ? $t('profiles.savedKeep')
+            : $t('profiles.passwordPlaceholder', { provider: providerLabel })
+        "
       />
-      <span class="meta">使用系统钥匙串加密保存，不会明文落盘。</span>
+      <span class="meta">{{ $t('profiles.passwordHint') }}</span>
     </div>
 
     <div class="field">
-      <label>媒体加密密码</label>
+      <label>{{ $t('profiles.skePasswordField') }}</label>
       <input
         v-model="form.skePassword"
         type="password"
         autocomplete="new-password"
-        :placeholder="profile?.hasSkePassword ? '已保存，留空则不修改' : '解密 .ske 文件用的密码'"
+        :placeholder="profile?.hasSkePassword ? $t('profiles.savedKeep') : $t('profiles.skePlaceholder')"
       />
     </div>
 
     <div class="field">
-      <label>根目录（可选）</label>
+      <label>{{ $t('profiles.basePathField') }}</label>
       <input v-model="form.basePath" placeholder="/encrypted" />
     </div>
 
     <label class="dlg-check">
       <input v-model="form.remember" type="checkbox" />
-      <span>记住密码（关闭后每次连接都需要重新输入）</span>
+      <span>{{ $t('profiles.remember') }}</span>
     </label>
 
     <template #footer>
-      <button type="button" class="ghost" :disabled="busy" @click="close">取消</button>
+      <button type="button" class="ghost" :disabled="busy" @click="close">
+        {{ $t('common.cancel') }}
+      </button>
       <button type="submit" class="primary" :disabled="busy">
-        {{ busy ? '保存中…' : '保存' }}
+        {{ busy ? $t('profiles.saving') : $t('profiles.save') }}
       </button>
     </template>
   </AppDialog>

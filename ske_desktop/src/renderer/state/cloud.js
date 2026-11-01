@@ -6,6 +6,7 @@
  */
 import { reactive } from 'vue'
 import { waitUntilRunning } from './embedded.js'
+import { t } from '../i18n.js'
 import { activeProfile, toast } from './session.js'
 
 export const cloud = reactive({
@@ -67,7 +68,7 @@ export async function ensureConnected({ force = false, otpCode = '' } = {}) {
     const res = await window.ske.cloud.connect(profile.id, otpCode)
     if (!res?.ok) {
       cloud.needsOtp = !!res?.needsOtp
-      throw new Error(res?.error || '连接失败')
+      throw new Error(res?.error || t('errors.connectFailed'))
     }
 
     cloud.sessionId = res.session.sessionId
@@ -98,7 +99,7 @@ export async function load(path = cloud.path, { refresh = false } = {}) {
   cloud.error = ''
   try {
     const res = await window.ske.cloud.list(cloud.sessionId, path, refresh)
-    if (!res?.ok) throw new Error(res?.error || '无法读取目录')
+    if (!res?.ok) throw new Error(res?.error || t('errors.readDirFailed'))
     cloud.path = res.path || '/'
     cloud.entries = res.entries || []
   } catch (err) {
@@ -122,21 +123,21 @@ export async function disconnect() {
 
 export async function makeFolder(path, name, encrypt = true) {
   const res = await window.ske.cloud.mkdir({ sessionId: cloud.sessionId, path, name, encrypt })
-  if (!res?.ok) throw new Error(res?.error || '创建文件夹失败')
+  if (!res?.ok) throw new Error(res?.error || t('errors.mkdirFailed'))
   await load(path)
   return res
 }
 
 export async function renameEntry(path, newName) {
   const res = await window.ske.cloud.rename({ sessionId: cloud.sessionId, path, newName })
-  if (!res?.ok) throw new Error(res?.error || '重命名失败')
+  if (!res?.ok) throw new Error(res?.error || t('errors.renameFailed'))
   await load(cloud.path)
   return res
 }
 
 export async function removeEntry(path) {
   const res = await window.ske.cloud.remove({ sessionId: cloud.sessionId, path })
-  if (!res?.ok) throw new Error(res?.error || '删除失败')
+  if (!res?.ok) throw new Error(res?.error || t('errors.deleteFailed'))
   await load(cloud.path)
   return res
 }
@@ -153,7 +154,7 @@ export async function removeEntries(paths) {
   const failed = []
   for (const path of paths) {
     const res = await window.ske.cloud.remove({ sessionId, path })
-    if (!res?.ok) failed.push({ path, error: res?.error || '删除失败' })
+    if (!res?.ok) failed.push({ path, error: res?.error || t('errors.deleteFailed') })
   }
   await load(cloud.path)
   return failed
@@ -162,7 +163,7 @@ export async function removeEntries(paths) {
 /** Breadcrumb segments, from the root down to the current folder. */
 export function crumbs(path = cloud.path) {
   const parts = path.split('/').filter(Boolean)
-  const list = [{ label: '根目录', path: '/' }]
+  const list = [{ label: t('common.root'), path: '/' }]
   let acc = ''
   for (const part of parts) {
     acc += `/${part}`
@@ -195,6 +196,6 @@ export function playable(entry) {
 
 export function requirePlayable(entry) {
   if (playable(entry)) return true
-  toast(entry.locked ? '该文件无法解密，请检查媒体加密密码' : '暂不支持播放该类型的文件', 'error')
+  toast(entry.locked ? t('browse.playLocked') : t('browse.playUnsupported'), 'error')
   return false
 }

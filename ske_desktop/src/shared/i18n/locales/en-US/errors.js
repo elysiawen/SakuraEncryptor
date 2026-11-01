@@ -1,0 +1,178 @@
+/**
+ * Errors that cross a process boundary.
+ *
+ * Main throws them and the renderer shows them verbatim in a toast, so they
+ * cannot live next to the screen that displays them: the same string is written
+ * in `main/ipc.js` and read in `BrowseView`. Keeping them in one namespace is
+ * what stops the two halves from describing the same failure differently.
+ */
+export default {
+  /** Guards in `main/ipc.js`, hit by any call the UI makes out of order. */
+  locked: 'The app is locked',
+  profileMissing: 'That profile does not exist',
+  serverNotReady: 'The local server is not ready yet',
+  localLocked: 'The local library is locked',
+  cloudDisconnected: 'The cloud session dropped; connect again',
+  tooLargeText: 'Text files over 2 MB are skipped',
+  emptyFile: 'The file is empty',
+  subtitleMissing: 'No subtitle file given',
+  needSecret: 'Enter the encryption password, or configure a cloud profile that has a media password',
+  emptyInput: 'Type something first',
+  textDecryptFailed: 'Decryption failed: wrong password, or this text was not produced by this tool',
+  needDownloadDir: 'Pick a download folder in Settings first',
+  downloadIncomplete: 'The file has not finished downloading',
+  windowClosed: 'The window is closed',
+  playerItemMissing: 'No file was given to play',
+  playerHostMissing: 'The main window is unavailable; restart the app',
+  externalOnly: 'Only a decrypted stream can be handed to an external player',
+  nothingToCopy: 'There is nothing to copy',
+  cancelled: 'Cancelled',
+
+  /** Renderer-side fallbacks, used when main answered without its own message. */
+  openFailed: 'Could not open the file',
+  openWindowFailed: 'Could not open the player window',
+  connectFailed: 'Connection failed',
+  readDirFailed: 'Could not read the folder',
+  mkdirFailed: 'Could not create the folder',
+  renameFailed: 'Could not rename it',
+  deleteFailed: 'Could not delete it',
+  unlockFailed: 'Could not unlock',
+  openDirFailed: 'Could not open that folder',
+  downloadCancelledNoDir: 'Download cancelled: no target folder was chosen',
+  enqueueDownloadFailed: 'Could not add it to the download queue',
+  enqueueUploadFailed: 'Could not add it to the upload queue',
+  enqueueJobFailed: 'Could not add it to the queue',
+  cancelFailed: 'Could not cancel it',
+  cancelJobFailed: 'Could not cancel',
+  cleanFailed: 'Could not clean up',
+  openFolderFailed: 'Could not open the containing folder',
+  copyFailed: 'Copy failed; try again',
+  readDroppedFailed: 'Could not read the dropped files',
+  decryptFileFailed: 'Could not decrypt the file',
+  operationFailed: 'The operation failed',
+  launchPlayerFailed: 'Could not launch the external player',
+  noPlayerConfigured: 'No player found; choose one in Settings',
+  playerDefault: '{name} (default)',
+  bridgeUnavailable: 'The preload bridge is missing; start the app through Electron',
+  bridgeUnavailableLong: 'The preload bridge is missing: open the desktop app rather than the page directly.',
+
+  /** The lock screen: start-up password, TOTP, and the attempt limiter. */
+  passwordTooShort: 'The start-up password must be at least {count} characters',
+  wrongPassword: 'Wrong password',
+  wrongCurrentPassword: 'The current password is wrong',
+  noKeystore: 'The system offers no secure storage (keyring or credential manager), so TOTP cannot be bound',
+  badSecret: 'The secret is malformed; expected a Base32 string or an otpauth link',
+  wrongCode: 'Wrong or expired code',
+  tooManyAttempts: 'Too many attempts; try again later',
+  verifyFailed: 'Verification failed',
+  /** Joins a list of failures into one message; wide in CJK, a comma elsewhere. */
+  joiner: '; ',
+
+  /** The local library and the names it validates. */
+  passwordEmpty: 'The password cannot be empty',
+  noRoot: 'No local folder chosen yet',
+  illegalPath: 'Illegal path',
+  folderExists: 'A folder with that name already exists',
+  entryExists: 'An entry with that name already exists',
+  cannotDeleteRoot: 'The library root cannot be deleted',
+  labelFolder: 'Folder name',
+  labelName: 'Name',
+  labelEmpty: '{label} cannot be empty',
+  labelHasSlash: '{label} cannot contain a slash',
+  badToken: 'Invalid filename token',
+
+  /** Talking to an AList / OpenList server. */
+  /** Cloud profile editing. */
+  profileNameEmpty: 'The profile needs a name',
+  serverEmpty: 'The server address cannot be empty',
+
+  /** Talking to an AList / OpenList server. */
+  connectTimeout: 'The server did not respond in time',
+  connectFailedReason: 'Could not reach the server: {message}',
+  httpStatus: 'The server answered HTTP {status}',
+  notJson: 'The server did not answer with JSON; is this address really {label}?',
+  apiFailed: '{label} answered {code}',
+  otpRequired: 'This account uses two-step verification; enter the code from your authenticator',
+  loginNoToken: 'The login response carried no token',
+  profileNoServer: 'The profile has no server address',
+  profileNoMediaPassword: 'This profile has no media password yet; fill it in first',
+  profileNoMediaPasswordUpload: 'This profile has no media password, so the upload cannot be encrypted',
+  cloudSessionExpired: 'The cloud session expired; connect again',
+  entryGone: 'That entry is no longer in this listing; refresh and try again',
+  noRawUrl: 'The server returned no download address',
+  uploadPathEmpty: 'The upload path cannot be empty',
+  notAFile: 'That is not a file',
+  sourceNotFile: 'The source is not a file',
+  noMultipart: '{label} does not implement multipart upload',
+  uploadFailedReason: 'Upload failed: {message}',
+  uploadFailedTarget: '{detail} (target: {target})',
+  multipartInitFailed: 'Could not start the multipart upload',
+  multipartInitFailedReason: 'Could not start the multipart upload: {message}',
+  multipartNoUploadId: 'The multipart response carried no upload_id',
+  multipartCompleteFailed: 'Could not assemble the uploaded parts',
+  chunkFailed: 'Part {index} failed: {message}',
+  chunkFailedShort: 'Part {index} failed',
+  chunkBusy: 'Part {index} failed: the server stayed busy; try again later',
+
+  /** The upstream the decrypting proxy reads from. */
+  upstreamStatus: 'The upstream answered {status}',
+  upstreamReadFailed: 'The upstream answered {status}, so the encrypted file cannot be read',
+  upstreamNoRange: 'The upstream sent a partial response without Content-Range, so the block cannot be located',
+  upstreamUnknownSize: 'Could not determine the upstream file size',
+  upstreamRead: 'Reading from the upstream failed',
+
+  /** The built-in server: its account, its mounts, its process. */
+  accountUnreadable: 'Could not read the built-in server account',
+  accountNameEmpty: 'The account name cannot be empty',
+  accountPasswordMissing: 'The built-in server password is missing',
+  credentialsMissing: 'The built-in server has no credentials',
+  mountPathEmpty: 'The mount path cannot be empty',
+  storageIdMissing: 'No storage id given',
+  storageGone: 'That storage does not exist',
+  storageFieldEmpty: '{name} cannot be empty',
+  storageFieldEmptyHelp: '{name} cannot be empty: {help}',
+  portInUse: 'Port {port} is taken (an AList/OpenList may already be running here, or the last run did not exit cleanly); pick another port in Settings',
+  busy: 'The built-in server is still finishing the last operation; wait a moment',
+  portRange: 'The port must be between {min} and {max}',
+  driverMissing: 'No driver name given',
+  serverNotRunning: 'The built-in server is not running; turn it on in Settings',
+  loginFailed: 'Could not sign in to {label}',
+  requestFailed: 'The request failed',
+  crashed: '{label} exited unexpectedly (code {code}). “Retry” starts it again; if it keeps exiting, switch backends or install it again.',
+  startedThenExited: '{label} exited right after starting: {tail}',
+  startTimedOut: '{label} timed out starting: {tail}',
+  noOutput: 'no output',
+  maintenanceFailed: 'Running the {label} maintenance command failed: {message}',
+  logStartFailed: 'Failed to start: {message}',
+  logExited: '{label} exited (code {code})',
+  logStorageListFailed: 'Could not read the storage list: {message}',
+  logDefaultStorageFailed: 'Could not create the default storage: {message}',
+
+  /** Fetching the server binary itself. */
+  githubRateLimited: ' (GitHub rate limit reached; try again later)',
+  versionInfoFailed: 'Could not read the {label} release list: HTTP {status}{detail}',
+  githubTimeout: 'GitHub timed out; check the network or set a mirror',
+  downloadHttp: 'Download failed: HTTP {status}',
+  noExecutable: 'The package contains no executable',
+  downloadFailed: 'Download failed: {message}',
+  checksumMismatch: 'The package failed its sha256 check and was discarded',
+  unsupportedPlatform: 'That release has no {label} package for this platform ({platform}/{arch})',
+
+  /** Writing and reading containers. */
+  noPassword: 'No encryption password given',
+  badAad: 'AAD prefix has an impossible length: {length}',
+
+  /** Downloads, uploads and the encrypt workbench. */
+  pathMissing: 'No file path given',
+  srcOrDestMissing: 'A source path or an output folder is missing',
+  filesOrFoldersOnly: 'Only files and folders can be added',
+  noFiles: 'There are no files to upload',
+
+  /** The player window and the media proxy behind it. */
+  targetMissing: 'No file address given',
+  passwordMissing: 'No password given',
+  sessionGone: 'That session does not exist or has been closed',
+  playerGone: 'That player is gone; choose it again',
+  noPlayer: 'No external player found; pick one in Settings, or copy a play link and paste it into your player',
+  noFfmpeg: 'The bundled ffmpeg is missing, so previews cannot be generated',
+}

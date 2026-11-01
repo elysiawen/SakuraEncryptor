@@ -2,9 +2,9 @@
   <div class="page">
     <div class="page-head">
       <div>
-        <h2>加密工作台</h2>
-        <p v-if="mode === 'files'">文件在本地完成加密，文件名同样会被加密；拖进来即可开始。</p>
-        <p v-else>把一段文字加密成可复制的密文，或把密文还原成明文；与文件名使用同一套密钥。</p>
+        <h2>{{ $t('encrypt.title') }}</h2>
+        <p v-if="mode === 'files'">{{ $t('encrypt.subtitleFiles') }}</p>
+        <p v-else>{{ $t('encrypt.subtitleText') }}</p>
       </div>
       <div class="row">
         <div class="segmented" role="tablist">
@@ -15,7 +15,7 @@
             :class="{ on: mode === 'files' }"
             @click="mode = 'files'"
           >
-            文件
+            {{ $t('encrypt.tabFiles') }}
           </button>
           <button
             type="button"
@@ -24,7 +24,7 @@
             :class="{ on: mode === 'text' }"
             @click="mode = 'text'"
           >
-            文本
+            {{ $t('encrypt.tabText') }}
           </button>
         </div>
         <button
@@ -33,27 +33,34 @@
           type="button"
           @click="clear"
         >
-          清理已完成
+          {{ $t('encrypt.clearFinished') }}
         </button>
       </div>
     </div>
 
     <section v-if="mode === 'files'" class="card settings">
       <div class="field">
-        <label>输出目录</label>
+        <label>{{ $t('encrypt.outputDir') }}</label>
         <div class="row">
-          <input class="grow" :value="outputDir" readonly placeholder="选择一个输出目录" />
-          <button class="ghost" type="button" @click="pickOutput">选择</button>
+          <input
+            class="grow"
+            :value="outputDir"
+            readonly
+            :placeholder="$t('encrypt.outputDirPlaceholder')"
+          />
+          <button class="ghost" type="button" @click="pickOutput">
+            {{ $t('encrypt.choose') }}
+          </button>
         </div>
       </div>
 
       <div class="field">
-        <label>加密密码</label>
+        <label>{{ $t('encrypt.password') }}</label>
         <input
           v-model="password"
           type="password"
           autocomplete="new-password"
-          placeholder="留空则使用当前配置的媒体密码"
+          :placeholder="$t('encrypt.passwordPlaceholder')"
         />
       </div>
     </section>
@@ -65,25 +72,29 @@
           <path d="M8 9l4-4 4 4" />
           <path d="M4 16v2.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V16" />
         </svg>
-        <strong>拖放文件或文件夹到这里</strong>
-        <span>{{ outputDir ? '加密后写入上面选择的目录' : '先选择输出目录，然后拖入文件' }}</span>
+        <strong>{{ $t('encrypt.dropTitle') }}</strong>
+        <span>{{ outputDir ? $t('encrypt.dropReady') : $t('encrypt.dropIdle') }}</span>
         <div class="row" style="margin-top: 6px">
-          <button class="ghost" type="button" @click="pickFiles">选择文件</button>
-          <button class="ghost" type="button" @click="pickFolder">选择文件夹</button>
+          <button class="ghost" type="button" @click="pickFiles">
+            {{ $t('encrypt.pickFiles') }}
+          </button>
+          <button class="ghost" type="button" @click="pickFolder">
+            {{ $t('encrypt.pickFolder') }}
+          </button>
         </div>
       </div>
     </section>
 
     <section v-if="mode === 'files'" class="card">
       <div class="row between">
-        <h3 style="margin: 0">任务队列</h3>
+        <h3 style="margin: 0">{{ $t('encrypt.queue') }}</h3>
         <span class="badge">
-          {{ runningCount }} 进行中 · {{ jobs.items.length }} 总计
+          {{ $t('encrypt.queueCount', { running: runningCount, total: jobs.items.length }) }}
         </span>
       </div>
 
       <p v-if="!jobs.items.length" class="hint" style="margin: 12px 0 0">
-        队列为空。单个大文件按 1 MiB 分块流式处理，内存占用不会随文件大小增长。
+        {{ $t('encrypt.queueEmpty') }}
       </p>
 
       <ul v-else class="jobs">
@@ -97,7 +108,7 @@
               type="button"
               @click="cancel(job)"
             >
-              取消
+              {{ $t('common.cancel') }}
             </button>
           </div>
 
@@ -107,7 +118,9 @@
 
           <div class="job-meta">
             <span class="mono">{{ percent(job) }}%</span>
-            <span v-if="job.totalFiles > 1">{{ job.doneFiles }}/{{ job.totalFiles }} 个文件</span>
+            <span v-if="job.totalFiles > 1">
+              {{ $t('encrypt.fileProgress', { done: job.doneFiles, total: job.totalFiles }) }}
+            </span>
             <span v-if="job.currentFile" class="current" :title="job.currentFile">{{ job.currentFile }}</span>
             <span v-if="job.error" class="err">{{ job.error }}</span>
           </div>
@@ -117,23 +130,23 @@
 
     <section v-else class="card">
       <div class="field">
-        <label>加密密码</label>
+        <label>{{ $t('encrypt.password') }}</label>
         <input
           v-model="password"
           type="password"
           autocomplete="off"
-          placeholder="留空则使用当前配置的媒体密码"
+          :placeholder="$t('encrypt.passwordPlaceholder')"
         />
-        <span class="meta">加密与解密共用这一个密码；密文可在安卓端、CLI 或网页端解密。</span>
+        <span class="meta">{{ $t('encrypt.passwordHintText') }}</span>
       </div>
 
       <div class="field">
-        <label>内容</label>
+        <label>{{ $t('encrypt.content') }}</label>
         <textarea
           v-model="textInput"
           rows="7"
           spellcheck="false"
-          placeholder="要加密的文字，或粘贴一段密文"
+          :placeholder="$t('encrypt.contentPlaceholder')"
         />
       </div>
 
@@ -144,7 +157,7 @@
           :disabled="converting"
           @click="convert('encrypt')"
         >
-          加密
+          {{ $t('encrypt.encrypt') }}
         </button>
         <button
           class="ghost"
@@ -152,19 +165,21 @@
           :disabled="converting"
           @click="convert('decrypt')"
         >
-          解密
+          {{ $t('encrypt.decrypt') }}
         </button>
-        <span v-if="converting" class="meta">处理中…</span>
+        <span v-if="converting" class="meta">{{ $t('common.processing') }}</span>
       </div>
 
       <p v-if="textError" class="text-error">{{ textError }}</p>
 
       <div v-if="textOutput" class="text-result">
         <div class="row between">
-          <label>结果</label>
+          <label>{{ $t('encrypt.result') }}</label>
           <div class="row">
-            <span class="meta">{{ textOutput.length }} 字符</span>
-            <button class="ghost tiny" type="button" @click="copyResult">复制</button>
+            <span class="meta">{{ $t('encrypt.chars', { count: textOutput.length }) }}</span>
+            <button class="ghost tiny" type="button" @click="copyResult">
+              {{ $t('encrypt.copy') }}
+            </button>
           </div>
         </div>
         <textarea class="result mono" :value="textOutput" rows="6" readonly />
@@ -176,6 +191,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { attempt, patchSettings, session, toast } from '../state/session.js'
+import { t } from '../i18n.js'
 import {
   activeCount,
   addJob,
@@ -202,7 +218,7 @@ async function convert(direction) {
   const source = textInput.value.trim()
   if (!source) {
     textOutput.value = ''
-    textError.value = '请先输入内容'
+    textError.value = t('encrypt.missingInput')
     return
   }
 
@@ -214,7 +230,7 @@ async function convert(direction) {
       text: source,
       password: password.value,
     })
-    if (!res?.ok) throw new Error(res?.error || '转换失败')
+    if (!res?.ok) throw new Error(res?.error || t('encrypt.convertFailed'))
     textOutput.value = res.text
   } catch (err) {
     textOutput.value = ''
@@ -227,7 +243,7 @@ async function convert(direction) {
 async function copyResult() {
   if (!textOutput.value) return
   await attempt(() => window.ske.clipboard.write(textOutput.value), {
-    success: '已复制到剪贴板',
+    success: t('encrypt.copied'),
   })
 }
 
@@ -246,17 +262,17 @@ function isActive(job) {
 function statusLabel(job) {
   switch (job.status) {
     case 'scanning':
-      return '扫描中'
+      return t('encrypt.statusScanning')
     case 'queued':
-      return '等待中'
+      return t('encrypt.statusQueued')
     case 'running':
-      return '加密中'
+      return t('encrypt.statusRunning')
     case 'done':
-      return '完成'
+      return t('encrypt.statusDone')
     case 'cancelled':
-      return '已取消'
+      return t('encrypt.statusCancelled')
     default:
-      return '失败'
+      return t('encrypt.statusFailed')
   }
 }
 
@@ -274,7 +290,7 @@ async function pickOutput() {
 
 async function enqueue(paths) {
   if (!outputDir.value) {
-    toast('请先选择输出目录', 'error')
+    toast(t('encrypt.needOutputDir'), 'error')
     return
   }
   if (!paths.length) return
@@ -295,7 +311,7 @@ async function enqueue(paths) {
     }
   }
 
-  if (queued) toast(`已加入 ${queued} 个任务`, 'ok')
+  if (queued) toast(t('encrypt.queued', { count: queued }), 'ok')
 }
 
 async function pickFiles() {
@@ -311,7 +327,7 @@ async function pickFolder() {
 
 function onDrop(event) {
   if (!outputDir.value) {
-    toast('请先选择输出目录', 'error')
+    toast(t('encrypt.needOutputDir'), 'error')
     return
   }
 
@@ -322,7 +338,7 @@ function onDrop(event) {
     .filter(Boolean)
 
   if (!paths.length) {
-    toast('无法读取拖入的文件路径', 'error')
+    toast(t('encrypt.dropUnreadable'), 'error')
     return
   }
   enqueue(paths)

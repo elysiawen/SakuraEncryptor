@@ -11,12 +11,12 @@
   >
     <div v-if="loading && !error" class="overlay">
       <span class="spinner" />
-      <p>正在解密并加载图片…</p>
+      <p>{{ $t('player.imageLoading') }}</p>
     </div>
 
     <div v-if="error" class="overlay">
       <p>{{ error }}</p>
-      <button class="pill-btn" type="button" @click="retry">重试</button>
+      <button class="pill-btn" type="button" @click="retry">{{ $t('common.retry') }}</button>
     </div>
 
     <div
@@ -36,7 +36,7 @@
         class="glass-btn nav prev"
         :class="{ hidden: !uiVisible }"
         type="button"
-        title="上一张"
+        :title="$t('player.previousImage')"
         @click.stop="emit('prev')"
       >
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
@@ -48,7 +48,7 @@
         class="glass-btn nav next"
         :class="{ hidden: !uiVisible }"
         type="button"
-        title="下一张"
+        :title="$t('player.nextImage')"
         @click.stop="emit('next')"
       >
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
@@ -60,23 +60,23 @@
     <!-- Two controls either side of the percentage keeps the readout optically
          centred instead of leaning left. -->
     <div class="zoom-pill" :class="{ hidden: !uiVisible }" @click.stop>
-      <button type="button" title="重置视图" @click="resetView">
+      <button type="button" :title="$t('player.resetView')" @click="resetView">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
           <path d="M4 10l8-6 8 6v9a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z" />
         </svg>
       </button>
-      <button type="button" title="缩小" @click="zoomOut">
+      <button type="button" :title="$t('player.zoomOut')" @click="zoomOut">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round">
           <path d="M6 12h12" />
         </svg>
       </button>
       <span class="zoom-text mono">{{ Math.round(zoom * 100) }}%</span>
-      <button type="button" title="放大" @click="zoomIn">
+      <button type="button" :title="$t('player.zoomIn')" @click="zoomIn">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round">
           <path d="M12 6v12M6 12h12" />
         </svg>
       </button>
-      <button type="button" title="旋转 90°" @click="rotate">
+      <button type="button" :title="$t('player.rotate')" @click="rotate">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
           <path d="M20 12a8 8 0 1 1-2.4-5.7" />
           <path d="M20 4v4h-4" />
@@ -88,6 +88,7 @@
 
 <script setup>
 import { onMounted, onUnmounted, ref, watch } from 'vue'
+import { t } from '../i18n.js'
 
 const props = defineProps({
   src: { type: String, default: '' },
@@ -143,7 +144,7 @@ function retry() {
 
 function onImgError() {
   loading.value = false
-  error.value = '图片加载失败，文件可能已损坏或无法解密'
+  error.value = t('player.imageFailed')
   emit('error', error.value)
 }
 

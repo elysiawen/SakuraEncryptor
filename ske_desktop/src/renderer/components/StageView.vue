@@ -3,7 +3,9 @@
     <!-- Audio brings its own window chrome (drag region included), so the video
          bar stays out of its way. -->
     <header v-if="stageKind !== 'audio'" class="bar">
-      <div class="title" :title="player.name">{{ player.name || '播放器' }}</div>
+      <div class="title" :title="player.name">
+        {{ player.name || $t('common.playerWindow') }}
+      </div>
 
       <div class="actions">
         <!-- VideoStage teleports its caption button here: controls that belong to
@@ -15,7 +17,7 @@
           class="icon"
           :class="{ active: comicMode }"
           type="button"
-          :title="comicMode ? '退出漫画模式' : '漫画模式（连续阅读）'"
+          :title="comicMode ? $t('player.comicOff') : $t('player.comicOn')"
           @click="toggleComicMode"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
@@ -28,7 +30,7 @@
           v-if="comicMode && player.kind === 'image'"
           class="icon"
           type="button"
-          :title="comicLayout === 'strip' ? '切换为双页跨页' : '切换为竖向连续'"
+          :title="comicLayout === 'strip' ? $t('player.comicSpread') : $t('player.comicStrip')"
           @click="toggleComicLayout"
         >
           <svg
@@ -70,7 +72,7 @@
           class="icon"
           :class="{ active: listOpen }"
           type="button"
-          :title="listOpen ? '收起播放列表' : '播放列表'"
+          :title="listOpen ? $t('player.playlistCollapse') : $t('player.playlist')"
           @click="listOpen = !listOpen"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
@@ -79,13 +81,18 @@
           </svg>
         </button>
 
-        <button class="icon" type="button" title="最小化" @click="minimize">
+        <button class="icon" type="button" :title="$t('titleBar.minimize')" @click="minimize">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
             <path d="M6 12h12" />
           </svg>
         </button>
 
-        <button class="icon" type="button" :title="maximized ? '还原' : '最大化'" @click="toggleMaximize">
+        <button
+          class="icon"
+          type="button"
+          :title="maximized ? $t('titleBar.restore') : $t('titleBar.maximize')"
+          @click="toggleMaximize"
+        >
           <svg v-if="maximized" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
             <rect x="5" y="8" width="11" height="11" rx="1.4" />
             <path d="M9 8V6.4A1.4 1.4 0 0 1 10.4 5H18a1.4 1.4 0 0 1 1.4 1.4V14" />
@@ -95,7 +102,7 @@
           </svg>
         </button>
 
-        <button class="icon" type="button" title="关闭" @click="closeWindow">
+        <button class="icon" type="button" :title="$t('titleBar.close')" @click="closeWindow">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
             <path d="M7 7l10 10M17 7L7 17" />
           </svg>
@@ -138,7 +145,7 @@
 
       <div v-else class="centre">
         <span v-if="!player.error && !localError" class="spinner" />
-        <p>{{ localError || player.error || '正在解密…' }}</p>
+        <p>{{ localError || player.error || $t('player.decrypting') }}</p>
       </div>
     </template>
 
@@ -147,7 +154,7 @@
     <Transition name="fade">
       <aside v-if="listOpen && total > 1" class="queue" @click.stop>
         <div class="queue-head">
-          <span>播放列表</span>
+          <span>{{ $t('player.playlist') }}</span>
           <span class="count mono">{{ total }}</span>
         </div>
         <div class="queue-body">
@@ -177,6 +184,7 @@ import MusicStage from './MusicStage.vue'
 import { close, next, player, playAt, playEntry, prefetchEntry, prev, sameEntry } from '../state/player.js'
 import { session, toast } from '../state/session.js'
 import { copyText } from '../utils/clipboard.js'
+import { t } from '../i18n.js'
 
 const total = computed(() => player.playlist.length)
 const listOpen = ref(false)
@@ -214,8 +222,8 @@ function toggleComicMode() {
 
 /**
  * With a picture on screen, warm the next one so paging does not open a fresh
- * decrypt session and stall on "正在解密". Only images: video owns an open-ended
- * range stream and audio lives in the shell.
+ * decrypt session and stall on its "decrypting" state. Only images: video owns
+ * an open-ended range stream and audio lives in the shell.
  */
 watch(
   () => [player.kind, player.url, player.index, player.playlist.length],
@@ -238,7 +246,7 @@ let offLoad = null
  */
 async function load(payload) {
   if (!payload?.item) {
-    localError.value = '播放窗口没有收到文件信息'
+    localError.value = t('errors.playerItemMissing')
     return
   }
 
@@ -256,7 +264,7 @@ async function load(payload) {
   listOpen.value = false
   // A fresh file always starts in the single-page view.
   comicMode.value = false
-  document.title = `${payload.item.name || '播放'} — Sakura Encryptor`
+  document.title = `${payload.item.name || t('player.play')} — Sakura Encryptor`
 
   stageKind.value = payload.item.kind || 'video'
   stagePayload.value = payload
@@ -308,9 +316,9 @@ const linkState = ref('')
 let linkTimer = 0
 
 const copyTitle = computed(() => {
-  if (linkState.value === 'copied') return '链接已复制，可粘贴到外部播放器；关闭应用后失效'
-  if (linkState.value === 'failed') return '复制失败，请重试'
-  return '复制解密播放链接'
+  if (linkState.value === 'copied') return t('player.linkCopied')
+  if (linkState.value === 'failed') return t('errors.copyFailed')
+  return t('player.linkCopy')
 })
 
 async function copyLink() {
@@ -361,7 +369,7 @@ onMounted(async () => {
 
   const res = await window.ske.player.payload()
   if (res?.ok && res.payload) await load(res.payload)
-  else localError.value = res?.error || '播放窗口没有收到文件信息'
+  else localError.value = res?.error || t('errors.playerItemMissing')
 
   // Reusing the open window: a later pick in the library arrives as an event
   // instead of another window stacking up.

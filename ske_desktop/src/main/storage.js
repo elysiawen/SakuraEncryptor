@@ -17,11 +17,18 @@ import { app, safeStorage } from 'electron'
 import crypto from 'node:crypto'
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import { t } from './i18n.js'
 
 const VAULT_VERSION = 1
 
 export const DEFAULT_SETTINGS = {
   theme: 'dark',
+  /**
+   * Interface language: `auto` follows the OS, otherwise a concrete locale.
+   * Only main can resolve `auto` (it alone can read `app.getLocale()`), so this
+   * value is stored as the user's *choice* and never rewritten to a code.
+   */
+  language: 'auto',
   // Only previews reach the disk, and only encrypted. Decrypted blocks stay in
   // memory with a fixed bound, so they have no setting on purpose.
   cache: {
@@ -206,8 +213,8 @@ export class Storage {
   async saveProfile(input) {
     const name = String(input?.name || '').trim()
     const server = String(input?.server || '').trim().replace(/\/+$/, '')
-    if (!name) throw new Error('配置名称不能为空')
-    if (!server) throw new Error('服务器地址不能为空')
+    if (!name) throw new Error(t('errors.profileNameEmpty'))
+    if (!server) throw new Error(t('errors.serverEmpty'))
 
     const existing = input.id ? this.vault.profiles.find((p) => p.id === input.id) : null
     const profile = existing || {
@@ -259,7 +266,7 @@ export class Storage {
 
   async setActiveProfile(id) {
     if (id && !this.vault.profiles.some((p) => p.id === id)) {
-      throw new Error('配置不存在')
+      throw new Error(t('errors.profileMissing'))
     }
     this.vault.activeId = id || null
     await this.saveVault()
@@ -280,7 +287,7 @@ export class Storage {
       profile = { id: newId(), secrets: {}, embedded: true, basePath: '', remember: true }
       this.vault.profiles.push(profile)
     }
-    profile.name = '内置服务器'
+    profile.name = t('embedded.defaultProfileName')
     profile.provider = backend === 'openlist' ? 'openlist' : 'alist'
     profile.server = String(server || '').replace(/\/+$/, '')
     profile.username = String(username || '')

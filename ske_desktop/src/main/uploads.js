@@ -13,6 +13,7 @@
  */
 import crypto from 'node:crypto'
 import fsp from 'node:fs/promises'
+import { t } from './i18n.js'
 import os from 'node:os'
 import path from 'node:path'
 import { encryptName } from './ske-names.js'
@@ -86,13 +87,13 @@ export class UploadQueue {
     const list = (Array.isArray(files) ? files : [])
       .map((file) => (typeof file === 'string' ? { path: file } : file))
       .filter((file) => file?.path)
-    if (!list.length) throw new Error('没有要上传的文件')
+    if (!list.length) throw new Error(t('errors.noFiles'))
 
     // Resolve once per batch: it validates the session and fails before any
     // job is created, so the UI never shows rows that can only fail.
     const target = this.cloud.uploadTarget(sessionId, plainPath)
     if (encrypt && !target.password) {
-      throw new Error('该配置缺少媒体加密密码，无法加密上传')
+      throw new Error(t('errors.profileNoMediaPasswordUpload'))
     }
 
     const created = list.map((file) => {
@@ -152,7 +153,7 @@ export class UploadQueue {
 
     try {
       const stat = await fsp.stat(job.srcPath)
-      if (!stat.isFile()) throw new Error('要上传的不是文件')
+      if (!stat.isFile()) throw new Error(t('errors.notAFile'))
       job.totalBytes = stat.size
 
       if (job.encrypt) {
@@ -197,7 +198,7 @@ export class UploadQueue {
         },
       })
 
-      if (controller.signal.aborted) throw new Error('已取消')
+      if (controller.signal.aborted) throw new Error(t('errors.cancelled'))
       job.doneBytes = stat.size
       job.status = 'done'
     } catch (err) {

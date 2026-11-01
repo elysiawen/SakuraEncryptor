@@ -52,7 +52,7 @@
           type="button"
           @click="pickFolder(field)"
         >
-          选择文件夹
+          {{ $t('dialogs.pickDirectory') }}
         </button>
       </div>
 

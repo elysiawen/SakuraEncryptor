@@ -9,8 +9,8 @@
 <template>
   <AppDialog
     :visible="visible"
-    title="上传文件"
-    :description="`将上传到「${folder}」`"
+    :title="$t('browse.uploadTitle')"
+    :description="$t('browse.uploadTo', { folder })"
     :width="460"
     :busy="busy"
     :error="error"
@@ -19,15 +19,11 @@
   >
     <label class="dlg-check">
       <input v-model="encrypt" type="checkbox" />
-      <span>加密上传（生成 .ske 容器）</span>
+      <span>{{ $t('browse.uploadEncrypt') }}</span>
     </label>
 
     <p class="hint">
-      {{
-        encrypt
-          ? '文件先在本机加密成容器再上传，云端只见到密文。'
-          : '关闭后上传原始文件，云端目录里会存明文。'
-      }}
+      {{ encrypt ? $t('browse.uploadEncryptHint') : $t('browse.uploadPlainHint') }}
     </p>
 
     <div class="files">
@@ -38,9 +34,11 @@
     </div>
 
     <template #footer>
-      <button class="ghost" type="button" :disabled="busy" @click="cancel">取消</button>
+      <button class="ghost" type="button" :disabled="busy" @click="cancel">
+        {{ $t('common.cancel') }}
+      </button>
       <button class="primary" type="submit" :disabled="busy || !files.length">
-        {{ busy ? '加入中…' : `上传 ${files.length} 个文件` }}
+        {{ busy ? $t('browse.uploadAdding') : $t('browse.uploadCount', { count: files.length }) }}
       </button>
     </template>
   </AppDialog>

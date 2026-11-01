@@ -25,6 +25,7 @@ import fsp from 'node:fs/promises'
 import net from 'node:net'
 import path from 'node:path'
 import { sealSecret, unsealSecret } from '../storage.js'
+import { t } from '../i18n.js'
 
 const START_TIMEOUT_MS = 25_000
 const PING_INTERVAL_MS = 300
@@ -159,7 +160,11 @@ function additionFrom(fields, values = {}) {
   for (const field of fields) {
     const value = coerceField(field, values[field.name])
     if (field.required && field.type !== 'bool' && String(value).trim() === '') {
-      throw new Error(`「${field.name}」不能为空${field.help ? `：${field.help}` : ''}`)
+      throw new Error(
+        field.help
+          ? t('errors.storageFieldEmptyHelp', { name: field.name, help: field.help })
+          : t('errors.storageFieldEmpty', { name: field.name }),
+      )
     }
     addition[field.name] = value
   }
@@ -207,9 +212,7 @@ export class EmbeddedServer {
     await this.#ensureConfig()
 
     if (!(await portAvailable(this.port))) {
-      throw new Error(
-        `端口 ${this.port} 已被占用（可能本机已经跑着一个 AList/OpenList，或上次未正常退出），请在设置里换一个端口`,
-      )
+      throw new Error(t('errors.portInUse', { port: this.port }))
     }
 
     await this.#boot()
@@ -270,13 +273,13 @@ export class EmbeddedServer {
    */
   async updateAccount({ username, password } = {}) {
     const me = (await this.#api('/api/me'))?.data
-    if (!me) throw new Error('无法读取内置服务器账号')
+    if (!me) throw new Error(t('errors.accountUnreadable'))
 
     const saved = await this.#readCredentials()
     const nextName = String(username || me.username || 'admin').trim()
     const nextPassword = String(password || saved?.password || '')
-    if (!nextName) throw new Error('账号不能为空')
-    if (!nextPassword) throw new Error('缺少内置服务器密码')
+    if (!nextName) throw new Error(t('errors.accountNameEmpty'))
+    if (!nextPassword) throw new Error(t('errors.accountPasswordMissing'))
 
     await this.#api('/api/admin/user/update', {
       method: 'POST',
@@ -345,7 +348,7 @@ export class EmbeddedServer {
    */
   async createStorage({ driver = 'Local', mountPath, values = {}, cacheExpiration = 30 } = {}) {
     const mount = normalizeMount(mountPath)
-    if (!mount) throw new Error('挂载路径不能为空')
+    if (!mount) throw new Error(t('errors.mountPathEmpty'))
 
     const info = await this.driverInfo(driver)
     const body = {
@@ -366,11 +369,11 @@ export class EmbeddedServer {
   }
 
   async updateStorage({ id, mountPath, values } = {}) {
-    if (!id) throw new Error('缺少存储 id')
+    if (!id) throw new Error(t('errors.storageIdMissing'))
     const res = await this.#api('/api/admin/storage/list')
     const items = Array.isArray(res?.data) ? res.data : res?.data?.content || []
     const current = items.find((item) => String(item.id) === String(id))
-    if (!current) throw new Error('存储不存在')
+    if (!current) throw new Error(t('errors.storageGone'))
 
     const body = { ...current }
     if (mountPath !== undefined) body.mount_path = normalizeMount(mountPath)
@@ -382,7 +385,7 @@ export class EmbeddedServer {
   }
 
   async deleteStorage(id) {
-    if (!id) throw new Error('缺少存储 id')
+    if (!id) throw new Error(t('errors.storageIdMissing'))
     await this.#storageAction('delete', id)
   }
 
@@ -393,7 +396,7 @@ export class EmbeddedServer {
    * configuration, which is what "hide this folder for now" should mean.
    */
   async setStorageEnabled(id, enabled) {
-    if (!id) throw new Error('缺少存储 id')
+    if (!id) throw new Error(t('errors.storageIdMissing'))
     await this.#storageAction(enabled ? 'enable' : 'disable', id)
   }
 
@@ -417,7 +420,7 @@ export class EmbeddedServer {
   async login(username, password) {
     const res = await this.#api('/api/auth/login', { method: 'POST', body: { username, password } })
     const token = res?.data?.token
-    if (!token) throw new Error(`${this.backend.label} 登录失败`)
+    if (!token) throw new Error(t('errors.loginFailed', { label: this.backend.label }))
     this.token = token
     return token
   }
@@ -448,7 +451,7 @@ export class EmbeddedServer {
       throw err
     }
     if (json && typeof json.code === 'number' && json.code !== 200) {
-      throw new Error(json.message || '请求失败')
+      throw new Error(json.message || t('errors.requestFailed'))
     }
     return json ?? {}
   }
@@ -498,9 +501,9 @@ export class EmbeddedServer {
     child.stderr?.setEncoding('utf8')
     child.stdout?.on('data', (chunk) => this.#appendLog(chunk))
     child.stderr?.on('data', (chunk) => this.#appendLog(chunk))
-    child.on('error', (err) => this.#appendLog(`[ske] 启动失败：${err.message}\n`))
+    child.on('error', (err) => this.#appendLog(`[ske] ${t('errors.logStartFailed', { message: err.message })}\n`))
     child.on('exit', (code) => {
-      this.#appendLog(`[ske] ${this.backend.label} 已退出（code ${code}）\n`)
+      this.#appendLog(`[ske] ${t('errors.logExited', { label: this.backend.label, code })}\n`)
       // `#stopProcess` clears `this.child` before killing, so a live reference
       // here means the process died on its own. That is a crash, and silence
       // about it left the UI reporting a server that no longer existed.
@@ -546,7 +549,12 @@ export class EmbeddedServer {
     const deadline = Date.now() + START_TIMEOUT_MS
     while (Date.now() < deadline) {
       if (!this.running) {
-        throw new Error(`${this.backend.label} 启动后立即退出：${this.logsTail(12) || '没有输出'}`)
+        throw new Error(
+          t('errors.startedThenExited', {
+            label: this.backend.label,
+            tail: this.logsTail(12) || t('errors.noOutput'),
+          }),
+        )
       }
       try {
         const res = await fetch(`${this.origin}/ping`, { signal: AbortSignal.timeout(1500) })
@@ -556,7 +564,12 @@ export class EmbeddedServer {
       }
       await delay(PING_INTERVAL_MS)
     }
-    throw new Error(`${this.backend.label} 启动超时：${this.logsTail(12) || '没有输出'}`)
+    throw new Error(
+      t('errors.startTimedOut', {
+        label: this.backend.label,
+        tail: this.logsTail(12) || t('errors.noOutput'),
+      }),
+    )
   }
 
   async #ensureAccount() {
@@ -624,7 +637,7 @@ export class EmbeddedServer {
       const res = await this.#api('/api/admin/storage/list')
       items = Array.isArray(res?.data) ? res.data : res?.data?.content || []
     } catch (err) {
-      this.#appendLog(`[ske] 读取存储列表失败：${err.message}\n`)
+      this.#appendLog(`[ske] ${t('errors.logStorageListFailed', { message: err.message })}\n`)
       return
     }
     if (items.some((item) => (item.mount_path || item.mountPath) === '/')) return
@@ -644,7 +657,7 @@ export class EmbeddedServer {
       })
     } catch (err) {
       // The server is up and usable; the user can mount a folder by hand.
-      this.#appendLog(`[ske] 创建默认存储失败：${err.message}\n`)
+      this.#appendLog(`[ske] ${t('errors.logDefaultStorageFailed', { message: err.message })}\n`)
     }
   }
 
@@ -655,7 +668,15 @@ export class EmbeddedServer {
         args,
         { cwd: this.dir, windowsHide: true, timeout: 60_000 },
         (err, stdout, stderr) => {
-          if (err) reject(new Error(`执行 ${this.backend.label} 维护命令失败：${(stderr || err.message).trim()}`))
+          if (err)
+            reject(
+              new Error(
+                t('errors.maintenanceFailed', {
+                  label: this.backend.label,
+                  message: (stderr || err.message).trim(),
+                }),
+              ),
+            )
           else resolve(stdout)
         },
       )

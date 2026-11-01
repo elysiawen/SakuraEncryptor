@@ -30,7 +30,12 @@
 
     <Transition name="fade">
       <div v-show="uiVisible || !playing" class="chrome" @mousemove.stop="poke">
-        <button class="btn" type="button" :title="playing ? '暂停' : '播放'" @click="toggle">
+        <button
+          class="btn"
+          type="button"
+          :title="playing ? $t('player.pause') : $t('player.play')"
+          @click="toggle"
+        >
           <svg v-if="playing" viewBox="0 0 24 24" fill="currentColor">
             <path d="M8 5h3.2v14H8zM12.8 5H16v14h-3.2z" />
           </svg>
@@ -54,7 +59,12 @@
         <span class="time mono">{{ format(duration) }}</span>
 
         <div class="vol-wrap">
-          <button class="btn" type="button" :title="muted ? '取消静音' : '静音'" @click="toggleMute">
+          <button
+            class="btn"
+            type="button"
+            :title="muted ? $t('player.unmute') : $t('player.mute')"
+            @click="toggleMute"
+          >
             <svg v-if="muted || volume === 0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
               <path d="M4 9.5h3.2L12 5.5v13l-4.8-4H4z" />
               <path d="M16 9.5l4 5M20 9.5l-4 5" />
@@ -77,7 +87,12 @@
         </div>
 
         <div class="rate-wrap">
-          <button class="btn text" type="button" title="播放速度" @click="menuOpen = !menuOpen">
+          <button
+            class="btn text"
+            type="button"
+            :title="$t('player.speed')"
+            @click="menuOpen = !menuOpen"
+          >
             {{ rate }}×
           </button>
           <Transition name="fade">
@@ -103,7 +118,7 @@
               class="btn"
               :class="{ on: activeTrackId !== 'off' }"
               type="button"
-              title="字幕"
+              :title="$t('player.subtitle')"
               @click="subMenuOpen = !subMenuOpen"
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
@@ -120,7 +135,7 @@
                   type="button"
                   @click="selectTrack(null)"
                 >
-                  关闭字幕
+                  {{ $t('player.subtitleOff') }}
                 </button>
                 <button
                   v-for="track in tracks"
@@ -135,7 +150,7 @@
                 </button>
 
                 <div class="sub-sep" />
-                <div class="sub-head">字幕大小</div>
+                <div class="sub-head">{{ $t('player.subtitleSize') }}</div>
                 <div class="sub-sizes">
                   <button
                     v-for="option in SCALES"
@@ -152,7 +167,7 @@
           </div>
         </Teleport>
 
-        <button class="btn" type="button" title="全屏" @click="toggleFullscreen">
+        <button class="btn" type="button" :title="$t('player.fullscreen')" @click="toggleFullscreen">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
             <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
           </svg>
@@ -165,6 +180,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { session, toast } from '../state/session.js'
+import { t } from '../i18n.js'
 import {
   baseName,
   cueAt,
@@ -340,11 +356,11 @@ async function selectTrack(track) {
       name: track.name,
       sessionId: track.sessionId,
     })
-    if (!res?.ok) throw new Error(res?.error || '字幕读取失败')
+    if (!res?.ok) throw new Error(res?.error || t('player.subtitleReadFailed'))
 
     cues.value = parseCues(res.text, track.ext)
     if (!cues.value.length) {
-      toast('字幕内容为空或格式无法识别', 'error')
+      toast(t('player.subtitleEmpty'), 'error')
       activeTrackId.value = 'off'
       activeText.value = ''
       return
@@ -441,10 +457,7 @@ function onEnded() {
 function onError() {
   const el = videoEl.value
   const code = el?.error?.code
-  error.value =
-    code === 4
-      ? '当前格式无法由内置播放器解码（常见于 avi / wmv / 老编码）'
-      : '视频加载失败，文件可能已损坏或无法解密'
+  error.value = code === 4 ? t('player.videoCodec') : t('player.videoFailed')
   playing.value = false
   activeText.value = ''
   emit('error', error.value)

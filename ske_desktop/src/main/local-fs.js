@@ -10,6 +10,7 @@
  */
 import fsp from 'node:fs/promises'
 import path from 'node:path'
+import { t } from './i18n.js'
 import {
   checkName,
   decryptStoredName,
@@ -50,7 +51,7 @@ export class LocalLibrary {
 
   /** Remember the local password for this session (never persisted to disk). */
   unlock(password) {
-    if (!password) throw new Error('密码不能为空')
+    if (!password) throw new Error(t('errors.passwordEmpty'))
     this.password = password
     this.nameKey = deriveNameKey(password)
     return { unlocked: true }
@@ -87,12 +88,12 @@ export class LocalLibrary {
    * encrypted, which is exactly how the writer laid the tree out.
    */
   resolveInside(relPath = '/') {
-    if (!this.root) throw new Error('尚未选择本地目录')
+    if (!this.root) throw new Error(t('errors.noRoot'))
 
     const parts = String(relPath).replace(/\\/g, '/').split('/').filter(Boolean)
     // Reject traversal segments outright rather than normalising them away.
     if (parts.some((part) => part === '..' || part === '.')) {
-      throw new Error('非法路径')
+      throw new Error(t('errors.illegalPath'))
     }
 
     const key = `/${parts.join('/')}`
@@ -104,7 +105,7 @@ export class LocalLibrary {
     const encrypted = parts.map((part) => encryptName(part, this.nameKey))
     const absolute = path.resolve(this.root, ...encrypted)
     if (absolute !== this.root && !absolute.startsWith(this.root + path.sep)) {
-      throw new Error('非法路径')
+      throw new Error(t('errors.illegalPath'))
     }
     return absolute
   }
@@ -117,7 +118,7 @@ export class LocalLibrary {
    * instead of producing an empty-looking folder.
    */
   async list(relPath = '/') {
-    if (!this.unlocked) throw new Error('本地库尚未解锁')
+    if (!this.unlocked) throw new Error(t('errors.localLocked'))
     const absolute = this.resolveInside(relPath)
     const dirents = await fsp.readdir(absolute, { withFileTypes: true })
 
@@ -180,14 +181,14 @@ export class LocalLibrary {
 
   /** Create a folder inside `relDir`; `encrypt` turns its name into a token too. */
   async makeDir(relDir, name, { encrypt = true } = {}) {
-    if (!this.unlocked) throw new Error('本地库尚未解锁')
+    if (!this.unlocked) throw new Error(t('errors.localLocked'))
     const dir = this.resolveInside(relDir)
-    const trimmed = checkName(name, '文件夹名称')
+    const trimmed = checkName(name, t('errors.labelFolder'))
     const storedName = encrypt ? encryptName(trimmed, this.nameKey) : trimmed
     try {
       await fsp.mkdir(path.join(dir, storedName))
     } catch (err) {
-      if (err.code === 'EEXIST') throw new Error('同名文件夹已存在')
+      if (err.code === 'EEXIST') throw new Error(t('errors.folderExists'))
       throw err
     }
     return { name: trimmed, storedName }
@@ -200,9 +201,9 @@ export class LocalLibrary {
    * name, and a container must keep its `.ske` marker.
    */
   async rename(relPath, newName) {
-    if (!this.unlocked) throw new Error('本地库尚未解锁')
+    if (!this.unlocked) throw new Error(t('errors.localLocked'))
     const absolute = this.resolveInside(relPath)
-    const trimmed = checkName(newName, '名称')
+    const trimmed = checkName(newName, t('errors.labelName'))
 
     const storedName = path.basename(absolute)
     const container = isEncryptedName(storedName)
@@ -218,7 +219,7 @@ export class LocalLibrary {
         () => true,
         () => false,
       )
-      if (taken) throw new Error('同名条目已存在')
+      if (taken) throw new Error(t('errors.entryExists'))
     }
 
     await fsp.rename(absolute, target)
@@ -228,10 +229,10 @@ export class LocalLibrary {
 
   /** Delete an entry from disk. There is no trash, so the UI confirms first. */
   async remove(relPath) {
-    if (!this.unlocked) throw new Error('本地库尚未解锁')
+    if (!this.unlocked) throw new Error(t('errors.localLocked'))
     const absolute = this.resolveInside(relPath)
     // `resolveInside` already rejects traversal; this only protects the root.
-    if (absolute === this.root) throw new Error('不能删除库根目录')
+    if (absolute === this.root) throw new Error(t('errors.cannotDeleteRoot'))
 
     await fsp.rm(absolute, { recursive: true, force: false })
     this.#forget(relPath)

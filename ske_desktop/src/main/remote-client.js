@@ -14,6 +14,7 @@
 import { openAsBlob } from 'node:fs'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
+import { t } from './i18n.js'
 
 /** Both servers report failures as `{ code, message }` with HTTP 200. */
 export class RemoteError extends Error {
@@ -69,12 +70,12 @@ export function delay(ms, signal) {
     if (!signal) return
     if (signal.aborted) {
       clearTimeout(timer)
-      reject(new Error('已取消'))
+      reject(new Error(t('errors.cancelled')))
       return
     }
     signal.addEventListener('abort', () => {
       clearTimeout(timer)
-      reject(new Error('已取消'))
+      reject(new Error(t('errors.cancelled')))
     }, { once: true })
   })
 }
@@ -86,7 +87,7 @@ export function delay(ms, signal) {
  */
 export function normalizeUploadPath(absPath) {
   const trimmed = String(absPath || '').trim()
-  if (!trimmed || trimmed === '/') throw new Error('上传文件路径不能为空')
+  if (!trimmed || trimmed === '/') throw new Error(t('errors.uploadPathEmpty'))
   return encodeURI(trimmed.startsWith('/') ? trimmed : `/${trimmed}`)
 }
 
@@ -138,21 +139,24 @@ export class RemoteClient {
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       })
     } catch (err) {
-      if (err.name === 'TimeoutError') throw new RemoteError('连接服务器超时')
-      throw new RemoteError(`无法连接服务器：${err.message}`)
+      if (err.name === 'TimeoutError') throw new RemoteError(t('errors.connectTimeout'))
+      throw new RemoteError(t('errors.connectFailedReason', { message: err.message }))
     }
 
-    if (!res.ok) throw new RemoteError(`服务器返回 HTTP ${res.status}`, res.status)
+    if (!res.ok) throw new RemoteError(t('errors.httpStatus', { status: res.status }), res.status)
 
     let json
     try {
       json = await res.json()
     } catch {
-      throw new RemoteError(`服务器返回的不是 JSON，请检查地址是否为 ${this.label} 服务`)
+      throw new RemoteError(t('errors.notJson', { label: this.label }))
     }
 
     if (json.code !== 200) {
-      throw new RemoteError(json.message || `${this.label} 返回 ${json.code}`, json.code)
+      throw new RemoteError(
+        json.message || t('errors.apiFailed', { label: this.label, code: json.code }),
+        json.code,
+      )
     }
     return json.data || {}
   }
@@ -173,11 +177,11 @@ export class RemoteClient {
       })
     } catch (err) {
       if (err.code === 402) {
-        throw new RemoteError('该账号已开启两步验证，请输入动态验证码', 402)
+        throw new RemoteError(t('errors.otpRequired'), 402)
       }
       throw err
     }
-    if (!data.token) throw new RemoteError('登录响应中没有 token')
+    if (!data.token) throw new RemoteError(t('errors.loginNoToken'))
     this.token = data.token
     return this.token
   }
@@ -268,13 +272,13 @@ export class RemoteClient {
    */
   async upload(absPath, filePath, { signal, onProgress } = {}) {
     const stat = await fsp.stat(filePath)
-    if (!stat.isFile()) throw new Error('要上传的不是文件')
+    if (!stat.isFile()) throw new Error(t('errors.notAFile'))
 
     if (this.supportsMultipartUpload && stat.size >= MULTIPART_MIN_BYTES) {
       try {
         return await this.uploadMultipart(absPath, filePath, stat.size, { signal, onProgress })
       } catch (err) {
-        if (signal?.aborted) throw new Error('已取消')
+        if (signal?.aborted) throw new Error(t('errors.cancelled'))
         if (!err.multipartUnsupported) throw err
         // Older/disabled server: use the form API below.
       }
@@ -284,7 +288,7 @@ export class RemoteClient {
 
   /** Chunked upload, overridden by backends that support it. */
   async uploadMultipart() {
-    throw new Error(`${this.label} 客户端没有实现分片上传`)
+    throw new Error(t('errors.noMultipart', { label: this.label }))
   }
 
   /**
@@ -314,19 +318,23 @@ export class RemoteClient {
         signal,
       })
     } catch (err) {
-      if (err.name === 'AbortError') throw new Error('已取消')
-      throw new RemoteError(`上传失败：${err.message}`)
+      if (err.name === 'AbortError') throw new Error(t('errors.cancelled'))
+      throw new RemoteError(t('errors.uploadFailedReason', { message: err.message }))
     }
 
-    if (!res.ok) throw new RemoteError(`服务器返回 HTTP ${res.status}`, res.status)
+    if (!res.ok) throw new RemoteError(t('errors.httpStatus', { status: res.status }), res.status)
 
     const json = await readJson(res)
-    if (!json) throw new RemoteError(`服务器返回的不是 JSON，请检查地址是否为 ${this.label} 服务`)
+    if (!json) throw new RemoteError(t('errors.notJson', { label: this.label }))
     if (json.code !== 200) {
       // The server's own wording never says *which* path it rejected, so the
       // diagnostic carries what was actually sent.
-      const detail = json.message || `${this.label} 返回 ${json.code}`
-      throw new RemoteError(`${detail}（目标：${decodeURIComponent(target)}）`, json.code)
+      const detail =
+        json.message || t('errors.apiFailed', { label: this.label, code: json.code })
+      throw new RemoteError(
+        t('errors.uploadFailedTarget', { detail, target: decodeURIComponent(target) }),
+        json.code,
+      )
     }
     return true
   }

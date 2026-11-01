@@ -9,7 +9,7 @@
 <template>
   <AppDialog
     :visible="visible"
-    title="编辑挂载"
+    :title="$t('embedded.editTitle')"
     :description="summary"
     :width="580"
     :busy="busy"
@@ -18,16 +18,16 @@
     @submit="submit"
   >
     <div class="field">
-      <label for="edit-mount">挂载路径</label>
+      <label for="edit-mount">{{ $t('embedded.mountPath') }}</label>
       <input id="edit-mount" v-model="mountPath" type="text" placeholder="/media" />
-      <div class="meta">浏览页里看到的目录；改这里等于把挂载挪到别的位置</div>
+      <div class="meta">{{ $t('embedded.mountPathHintEdit') }}</div>
     </div>
 
-    <p v-if="loading" class="note">正在读取该驱动的配置…</p>
+    <p v-if="loading" class="note">{{ $t('embedded.loadingDriver') }}</p>
 
     <div v-else-if="loadError" class="load-error">
-      <span>「{{ driver }}」的配置读取失败：{{ loadError }}</span>
-      <button class="ghost sm" type="button" @click="load">重试</button>
+      <span>{{ $t('embedded.driverLoadFailed', { driver, error: loadError }) }}</span>
+      <button class="ghost sm" type="button" @click="load">{{ $t('common.retry') }}</button>
     </div>
 
     <StorageFields
@@ -37,11 +37,13 @@
       :uid="`edit-${item?.id ?? 'x'}`"
     />
 
-    <p v-else class="note">这个驱动不需要额外配置。</p>
+    <p v-else class="note">{{ $t('embedded.editNoFields') }}</p>
 
     <template #footer>
-      <button class="ghost" type="button" @click="close">取消</button>
-      <button class="primary" type="button" :disabled="busy || !canSave" @click="submit">保存</button>
+      <button class="ghost" type="button" @click="close">{{ $t('common.cancel') }}</button>
+      <button class="primary" type="button" :disabled="busy || !canSave" @click="submit">
+        {{ $t('embedded.save') }}
+      </button>
     </template>
   </AppDialog>
 </template>
@@ -50,6 +52,7 @@
 import { computed, reactive, ref, watch } from 'vue'
 import AppDialog from './AppDialog.vue'
 import StorageFields from './StorageFields.vue'
+import { t } from '../i18n.js'
 import { toast } from '../state/session.js'
 import { embedded, fetchDriverInfo, updateEmbeddedStorage } from '../state/embedded.js'
 
@@ -109,7 +112,7 @@ async function load() {
     }
   } catch (err) {
     if (props.item?.id !== item.id) return
-    loadError.value = err.message || '内置服务器没有响应'
+    loadError.value = err.message || t('embedded.noResponse')
   } finally {
     if (props.item?.id === item.id) loading.value = false
   }
@@ -127,7 +130,7 @@ async function submit() {
     values: { ...values },
   })
   if (!ok) return
-  toast('挂载已更新', 'ok')
+  toast(t('embedded.updated'), 'ok')
   emit('close')
 }
 

@@ -9,6 +9,7 @@
  * The trade-off is inherent: identical file names produce identical tokens.
  */
 import crypto from 'node:crypto'
+import { t } from './i18n.js'
 
 export const NAME_SALT = Buffer.from('skenamesalt-00-s', 'ascii')
 const NAME_IV_SEED = Buffer.from('ske-name-iv', 'ascii')
@@ -42,7 +43,7 @@ export function decryptName(token, key) {
   // Some writers keep the `=` padding; base64url decoding here tolerates it,
   // but strip it first so both forms hash to the same bytes.
   const raw = Buffer.from(String(token).replace(/=+$/, ''), 'base64url')
-  if (raw.length <= 16) throw new Error('无效的文件名 token')
+  if (raw.length <= 16) throw new Error(t('errors.badToken'))
   const ciphertext = raw.subarray(0, raw.length - 16)
   const tag = raw.subarray(raw.length - 16)
 
@@ -83,9 +84,9 @@ export function tryDecryptName(stored, key) {
  * it is rejected instead of being sanitised into something the user did not ask
  * for. Returns the trimmed name.
  */
-export function checkName(value, label = '名称') {
+export function checkName(value, label = t('errors.labelName')) {
   const name = String(value || '').trim()
-  if (!name) throw new Error(`${label}不能为空`)
-  if (name.includes('/') || name.includes('\\')) throw new Error(`${label}不能包含斜杠`)
+  if (!name) throw new Error(t('errors.labelEmpty', { label }))
+  if (name.includes('/') || name.includes('\\')) throw new Error(t('errors.labelHasSlash', { label }))
   return name
 }

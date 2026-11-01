@@ -7,20 +7,24 @@
 -->
 <template>
   <div v-if="visible" class="music-bar">
-    <button class="head" type="button" title="打开音乐页" @click="openPage">
+    <button class="head" type="button" :title="$t('player.openPage')" @click="openPage">
       <span class="art">
         <img v-if="track.cover" :src="track.cover" alt="" />
         <span v-else class="note" aria-hidden="true">♪</span>
       </span>
       <span class="meta">
-        <span class="title" :title="track.title || player.name">{{ track.title || '音乐' }}</span>
-        <span class="state">{{ track.byline || (player.playing ? '正在播放' : '已暂停') }}</span>
+        <span class="title" :title="track.title || player.name">
+          {{ track.title || $t('player.trackFallback') }}
+        </span>
+        <span class="state">
+          {{ track.byline || (player.playing ? $t('player.playing') : $t('player.paused')) }}
+        </span>
       </span>
     </button>
 
     <!-- Anchored to the card's top-right corner, not the control row: stopping
          is about the whole bar, not about the track. -->
-    <button class="mini close" type="button" title="停止播放" @click="stop">
+    <button class="mini close" type="button" :title="$t('player.stop')" @click="stop">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
         <path d="M7 7l10 10M17 7L7 17" />
       </svg>
@@ -35,23 +39,40 @@
       :value="player.currentTime"
       :style="{ '--p': `${percent}%` }"
       :disabled="!player.duration"
-      aria-label="播放进度"
+      :aria-label="$t('player.progress')"
       @input="onSeek"
     />
 
     <div class="controls">
-      <button class="mini" type="button" title="上一首" :disabled="player.playlist.length < 2" @click="onPrev">
+      <button
+        class="mini"
+        type="button"
+        :title="$t('player.previous')"
+        :disabled="player.playlist.length < 2"
+        @click="onPrev"
+      >
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h2v14H6zM19 5.4 9.5 12l9.5 6.6z" /></svg>
       </button>
 
-      <button class="mini main" type="button" :title="player.playing ? '暂停' : '播放'" @click="togglePlay">
+      <button
+        class="mini main"
+        type="button"
+        :title="player.playing ? $t('player.pause') : $t('player.play')"
+        @click="togglePlay"
+      >
         <svg v-if="player.playing" viewBox="0 0 24 24" fill="currentColor">
           <path d="M8 5h3.2v14H8zM12.8 5H16v14h-3.2z" />
         </svg>
         <svg v-else viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.2 19 12 8 18.8z" /></svg>
       </button>
 
-      <button class="mini" type="button" title="下一首" :disabled="player.playlist.length < 2" @click="onNext">
+      <button
+        class="mini"
+        type="button"
+        :title="$t('player.next')"
+        :disabled="player.playlist.length < 2"
+        @click="onNext"
+      >
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 5h2v14h-2zM5 5.4 14.5 12 5 18.6z" /></svg>
       </button>
 

@@ -13,6 +13,7 @@
  *   on screen.
  */
 import { copyText } from '../utils/clipboard.js'
+import { t } from '../i18n.js'
 import { player, sameEntry } from './player.js'
 
 /** Session kept alive because a link is on the clipboard. */
@@ -51,7 +52,7 @@ async function sessionFor(item) {
   }
 
   const res = await openSession(item)
-  if (!res?.ok) throw new Error(res?.error || '无法打开文件')
+  if (!res?.ok) throw new Error(res?.error || t('errors.openFailed'))
   return { id: res.id, url: res.url, reused: false }
 }
 
@@ -74,7 +75,7 @@ export async function copyEntryLink(item) {
 
   if (!(await copyText(target.url))) {
     await retire(target.id, '')
-    throw new Error('复制失败，请重试')
+    throw new Error(t('errors.copyFailed'))
   }
 
   if (!target.reused) {
@@ -103,11 +104,11 @@ export async function listExternalPlayers() {
  */
 export function playerMenuItems(players, run) {
   if (!players.length) {
-    return [{ label: '未找到播放器，请在设置里指定', icon: '⚠', disabled: true }]
+    return [{ label: t('errors.noPlayerConfigured'), icon: '⚠', disabled: true }]
   }
 
   return players.map((player) => ({
-    label: player.preferred ? `${player.name}（默认）` : player.name,
+    label: player.preferred ? t('errors.playerDefault', { name: player.name }) : player.name,
     icon: '▶',
     action: () => run(player),
   }))
@@ -122,7 +123,7 @@ export async function openEntryExternally(item, exe = '') {
     // The stream was opened for a player that never started: release it rather
     // than leaving a session nobody reads.
     await retire(target.id, '')
-    throw new Error(res?.error || '无法唤起外部播放器')
+    throw new Error(res?.error || t('errors.launchPlayerFailed'))
   }
 
   if (!target.reused) {

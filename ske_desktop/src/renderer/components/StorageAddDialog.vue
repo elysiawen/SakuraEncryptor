@@ -7,8 +7,8 @@
 <template>
   <AppDialog
     :visible="visible"
-    title="新增挂载"
-    description="先选驱动，再填它需要的字段。挂载路径决定它在浏览页里出现的位置。"
+    :title="$t('embedded.addTitle')"
+    :description="$t('embedded.addDesc')"
     :width="580"
     :busy="busy"
     :layer="66"
@@ -16,41 +16,43 @@
     @submit="submit"
   >
     <div class="field">
-      <label for="add-driver">驱动</label>
+      <label for="add-driver">{{ $t('embedded.driver') }}</label>
       <select id="add-driver" v-model="driver">
-        <option value="">选择驱动…</option>
+        <option value="">{{ $t('embedded.driverPick') }}</option>
         <option v-for="name in drivers" :key="name" :value="name">{{ name }}</option>
       </select>
     </div>
 
     <div class="field">
-      <label for="add-mount">挂载路径</label>
+      <label for="add-mount">{{ $t('embedded.mountPath') }}</label>
       <input id="add-mount" v-model="mountPath" type="text" placeholder="/media" />
-      <div class="meta">浏览页里看到的目录，通常以 / 开头</div>
+      <div class="meta">{{ $t('embedded.mountPathHint') }}</div>
     </div>
 
     <!-- The driver's own fields come from the server. Three states matter here:
          loading, failed (with the reason and a retry), and "this driver needs
          nothing" — otherwise an empty form looks like the driver has no
          settings at all, which is what a swallowed error looks like. -->
-    <p v-if="loading" class="note">正在读取该驱动的配置…</p>
+    <p v-if="loading" class="note">{{ $t('embedded.loadingDriver') }}</p>
 
     <div v-else-if="loadError" class="load-error">
-      <span>「{{ driver }}」的配置读取失败：{{ loadError }}</span>
-      <button class="ghost sm" type="button" @click="loadFields(driver)">重试</button>
+      <span>{{ $t('embedded.driverLoadFailed', { driver, error: loadError }) }}</span>
+      <button class="ghost sm" type="button" @click="loadFields(driver)">
+        {{ $t('common.retry') }}
+      </button>
     </div>
 
     <StorageFields v-else-if="fields.length" :fields="fields" :model="values" uid="add" />
 
-    <p v-else-if="driver" class="note">这个驱动不需要额外配置，填好挂载路径即可。</p>
+    <p v-else-if="driver" class="note">{{ $t('embedded.driverNoFields') }}</p>
 
-    <p class="hint">
-      提交后服务器会立即加载这个挂载；名字或配置填错时，删除再重来即可，不会影响已有文件。
-    </p>
+    <p class="hint">{{ $t('embedded.addNote') }}</p>
 
     <template #footer>
-      <button class="ghost" type="button" @click="close">取消</button>
-      <button class="primary" type="button" :disabled="busy || !canAdd" @click="submit">添加</button>
+      <button class="ghost" type="button" @click="close">{{ $t('common.cancel') }}</button>
+      <button class="primary" type="button" :disabled="busy || !canAdd" @click="submit">
+        {{ $t('embedded.add') }}
+      </button>
     </template>
   </AppDialog>
 </template>
@@ -59,6 +61,7 @@
 import { computed, reactive, ref, watch } from 'vue'
 import AppDialog from './AppDialog.vue'
 import StorageFields from './StorageFields.vue'
+import { t } from '../i18n.js'
 import { toast } from '../state/session.js'
 import {
   createEmbeddedStorage,
@@ -134,7 +137,7 @@ async function loadFields(name) {
     for (const field of info.additional) values[field.name] = field.default
   } catch (err) {
     if (driver.value !== name) return
-    loadError.value = err.message || '内置服务器没有响应'
+    loadError.value = err.message || t('embedded.noResponse')
   } finally {
     if (driver.value === name) loading.value = false
   }
@@ -148,7 +151,7 @@ async function submit() {
     values: { ...values },
   })
   if (!ok) return
-  toast('挂载已添加', 'ok')
+  toast(t('embedded.added'), 'ok')
   // `createEmbeddedStorage` already refreshed the shared list, so closing is
   // enough: the new mount is waiting in the list behind this dialog.
   close()

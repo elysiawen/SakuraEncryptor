@@ -15,6 +15,7 @@ import { DownloadQueue } from './downloads.js'
 import { listPlayers } from './external-player.js'
 import { createTray } from './tray.js'
 import { registerIpc } from './ipc.js'
+import { applyLanguage, t } from './i18n.js'
 import { EmbeddedService } from './embedded/index.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
@@ -430,7 +431,7 @@ function openStage(payload, ownerId = 0) {
     ...cascadePosition(),
     minWidth: 480,
     minHeight: 320,
-    title: payload?.item?.name || '播放器',
+    title: payload?.item?.name || t('common.playerWindow'),
     // Frameless: the in-window bar carries drag, minimise, maximise and close.
     frame: false,
   })
@@ -485,6 +486,9 @@ if (!app.requestSingleInstanceLock()) {
 
 app.whenReady().then(async () => {
   await storage.load()
+  // Before any window exists: the shell and the tray both ask for strings, and
+  // `auto` can only be resolved here, where `app.getLocale()` is available.
+  applyLanguage(storage.settings.language, app.getLocale())
   await security.load()
 
   server = await startServer({
@@ -518,6 +522,9 @@ app.whenReady().then(async () => {
     // Locking closes the player windows: leaving a video over the lock screen
     // would defeat the lock.
     onLock: destroyStageWindows,
+    // The tray holds a native menu with the strings it was built with, so a
+    // language switch has to hand it a newly built one.
+    onLocaleChange: () => tray?.refresh?.(),
   })
 
   // Deliberately not awaited: a first run downloads the server, and the window
@@ -533,6 +540,7 @@ app.whenReady().then(async () => {
 
   tray = createTray({
     iconPath: resolveIcon(),
+    t,
     onShow: () => {
       if (!focusWindow()) openWindow('/browse')
     },

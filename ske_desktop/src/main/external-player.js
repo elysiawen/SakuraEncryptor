@@ -12,6 +12,7 @@
  */
 import { execFile, spawn } from 'node:child_process'
 import fs from 'node:fs'
+import { t } from './i18n.js'
 import path from 'node:path'
 import { promisify } from 'node:util'
 
@@ -298,11 +299,11 @@ export async function playExternal(url, exe = '', { strict = false } = {}) {
     if (isFile(wanted)) target = wanted
     // A path the user picked by hand is an instruction, not a hint: a stale one
     // must not silently become "some other player".
-    else if (strict) throw new Error('这个播放器已经不存在了，请重新选择')
+    else if (strict) throw new Error(t('errors.playerGone'))
   }
 
   if (!target) {
-    throw new Error('没有找到外部播放器，请在设置里指定，或用「复制播放链接」粘到播放器里')
+    throw new Error(t('errors.noPlayer'))
   }
 
   await new Promise((resolve, reject) => {

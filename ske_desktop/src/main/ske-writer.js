@@ -12,6 +12,7 @@
  */
 import crypto from 'node:crypto'
 import fs from 'node:fs'
+import { t } from './i18n.js'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 import {
@@ -53,10 +54,10 @@ export async function encryptFile({
   onProgress,
   signal,
 }) {
-  if (!password) throw new Error('缺少加密密码')
+  if (!password) throw new Error(t('errors.noPassword'))
 
   const stat = await fsp.stat(src)
-  if (!stat.isFile()) throw new Error('源不是文件')
+  if (!stat.isFile()) throw new Error(t('errors.sourceNotFile'))
   const total = stat.size
 
   const salt = crypto.randomBytes(SALT_SIZE)
@@ -66,7 +67,7 @@ export async function encryptFile({
   // MAGIC | VERSION | SALT | MASTER_IV — the AAD prefix shared by every block.
   const headerPrefix = Buffer.concat([MAGIC, VERSION, salt, masterIv])
   if (headerPrefix.length !== AAD_PREFIX_SIZE) {
-    throw new Error(`AAD 前缀长度异常: ${headerPrefix.length}`)
+    throw new Error(t('errors.badAad', { length: headerPrefix.length }))
   }
 
   const options = Buffer.concat([
@@ -123,7 +124,7 @@ export async function encryptFile({
 
     const stream = fs.createReadStream(src, { highWaterMark: CHUNK_SIZE })
     for await (const chunk of stream) {
-      if (signal?.aborted) throw new Error('已取消')
+      if (signal?.aborted) throw new Error(t('errors.cancelled'))
 
       const cipher = crypto.createCipheriv('aes-256-gcm', key, blockNonce(masterIv, index))
       cipher.setAAD(aad)
@@ -142,7 +143,7 @@ export async function encryptFile({
       onProgress?.(processed, total)
     }
 
-    if (signal?.aborted) throw new Error('已取消')
+    if (signal?.aborted) throw new Error(t('errors.cancelled'))
 
     // Back-fill prefix and SHMAC now that the digest is complete.
     await handle.write(headerPrefix, 0, AAD_PREFIX_SIZE, 0)

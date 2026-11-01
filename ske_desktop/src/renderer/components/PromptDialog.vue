@@ -1,5 +1,5 @@
 <!--
-  Single-field prompt used by the file views (新建文件夹 / 重命名).
+  Single-field prompt used by the file views (new folder / rename).
 
   Keeping it local to the renderer is deliberate: the name typed here is
   plaintext, and the main process is what turns it into a stored token. The
@@ -29,17 +29,20 @@
     </label>
 
     <template #footer>
-      <button class="ghost" type="button" :disabled="busy" @click="cancel">取消</button>
+      <button class="ghost" type="button" :disabled="busy" @click="cancel">
+        {{ $t('common.cancel') }}
+      </button>
       <button class="primary" type="submit" :disabled="busy || !text.trim()">
-        {{ busy ? '处理中…' : confirmText }}
+        {{ busy ? $t('common.processing') : confirmLabel }}
       </button>
     </template>
   </AppDialog>
 </template>
 
 <script setup>
-import { nextTick, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import AppDialog from './AppDialog.vue'
+import { t } from '../i18n.js'
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
@@ -50,10 +53,13 @@ const props = defineProps({
   /** Empty string hides the checkbox row entirely. */
   checkboxLabel: { type: String, default: '' },
   checkedByDefault: { type: Boolean, default: true },
-  confirmText: { type: String, default: '确定' },
+  /** Empty means "the generic affirmation" — resolved per language here. */
+  confirmText: { type: String, default: '' },
   busy: { type: Boolean, default: false },
   error: { type: String, default: '' },
 })
+
+const confirmLabel = computed(() => props.confirmText || t('common.ok'))
 
 const emit = defineEmits(['cancel', 'submit'])
 

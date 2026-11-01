@@ -12,6 +12,7 @@
  */
 import crypto from 'node:crypto'
 import { AListClient } from './alist.js'
+import { t } from './i18n.js'
 import { OpenListClient } from './openlist.js'
 import {
   checkName,
@@ -98,9 +99,9 @@ export class CloudService {
    * @param {{ profile: object, password: string, skePassword: string, otpCode?: string }} input
    */
   async login({ profile, password, skePassword, otpCode = '' }) {
-    if (!profile?.server) throw new Error('配置缺少服务器地址')
+    if (!profile?.server) throw new Error(t('errors.profileNoServer'))
     if (!skePassword) {
-      throw new Error('该配置还没有媒体加密密码，请先在配置里填写')
+      throw new Error(t('errors.profileNoMediaPassword'))
     }
 
     const provider = profile.provider === 'openlist' ? 'openlist' : 'alist'
@@ -153,7 +154,7 @@ export class CloudService {
 
   get(sessionId) {
     const session = this.sessions.get(sessionId)
-    if (!session) throw new Error('云端会话已失效，请重新连接')
+    if (!session) throw new Error(t('errors.cloudSessionExpired'))
     return session
   }
 
@@ -222,7 +223,7 @@ export class CloudService {
    */
   #storedEntry(session, plainPath) {
     const stored = session.pathIndex.get(plainPath)
-    if (!stored) throw new Error('该条目已不在当前列表中，请刷新后重试')
+    if (!stored) throw new Error(t('errors.entryGone'))
     return stored
   }
 
@@ -269,7 +270,7 @@ export class CloudService {
    */
   async makeDir(sessionId, plainPath, name, { encrypt = true } = {}) {
     const session = this.get(sessionId)
-    const trimmed = checkName(name, '文件夹名称')
+    const trimmed = checkName(name, t('errors.labelFolder'))
     const storedName = encrypt ? encryptName(trimmed, session.nameKey) : trimmed
     await session.client.mkdir(joinPath(this.toStoredPath(session, plainPath), storedName))
     return { name: trimmed, storedName }
@@ -284,7 +285,7 @@ export class CloudService {
    */
   async rename(sessionId, plainPath, newName) {
     const session = this.get(sessionId)
-    const trimmed = checkName(newName, '名称')
+    const trimmed = checkName(newName, t('errors.labelName'))
 
     const storedPath = this.#storedEntry(session, plainPath)
     const storedName = storedPath.slice(storedPath.lastIndexOf('/') + 1)
@@ -402,7 +403,7 @@ export class CloudService {
     }
 
     const info = await session.client.getFile(storedPath)
-    if (!info.rawUrl) throw new Error('服务器没有返回下载地址')
+    if (!info.rawUrl) throw new Error(t('errors.noRawUrl'))
 
     session.rawUrls.set(storedPath, { ...info, at: Date.now() })
     return { rawUrl: info.rawUrl, size: info.size, storedPath }

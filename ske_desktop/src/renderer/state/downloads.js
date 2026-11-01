@@ -7,6 +7,7 @@
  * whole app and views simply read it.
  */
 import { reactive } from 'vue'
+import { t } from '../i18n.js'
 import { patchSettings, session } from './session.js'
 
 export const downloads = reactive({
@@ -47,7 +48,7 @@ async function ensureDestDir() {
   if (saved) return saved
 
   const picked = await window.ske.dialog.pickDirectory()
-  if (!picked?.ok || !picked.path) throw new Error('已取消下载，没有选择保存目录')
+  if (!picked?.ok || !picked.path) throw new Error(t('errors.downloadCancelledNoDir'))
 
   await patchSettings({ download: { dir: picked.path } })
   return picked.path
@@ -56,24 +57,24 @@ async function ensureDestDir() {
 export async function enqueueDownload({ mode = 'cloud', sessionId = '', path, name }) {
   const destDir = await ensureDestDir()
   const res = await window.ske.downloads.add({ mode, sessionId, path, name, destDir })
-  if (!res?.ok) throw new Error(res?.error || '无法加入下载队列')
+  if (!res?.ok) throw new Error(res?.error || t('errors.enqueueDownloadFailed'))
   if (res.downloads) downloads.items = res.downloads
   return res.download
 }
 
 export async function cancelDownload(id) {
   const res = await window.ske.downloads.cancel(id)
-  if (!res?.ok) throw new Error(res?.error || '取消失败')
+  if (!res?.ok) throw new Error(res?.error || t('errors.cancelFailed'))
   if (res.downloads) downloads.items = res.downloads
 }
 
 export async function clearDownloads() {
   const res = await window.ske.downloads.clear()
-  if (!res?.ok) throw new Error(res?.error || '清理失败')
+  if (!res?.ok) throw new Error(res?.error || t('errors.cleanFailed'))
   if (res.downloads) downloads.items = res.downloads
 }
 
 export async function revealDownload(id) {
   const res = await window.ske.downloads.reveal(id)
-  if (!res?.ok) throw new Error(res?.error || '无法打开所在文件夹')
+  if (!res?.ok) throw new Error(res?.error || t('errors.openFolderFailed'))
 }

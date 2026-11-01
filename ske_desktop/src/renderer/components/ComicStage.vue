@@ -27,7 +27,9 @@
           />
           <div v-else class="comic-hold">
             <span v-if="!failed.has(i)" class="spinner" />
-            <button v-else class="pill-btn" type="button" @click="retry(i)">重试</button>
+            <button v-else class="pill-btn" type="button" @click="retry(i)">
+              {{ $t('common.retry') }}
+            </button>
           </div>
         </div>
       </template>
@@ -57,7 +59,9 @@
             />
             <div v-else class="comic-hold">
               <span v-if="!failed.has(i)" class="spinner" />
-              <button v-else class="pill-btn" type="button" @click="retry(i)">重试</button>
+              <button v-else class="pill-btn" type="button" @click="retry(i)">
+                {{ $t('common.retry') }}
+              </button>
             </div>
           </div>
         </div>
@@ -83,6 +87,7 @@
  */
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { openStripSession } from '../state/player.js'
+import { t } from '../i18n.js'
 
 const props = defineProps({
   items: { type: Array, default: () => [] },
@@ -136,8 +141,8 @@ const indicator = computed(() => {
     props.layout === 'spread' ? Math.floor(activeIndex.value / 2) * 2 : activeIndex.value
   const end = Math.min(total - 1, props.layout === 'spread' ? start + 1 : start)
   return start === end
-    ? `第 ${start + 1} / ${total} 页`
-    : `第 ${start + 1}–${end + 1} / ${total} 页`
+    ? t('player.pageOf', { page: start + 1, total })
+    : t('player.pageRange', { from: start + 1, to: end + 1, total })
 })
 
 function pageKey(item, index) {

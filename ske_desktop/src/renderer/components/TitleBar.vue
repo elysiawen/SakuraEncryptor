@@ -15,13 +15,18 @@
     </div>
 
     <div class="controls">
-      <button class="ctl" type="button" title="最小化" @click="minimize">
+      <button class="ctl" type="button" :title="$t('titleBar.minimize')" @click="minimize">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
           <path d="M6 12h12" />
         </svg>
       </button>
 
-      <button class="ctl" type="button" :title="maximized ? '还原' : '最大化'" @click="toggleMaximize">
+      <button
+        class="ctl"
+        type="button"
+        :title="maximized ? $t('titleBar.restore') : $t('titleBar.maximize')"
+        @click="toggleMaximize"
+      >
         <svg v-if="maximized" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
           <rect x="5" y="8" width="11" height="11" rx="1.4" />
           <path d="M9 8V6.4A1.4 1.4 0 0 1 10.4 5H18a1.4 1.4 0 0 1 1.4 1.4V14" />
@@ -31,7 +36,7 @@
         </svg>
       </button>
 
-      <button class="ctl close" type="button" title="关闭" @click="closeWindow">
+      <button class="ctl close" type="button" :title="$t('titleBar.close')" @click="closeWindow">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
           <path d="M7 7l10 10M17 7L7 17" />
         </svg>

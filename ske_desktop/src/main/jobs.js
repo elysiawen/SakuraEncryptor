@@ -9,6 +9,7 @@
  */
 import crypto from 'node:crypto'
 import fsp from 'node:fs/promises'
+import { t } from './i18n.js'
 import path from 'node:path'
 import { encryptName } from './ske-names.js'
 import { encryptFile } from './ske-writer.js'
@@ -41,7 +42,7 @@ async function buildPlan(srcPath, destDir, nameKey) {
     }
   }
 
-  if (!stat.isDirectory()) throw new Error('只支持文件或文件夹')
+  if (!stat.isDirectory()) throw new Error(t('errors.filesOrFoldersOnly'))
 
   const files = []
   const dirs = []
@@ -121,8 +122,8 @@ export class JobQueue {
    * and the job moves from `scanning` to `queued` when it is ready.
    */
   add({ srcPath, destDir, password, nameKey, thumbnails = true }) {
-    if (!srcPath || !destDir) throw new Error('缺少源路径或输出目录')
-    if (!password) throw new Error('缺少加密密码')
+    if (!srcPath || !destDir) throw new Error(t('errors.srcOrDestMissing'))
+    if (!password) throw new Error(t('errors.noPassword'))
 
     const job = {
       id: crypto.randomBytes(6).toString('hex'),
@@ -214,7 +215,7 @@ export class JobQueue {
       }
 
       for (const file of job.plan.files) {
-        if (controller.signal.aborted) throw new Error('已取消')
+        if (controller.signal.aborted) throw new Error(t('errors.cancelled'))
 
         job.currentFile = path.basename(file.src)
         this.#scheduleEmit()

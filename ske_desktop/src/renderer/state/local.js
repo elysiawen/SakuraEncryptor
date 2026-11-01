@@ -2,6 +2,7 @@
  * Local library state. The local password is independent of any cloud profile.
  */
 import { reactive } from 'vue'
+import { t } from '../i18n.js'
 
 export const local = reactive({
   unlocked: false,
@@ -21,7 +22,7 @@ export async function refreshLocalStatus() {
 
 export async function unlockLocal(password) {
   const res = await window.ske.local.unlock(password)
-  if (!res?.ok) throw new Error(res?.error || '解锁失败')
+  if (!res?.ok) throw new Error(res?.error || t('errors.unlockFailed'))
   local.unlocked = true
   local.root = res.root || ''
   if (local.root) await loadLocal('/')
@@ -38,7 +39,7 @@ export async function lockLocal() {
 /** Point the library at an absolute directory (picked, or handed over by the OS). */
 export async function setLocalRoot(dir) {
   const res = await window.ske.local.setRoot(dir)
-  if (!res?.ok) throw new Error(res?.error || '无法打开该目录')
+  if (!res?.ok) throw new Error(res?.error || t('errors.openDirFailed'))
   local.root = res.root
   await loadLocal('/')
   return res.root
@@ -58,7 +59,7 @@ export async function loadLocal(path = '/') {
   local.error = ''
   try {
     const res = await window.ske.local.list(path)
-    if (!res?.ok) throw new Error(res?.error || '无法读取目录')
+    if (!res?.ok) throw new Error(res?.error || t('errors.readDirFailed'))
     local.path = res.path
     local.entries = res.entries
   } catch (err) {
@@ -75,21 +76,21 @@ export async function loadLocal(path = '/') {
 
 export async function makeFolder(path, name, encrypt = true) {
   const res = await window.ske.local.mkdir({ path, name, encrypt })
-  if (!res?.ok) throw new Error(res?.error || '创建文件夹失败')
+  if (!res?.ok) throw new Error(res?.error || t('errors.mkdirFailed'))
   await loadLocal(path)
   return res
 }
 
 export async function renameEntry(path, newName) {
   const res = await window.ske.local.rename({ path, newName })
-  if (!res?.ok) throw new Error(res?.error || '重命名失败')
+  if (!res?.ok) throw new Error(res?.error || t('errors.renameFailed'))
   await loadLocal(local.path)
   return res
 }
 
 export async function removeEntry(path) {
   const res = await window.ske.local.remove({ path })
-  if (!res?.ok) throw new Error(res?.error || '删除失败')
+  if (!res?.ok) throw new Error(res?.error || t('errors.deleteFailed'))
   await loadLocal(local.path)
   return res
 }
@@ -106,7 +107,7 @@ export async function removeEntries(paths) {
   const failed = []
   for (const path of paths) {
     const res = await window.ske.local.remove({ path })
-    if (!res?.ok) failed.push({ path, error: res?.error || '删除失败' })
+    if (!res?.ok) failed.push({ path, error: res?.error || t('errors.deleteFailed') })
   }
   await loadLocal(local.path)
   return failed
@@ -114,7 +115,7 @@ export async function removeEntries(paths) {
 
 export function localCrumbs(path = local.path) {
   const parts = path.split('/').filter(Boolean)
-  const list = [{ label: '根目录', path: '/' }]
+  const list = [{ label: t('common.root'), path: '/' }]
   let acc = ''
   for (const part of parts) {
     acc += `/${part}`

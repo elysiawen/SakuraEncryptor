@@ -18,6 +18,7 @@
  * response buffer, which is the whole point of the zero-knowledge design.
  */
 import crypto from 'node:crypto'
+import { t } from './i18n.js'
 import {
   blockAad,
   blockNonce,
@@ -233,7 +234,7 @@ export class MediaRegistry {
    * agree without threading an `encrypted` flag through every IPC channel.
    */
   async open({ target, password, name, headers }) {
-    if (!target) throw new Error('缺少文件地址')
+    if (!target) throw new Error(t('errors.targetMissing'))
 
     const source = await createSource(target, headers)
     const id = crypto.randomBytes(9).toString('base64url')
@@ -243,7 +244,7 @@ export class MediaRegistry {
     try {
       const probe = await source.read(0, PROBE_SIZE)
       if (looksLikeContainer(probe)) {
-        if (!password) throw new Error('缺少密码')
+        if (!password) throw new Error(t('errors.passwordMissing'))
         session = new MediaSession({ id, source, name: displayName, password, probe })
         await session.init()
       } else {
@@ -356,7 +357,7 @@ export function createMediaHandler(registry) {
     const session = registry.get(id)
     if (!session) {
       res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' })
-      res.end('会话不存在或已关闭')
+      res.end(t('errors.sessionGone'))
       return
     }
 

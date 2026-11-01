@@ -23,6 +23,7 @@ import { Readable } from 'node:stream'
 import extractZip from 'extract-zip'
 import * as tar from 'tar'
 import { binaryName, normalizeBackend, pickAsset } from './backends.js'
+import { t } from '../i18n.js'
 
 /** GitHub's unauthenticated API allows 60 requests an hour per IP. */
 const RELEASE_TTL_MS = 6 * 60 * 60 * 1000
@@ -84,8 +85,8 @@ export async function resolveRelease(backendId, version = 'latest', { force = fa
   try {
     const res = await fetch(url, { headers: GH_HEADERS, signal: AbortSignal.timeout(30_000) })
     if (!res.ok) {
-      const detail = res.status === 403 || res.status === 429 ? '（GitHub 访问频率受限，请稍后再试）' : ''
-      throw new Error(`获取 ${backend.label} 版本信息失败：HTTP ${res.status}${detail}`)
+      const detail = res.status === 403 || res.status === 429 ? t('errors.githubRateLimited') : ''
+      throw new Error(t('errors.versionInfoFailed', { label: backend.label, status: res.status, detail }))
     }
     const release = await res.json()
     cache[key] = { fetchedAt: Date.now(), release }
@@ -95,7 +96,7 @@ export async function resolveRelease(backendId, version = 'latest', { force = fa
   } catch (err) {
     // Keep the failure around briefly so a flapping network cannot turn into a
     // request storm, but surface the original reason.
-    const message = err?.name === 'TimeoutError' ? '访问 GitHub 超时，请检查网络或填写镜像' : err.message
+    const message = err?.name === 'TimeoutError' ? t('errors.githubTimeout') : err.message
     cache[key] = { fetchedAt: Date.now(), error: message }
     await fsp.mkdir(embeddedRoot(), { recursive: true }).catch(() => {})
     await fsp.writeFile(releaseCachePath(), JSON.stringify(cache, null, 2), 'utf8').catch(() => {})
@@ -114,7 +115,7 @@ async function download(url, file, { onProgress }) {
     redirect: 'follow',
     signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS),
   })
-  if (!res.ok || !res.body) throw new Error(`下载失败：HTTP ${res.status}`)
+  if (!res.ok || !res.body) throw new Error(t('errors.downloadHttp', { status: res.status }))
 
   const total = Number(res.headers.get('content-length')) || 0
   const hash = crypto.createHash('sha256')
@@ -165,7 +166,7 @@ async function findBinary(dir, backendId) {
   }
   // A renamed binary is still the only real candidate in these archives.
   if (others.length === 1) return others[0]
-  throw new Error('安装包内没有找到可执行文件')
+  throw new Error(t('errors.noExecutable'))
 }
 
 /**
@@ -203,13 +204,13 @@ export async function install(backendId, { version = 'latest', mirrors = [], onP
       await fsp.rm(archive, { force: true }).catch(() => {})
     }
   }
-  if (lastError) throw new Error(`${backend.label} 下载失败：${lastError.message}`)
+  if (lastError) throw new Error(t('errors.downloadFailed', { message: lastError.message }))
 
   if (asset.digest && asset.digest.startsWith('sha256:')) {
     const expected = asset.digest.slice('sha256:'.length)
     if (expected && sha !== expected) {
       await fsp.rm(archive, { force: true }).catch(() => {})
-      throw new Error(`${backend.label} 安装包校验失败（sha256 不匹配），已丢弃`)
+      throw new Error(t('errors.checksumMismatch'))
     }
   }
 

@@ -7,26 +7,34 @@
  * identical across SRT/VTT/ASS and costs no extra dependency.
  */
 
+import { t } from '../i18n.js'
+
 export const SUBTITLE_EXTS = ['srt', 'vtt', 'ass', 'ssa']
 
-const LANG_LABELS = {
-  zh: '中文',
-  chs: '简体中文',
-  cht: '繁体中文',
-  chi: '中文',
-  zho: '中文',
-  cn: '中文',
-  en: 'English',
-  eng: 'English',
-  ja: '日本語',
-  jpn: '日本語',
-  jp: '日本語',
-  ko: '한국어',
-  kor: '한국어',
-  fr: 'Français',
-  de: 'Deutsch',
-  es: 'Español',
-  ru: 'Русский',
+/**
+ * ISO 639 codes a subtitle file may carry in its name → the label to show.
+ *
+ * The labels themselves are endonyms in both tables: a track list names
+ * languages in their own script, so `日本語` stays `日本語` in an English UI.
+ */
+const LANG_KEYS = {
+  zh: 'player.subLangZh',
+  chs: 'player.subLangZhHans',
+  cht: 'player.subLangZhHant',
+  chi: 'player.subLangZh',
+  zho: 'player.subLangZh',
+  cn: 'player.subLangZh',
+  en: 'player.subLangEn',
+  eng: 'player.subLangEn',
+  ja: 'player.subLangJa',
+  jpn: 'player.subLangJa',
+  jp: 'player.subLangJa',
+  ko: 'player.subLangKo',
+  kor: 'player.subLangKo',
+  fr: 'player.subLangFr',
+  de: 'player.subLangDe',
+  es: 'player.subLangEs',
+  ru: 'player.subLangRu',
 }
 
 /** `show.s01e01.mkv` → `show.s01e01` */
@@ -63,8 +71,9 @@ export function langTagOf(videoBase, subBase) {
 
 export function trackLabel(tag, ext) {
   const suffix = String(ext || '').toUpperCase()
-  if (!tag) return `默认 · ${suffix}`
-  const label = LANG_LABELS[tag.toLowerCase()] || tag
+  if (!tag) return t('player.subtitleDefault', { format: suffix })
+  const key = LANG_KEYS[tag.toLowerCase()]
+  const label = key ? t(key) : tag
   return `${label} · ${suffix}`
 }
 

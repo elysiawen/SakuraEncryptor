@@ -11,6 +11,7 @@
  * registry session, so decrypted blocks for media nobody watches are released.
  */
 import { reactive } from 'vue'
+import { t } from '../i18n.js'
 
 export const player = reactive({
   id: '',
@@ -177,7 +178,7 @@ export async function openStripSession(item) {
           path: item.path,
           name: item.name,
         })
-  if (!res?.ok || !res.url) throw new Error(res?.error || '无法打开文件')
+  if (!res?.ok || !res.url) throw new Error(res?.error || t('errors.openFailed'))
   return { id: res.id, url: res.url }
 }
 
@@ -228,7 +229,7 @@ async function openEntry(item) {
             name: item.name,
           })
 
-    if (!res?.ok) throw new Error(res?.error || '无法打开文件')
+    if (!res?.ok) throw new Error(res?.error || t('errors.openFailed'))
 
     player.id = res.id
     player.url = res.url
@@ -292,7 +293,7 @@ export async function playEntry(item, { playlist = [], index = -1, inline = fals
     // Independent windows: opening a video leaves the shell's audio and its
     // music window alone. Stopping the track is the sidebar stop button's job.
     const res = await window.ske.player.openWindow({ item, playlist, index })
-    if (!res?.ok) throw new Error(res?.error || '无法打开播放窗口')
+    if (!res?.ok) throw new Error(res?.error || t('errors.openWindowFailed'))
     return
   }
 
@@ -325,10 +326,10 @@ export function sameEntry(a, b) {
 // ── Play order ──
 /** Cycled by the button on the transport; the first one is the default. */
 export const PLAY_MODES = ['list', 'one', 'shuffle']
-export const PLAY_MODE_LABELS = {
-  list: '列表循环',
-  one: '单曲循环',
-  shuffle: '随机播放',
+export const PLAY_MODE_KEYS = {
+  list: 'player.modeList',
+  one: 'player.modeOne',
+  shuffle: 'player.modeShuffle',
 }
 
 export function cycleMode() {

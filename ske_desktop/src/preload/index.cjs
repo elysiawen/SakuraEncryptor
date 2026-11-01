@@ -31,6 +31,20 @@ contextBridge.exposeInMainWorld('ske', {
   },
 
   /**
+   * Interface language. Same shape as the theme bridge, but the payload is the
+   * resolved locale code: `auto` is settled in main, where the OS locale is
+   * readable, so no window has to re-derive it.
+   */
+  locale: {
+    broadcast: (language) => invoke('locale:broadcast', language),
+    onChange: (callback) => {
+      const handler = (_event, code) => callback(code)
+      ipcRenderer.on('locale:changed', handler)
+      return () => ipcRenderer.removeListener('locale:changed', handler)
+    },
+  },
+
+  /**
    * Launch gate. `unlock` takes every credential the user filled in
    * (`{ password, totp }`): the main process decides whether one is enough or
    * both are required, so the renderer never rules on that itself.

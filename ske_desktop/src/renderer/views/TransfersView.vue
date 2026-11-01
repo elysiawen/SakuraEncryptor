@@ -11,18 +11,18 @@
   <div class="page">
     <div class="page-head">
       <div>
-        <h2>传输</h2>
-        <p>
-          下载把云端或本地的容器解密到本机，上传把本机文件加密后推到云端。任务在后台继续，切换页面不影响进度。
-        </p>
+        <h2>{{ $t('transfers.title') }}</h2>
+        <p>{{ $t('transfers.subtitle') }}</p>
       </div>
       <div class="tools">
-        <span class="dir mono" :title="destDir || '尚未选择'">
-          {{ destDir || '尚未选择下载目录' }}
+        <span class="dir mono" :title="destDir || $t('transfers.notChosen')">
+          {{ destDir || $t('transfers.notChosen') }}
         </span>
-        <button class="ghost sm" type="button" @click="pickDir">选择目录</button>
+        <button class="ghost sm" type="button" @click="pickDir">
+          {{ $t('transfers.pickDir') }}
+        </button>
         <button class="ghost sm" type="button" :disabled="!hasFinished" @click="clearFinished">
-          清除已完成
+          {{ $t('transfers.clearFinished') }}
         </button>
       </div>
     </div>
@@ -30,8 +30,8 @@
     <EmptyState
       v-if="!tabs.some((item) => item.count)"
       icon="⇅"
-      title="没有传输任务"
-      description="云端库和本地库的右键菜单可以下载或上传；任务会出现在这里，加密与解密都在本机完成。"
+      :title="$t('transfers.emptyTitle')"
+      :description="$t('transfers.emptyDesc')"
     />
 
     <template v-else>
@@ -101,7 +101,9 @@
           </div>
 
           <div class="foot">
-            <span class="kind">{{ job.kind === 'download' ? '下载' : '上传' }}</span>
+            <span class="kind">
+              {{ job.kind === 'download' ? $t('transfers.kindDownload') : $t('transfers.kindUpload') }}
+            </span>
             <span class="mono">
               {{ formatSize(job.doneBytes) }} / {{ formatSize(job.totalBytes) }}
             </span>
@@ -121,7 +123,7 @@
                 type="button"
                 @click="reveal(job)"
               >
-                打开所在文件夹
+                {{ $t('transfers.reveal') }}
               </button>
               <button
                 v-if="job.status === 'queued' || job.status === 'running'"
@@ -129,7 +131,7 @@
                 type="button"
                 @click="cancel(job)"
               >
-                取消
+                {{ $t('common.cancel') }}
               </button>
             </div>
           </div>
@@ -159,6 +161,7 @@ import {
   uploads,
 } from '../state/uploads.js'
 import { formatSize } from '../state/cloud.js'
+import { t } from '../i18n.js'
 
 const destDir = computed(() => session.settings?.download?.dir || '')
 
@@ -203,24 +206,24 @@ const tab = ref(
 const tabs = computed(() => [
   {
     key: 'upload',
-    title: '上传列表',
+    title: t('transfers.listUploads'),
     items: activeUploads.value,
     count: activeUploads.value.length,
-    empty: '暂无进行中的上传',
+    empty: t('transfers.emptyUploads'),
   },
   {
     key: 'download',
-    title: '下载列表',
+    title: t('transfers.listDownloads'),
     items: activeDownloads.value,
     count: activeDownloads.value.length,
-    empty: '暂无进行中的下载',
+    empty: t('transfers.emptyDownloads'),
   },
   {
     key: 'finished',
-    title: '完成列表',
+    title: t('transfers.listFinished'),
     items: finished.value,
     count: finished.value.length,
-    empty: '还没有结束的任务',
+    empty: t('transfers.emptyFinished'),
   },
 ])
 
@@ -243,21 +246,21 @@ function percent(job) {
 function statusText(job) {
   switch (job.status) {
     case 'queued':
-      return '排队中'
+      return t('transfers.statusQueued')
     case 'running':
       // Uploading has two visible stages; saying which one is running explains
       // why a big file sits at 50% while the network is idle. The transfer
       // itself has no percentage — only the encrypting half is measurable.
       if (job.kind === 'upload') {
-        return job.phase === 'encrypting' ? '加密中' : '上传中'
+        return job.phase === 'encrypting' ? t('transfers.statusEncrypting') : t('transfers.statusUploading')
       }
       return `${percent(job)}%`
     case 'done':
-      return job.kind === 'download' ? '已下载' : '已上传'
+      return job.kind === 'download' ? t('transfers.statusDownloaded') : t('transfers.statusUploaded')
     case 'cancelled':
-      return '已取消'
+      return t('transfers.statusCancelled')
     default:
-      return '失败'
+      return t('transfers.statusFailed')
   }
 }
 
@@ -272,7 +275,7 @@ async function pickDir() {
   if (!picked?.ok || !picked.path) return
   try {
     await patchSettings({ download: { dir: picked.path } })
-    toast('下载目录已更新', 'ok')
+    toast(t('transfers.dirUpdated'), 'ok')
   } catch (err) {
     toast(err.message, 'error')
   }

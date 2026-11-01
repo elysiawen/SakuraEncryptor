@@ -7,6 +7,7 @@
  */
 import { reactive } from 'vue'
 import { session, toast } from './session.js'
+import { t } from '../i18n.js'
 
 const api = window.ske
 
@@ -28,28 +29,40 @@ function unwrap(res, fallback) {
   return res
 }
 
-export const STATUS_LABELS = {
-  stopped: '已停止',
-  downloading: '下载中',
-  starting: '启动中',
-  running: '运行中',
-  error: '出错',
+/**
+ * Status → translation key.
+ *
+ * Keys rather than strings: this table is built when the module loads, so a
+ * table of sentences would keep the language it was loaded in.
+ */
+const STATUS_KEYS = {
+  stopped: 'embedded.statusStopped',
+  downloading: 'embedded.statusDownloading',
+  starting: 'embedded.statusStarting',
+  running: 'embedded.statusRunning',
+  error: 'embedded.statusError',
 }
 
 export function statusLabel(state) {
-  if (!state) return '未启用'
-  return STATUS_LABELS[state.status] || '未启用'
+  if (!state) return t('embedded.notEnabled')
+  return t(STATUS_KEYS[state.status] || 'embedded.notEnabled')
 }
 
 /** One sentence for the badge's neighbours. */
 export function statusDetail(state) {
-  if (!state) return '正在读取状态…'
-  if (state.status === 'running') return `${state.backendLabel} 运行中 · ${state.origin}`
-  if (state.status === 'error') return state.error || '启动失败'
-  if (state.status === 'stopped') {
-    return state.enabled ? '已开启，但服务器没有在运行' : '未运行，开启后即可使用'
+  if (!state) return t('embedded.readingStatus')
+  if (state.status === 'running') {
+    return t('embedded.runningDetail', { backend: state.backendLabel, origin: state.origin })
   }
-  return '正在准备服务器…'
+  if (state.status === 'error') return state.error || t('embedded.startFailed')
+  if (state.status === 'stopped') {
+    // A downloaded-but-never-started install is a different situation from
+    // "switched off", and the one thing the user needs to know is that the
+    // package is already on disk.
+    if (state.installed?.tag) return t('embedded.installed', { tag: state.installed.tag })
+    return state.enabled ? t('embedded.enabledNotRunning') : t('embedded.notRunning')
+  }
+  return t('embedded.preparing')
 }
 
 export function progressPercent(state) {
@@ -61,10 +74,14 @@ export function progressPercent(state) {
 export function progressText(state) {
   const progress = state?.progress
   if (!progress) return ''
-  if (progress.phase === 'extract') return '正在解压安装包…'
-  if (progress.phase === 'done') return '安装完成'
+  if (progress.phase === 'extract') return t('embedded.extracting')
+  if (progress.phase === 'done') return t('embedded.installDone')
   if (progress.phase === 'download') {
-    return `下载中 ${progressPercent(state)}%（${formatSize(progress.received)} / ${formatSize(progress.total)}）`
+    return t('embedded.downloadingProgress', {
+      percent: progressPercent(state),
+      size: formatSize(progress.received),
+      total: formatSize(progress.total),
+    })
   }
   return ''
 }
@@ -110,11 +127,11 @@ export async function waitUntilRunning({ timeout = 30_000, downloadTimeout = 10 
 
     if (current?.status === 'running') return
     // Nothing is bringing it up: waiting would only delay the explanation.
-    if (current && !current.enabled) throw new Error('内置服务器没有开启，到设置里开启后再试')
-    if (current?.status === 'error') throw new Error(current.error || '内置服务器启动失败')
+    if (current && !current.enabled) throw new Error(t('embedded.disabledHint'))
+    if (current?.status === 'error') throw new Error(current.error || t('embedded.startFailedLong'))
     // A first-run download is not a hang: give it its own budget.
     if (current?.status === 'downloading') deadline = Math.max(deadline, Date.now() + downloadTimeout)
-    if (Date.now() >= deadline) throw new Error('内置服务器启动超时，请稍后再试')
+    if (Date.now() >= deadline) throw new Error(t('embedded.startTimeout'))
 
     await new Promise((resolve) => setTimeout(resolve, interval))
   }
@@ -123,7 +140,7 @@ export async function waitUntilRunning({ timeout = 30_000, downloadTimeout = 10 
 export async function loadEmbedded() {
   if (!api?.embedded) return
   try {
-    const res = unwrap(await api.embedded.state(), '无法读取内置服务器状态')
+    const res = unwrap(await api.embedded.state(), t('embedded.stateUnreadable'))
     embedded.state = res.state
   } catch (err) {
     embedded.error = err.message
@@ -167,54 +184,58 @@ function forgetDrivers() {
 
 export async function enableEmbedded(backendId) {
   const res = await run(() => api.embedded.enable(backendId), {
-    success: '内置服务器已启动',
-    failure: '开启内置服务器失败',
+    success: t('embedded.started'),
+    failure: t('embedded.enableFailed'),
   })
   if (res) forgetDrivers()
   return res
 }
 
 export function disableEmbedded() {
-  return run(() => api.embedded.disable(), { failure: '关闭内置服务器失败' })
+  return run(() => api.embedded.disable(), { failure: t('embedded.disableFailed') })
 }
 
 export async function reinstallEmbedded(backendId) {
-  const res = await run(() => api.embedded.reinstall(backendId), { failure: '重新下载失败' })
+  const res = await run(() => api.embedded.reinstall(backendId), {
+    failure: t('embedded.reinstallFailed'),
+  })
   if (res) forgetDrivers()
   return res
 }
 
 export async function setEmbeddedBackend(backendId) {
-  const res = await run(() => api.embedded.setBackend(backendId), { failure: '切换后端失败' })
+  const res = await run(() => api.embedded.setBackend(backendId), {
+    failure: t('embedded.backendFailed'),
+  })
   if (res) forgetDrivers()
   return res
 }
 
 export function setEmbeddedPort(port) {
   return run(() => api.embedded.setPort(port), {
-    success: '端口已更新',
-    failure: '修改端口失败',
+    success: t('embedded.portUpdated'),
+    failure: t('embedded.portFailed'),
   })
 }
 
 export function setEmbeddedVersion(version) {
-  return run(() => api.embedded.setVersion(version), { failure: '保存版本失败' })
+  return run(() => api.embedded.setVersion(version), { failure: t('embedded.versionFailed') })
 }
 
 export function setEmbeddedMirror(mirror) {
-  return run(() => api.embedded.setMirror(mirror), { failure: '保存镜像失败' })
+  return run(() => api.embedded.setMirror(mirror), { failure: t('embedded.mirrorFailed') })
 }
 
 export function uninstallEmbedded(backendId) {
   return run(() => api.embedded.uninstall(backendId), {
-    success: '已删除内置服务器及其数据',
-    failure: '删除失败',
+    success: t('embedded.uninstalled'),
+    failure: t('embedded.uninstallFailed'),
   })
 }
 
 export async function loadAccount() {
   try {
-    const res = unwrap(await api.embedded.account(), '无法读取账号')
+    const res = unwrap(await api.embedded.account(), t('embedded.accountUnreadable'))
     embedded.account = res.account
     embedded.revealedPassword = ''
   } catch (err) {
@@ -224,14 +245,14 @@ export async function loadAccount() {
 
 export function updateEmbeddedAccount(patch) {
   return run(() => api.embedded.updateAccount(patch), {
-    success: '账号已更新',
-    failure: '修改账号失败',
+    success: t('embedded.accountUpdated'),
+    failure: t('embedded.accountFailed'),
   })
 }
 
 export async function revealEmbeddedPassword() {
   try {
-    const res = unwrap(await api.embedded.revealPassword(), '无法读取密码')
+    const res = unwrap(await api.embedded.revealPassword(), t('embedded.passwordUnreadable'))
     embedded.revealedPassword = res.password
     return res.password
   } catch (err) {
@@ -246,7 +267,7 @@ export function randomEmbeddedPassword() {
 
 export async function loadStorages() {
   try {
-    const res = unwrap(await api.embedded.storages(), '无法读取存储列表')
+    const res = unwrap(await api.embedded.storages(), t('embedded.storagesUnreadable'))
     embedded.storages = res.storages
   } catch (err) {
     embedded.error = err.message
@@ -257,7 +278,7 @@ export async function loadStorages() {
 export async function loadDrivers() {
   if (!api?.embedded?.drivers) return []
   try {
-    const res = unwrap(await api.embedded.drivers(), '无法读取驱动列表')
+    const res = unwrap(await api.embedded.drivers(), t('embedded.driversUnreadable'))
     embedded.drivers = res.drivers
     return res.drivers
   } catch (err) {
@@ -274,9 +295,9 @@ export async function loadDrivers() {
 function describeDriverError(err) {
   const message = err?.message || String(err || '')
   if (/fetch failed|ECONNREFUSED|socket hang up|ECONNRESET/i.test(message)) {
-    return '内置服务器没有在运行（可能已退出），到设置里重新开启后再试'
+    return t('embedded.serverNotRunning')
   }
-  return message || '内置服务器没有响应'
+  return message || t('embedded.noResponse')
 }
 
 /**
@@ -292,7 +313,7 @@ function describeDriverError(err) {
 export async function fetchDriverInfo(driver) {
   if (!driver) return { common: [], additional: [] }
   try {
-    const res = unwrap(await api.embedded.driverInfo(driver), '无法读取驱动配置')
+    const res = unwrap(await api.embedded.driverInfo(driver), t('embedded.driverConfigUnreadable'))
     return res.info
   } catch (err) {
     const message = describeDriverError(err)
@@ -318,24 +339,27 @@ async function storageCall(fn, failure) {
 }
 
 export function createEmbeddedStorage(payload) {
-  return storageCall(() => api.embedded.createStorage(payload), '新增存储失败')
+  return storageCall(() => api.embedded.createStorage(payload), t('embedded.storageCreateFailed'))
 }
 
 export function updateEmbeddedStorage(payload) {
-  return storageCall(() => api.embedded.updateStorage(payload), '修改存储失败')
+  return storageCall(() => api.embedded.updateStorage(payload), t('embedded.storageUpdateFailed'))
 }
 
 export function deleteEmbeddedStorage(id) {
-  return storageCall(() => api.embedded.deleteStorage(id), '删除存储失败')
+  return storageCall(() => api.embedded.deleteStorage(id), t('embedded.storageDeleteFailed'))
 }
 
 export function setEmbeddedStorageEnabled(id, enabled) {
-  return storageCall(() => api.embedded.setStorageEnabled(id, enabled), '切换存储状态失败')
+  return storageCall(
+    () => api.embedded.setStorageEnabled(id, enabled),
+    t('embedded.storageToggleFailed'),
+  )
 }
 
 export async function loadEmbeddedLogs() {
   try {
-    const res = unwrap(await api.embedded.logs(), '无法读取日志')
+    const res = unwrap(await api.embedded.logs(), t('embedded.logsUnreadable'))
     embedded.logs = res.logs
   } catch (err) {
     embedded.error = err.message

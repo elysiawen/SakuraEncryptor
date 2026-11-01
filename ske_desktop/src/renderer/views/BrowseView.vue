@@ -9,14 +9,14 @@
   >
     <!-- OpenList 2FA: the server refuses the login until the current code is
          supplied. It lives outside the branch below on purpose — the failure
-         state is where the "输入验证码" button appears, and a dialog nested in
+         state is where the "enter code" button appears, and a dialog nested in
          the success branch would never be rendered there. -->
     <PromptDialog
       :visible="otp.show"
-      title="两步验证"
-      description="该账号已开启两步验证，请输入身份验证器中的动态验证码。"
-      placeholder="动态验证码"
-      confirm-text="验证并连接"
+      :title="$t('browse.otpTitle')"
+      :description="$t('browse.otpDesc')"
+      :placeholder="$t('browse.otpPlaceholder')"
+      :confirm-text="$t('browse.otpConfirm')"
       :busy="otp.busy"
       :error="otp.error"
       @cancel="otp.show = false"
@@ -26,23 +26,25 @@
     <EmptyState
       v-if="!activeProfile"
       icon="☁"
-      title="尚未选择云端配置"
-      description="云端库通过 AList / OpenList 读取加密目录。添加一套账号后即可在应用内浏览并直接播放，密码不会离开本机。"
-      action-text="前往配置"
+      :title="$t('browse.noProfileTitle')"
+      :description="$t('browse.noProfileDesc')"
+      :action-text="$t('browse.noProfileAction')"
       @action="$router.push('/profiles')"
     />
 
     <div v-else-if="cloud.connecting" class="centre">
       <span class="spinner" />
-      <span>{{ cloud.starting ? '正在启动内置服务器…' : `正在连接 ${activeProfile.name}…` }}</span>
+      <span>
+        {{ cloud.starting ? $t('browse.starting') : $t('browse.connecting', { name: activeProfile.name }) }}
+      </span>
     </div>
 
     <EmptyState
       v-else-if="cloud.error && !cloud.connected"
       icon="⚠"
-      title="无法连接云端"
+      :title="$t('browse.connectFailed')"
       :description="cloud.error"
-      :action-text="cloud.needsOtp ? '输入验证码' : '重试'"
+      :action-text="cloud.needsOtp ? $t('browse.enterOtp') : $t('common.retry')"
       @action="cloud.needsOtp ? openOtp() : reconnect()"
     />
 
@@ -63,10 +65,12 @@
         </nav>
 
         <div class="tools">
-          <span v-if="activeBatch.length" class="upload-chip" title="上传进度">
-            上传中 {{ activeBatch.length }} 个 · {{ uploadPercent }}%
+          <span v-if="activeBatch.length" class="upload-chip" :title="$t('browse.uploadChipTitle')">
+            {{ $t('browse.uploading', { count: activeBatch.length, percent: uploadPercent }) }}
           </span>
-          <span v-if="cloud.entries.length" class="count">{{ cloud.entries.length }} 项</span>
+          <span v-if="cloud.entries.length" class="count">
+            {{ $t('browse.itemCount', { count: cloud.entries.length }) }}
+          </span>
           <button
             class="ghost sm"
             type="button"
@@ -74,42 +78,48 @@
             :disabled="!cloud.entries.length && !selectMode"
             @click="toggleSelectMode"
           >
-            {{ selectMode ? '完成' : '多选' }}
+            {{ selectMode ? $t('common.done') : $t('files.selectMode') }}
           </button>
-          <button class="ghost sm" type="button" @click="pickUploads">上传</button>
-          <button class="ghost sm" type="button" :disabled="cloud.loading" @click="reload">刷新</button>
+          <button class="ghost sm" type="button" @click="pickUploads">
+            {{ $t('browse.upload') }}
+          </button>
+          <button class="ghost sm" type="button" :disabled="cloud.loading" @click="reload">
+            {{ $t('files.refresh') }}
+          </button>
           <div class="segmented">
             <button
               type="button"
               :class="{ on: view === 'grid' }"
-              title="网格视图"
+              :title="$t('browse.gridView')"
               @click="view = 'grid'"
             >
-              网格
+              {{ $t('browse.grid') }}
             </button>
             <button
               type="button"
               :class="{ on: view === 'list' }"
-              title="列表视图"
+              :title="$t('browse.listView')"
               @click="view = 'list'"
             >
-              列表
+              {{ $t('browse.list') }}
             </button>
           </div>
         </div>
       </div>
 
       <div v-if="selectMode" class="sel-bar">
-        <span class="sel-count">已选 {{ selected.size }} 项</span>
+        <span class="sel-count">{{ $t('files.selectedCount', { count: selected.size }) }}</span>
         <div class="sel-actions">
-          <button class="ghost sm" type="button" @click="selectAll">全选</button>
+          <button class="ghost sm" type="button" @click="selectAll">
+            {{ $t('files.selectAll') }}
+          </button>
           <button
             class="ghost sm"
             type="button"
             :disabled="!selected.size"
             @click="clearSelection"
           >
-            取消选择
+            {{ $t('files.clearSelection') }}
           </button>
           <button
             class="ghost sm"
@@ -117,7 +127,7 @@
             :disabled="!downloadableSelected.length"
             @click="downloadSelected"
           >
-            下载
+            {{ $t('files.download') }}
           </button>
           <button
             class="danger sm"
@@ -125,7 +135,7 @@
             :disabled="!selected.size"
             @click="openDeleteSelected"
           >
-            删除
+            {{ $t('common.delete') }}
           </button>
         </div>
       </div>
@@ -134,7 +144,7 @@
            on the old folder and the click looked ignored. -->
       <div v-if="cloud.error" class="inline-error">
         <span>{{ cloud.error }}</span>
-        <button class="ghost sm" type="button" @click="reload">重试</button>
+        <button class="ghost sm" type="button" @click="reload">{{ $t('common.retry') }}</button>
       </div>
 
       <div class="body" @click.self="clearSelection" @contextmenu.prevent="openMenu($event, null)">
@@ -143,8 +153,8 @@
         <EmptyState
           v-else-if="!cloud.entries.length"
           icon="🗂"
-          title="这个目录是空的"
-          description="加密文件与普通文件都会出现在这里。加密条目会标注出来，只有输入正确的媒体密码才能显示文件名与内容。"
+          :title="$t('files.emptyDirTitle')"
+          :description="$t('browse.emptyDirDesc')"
         />
 
         <div v-else-if="view === 'grid'" class="grid" @click.self="clearSelection">
@@ -186,7 +196,7 @@
               <span
                 v-if="entry.encrypted && !entry.locked"
                 class="badge badge-file enc lock-badge"
-                title="加密文件"
+                :title="$t('browse.encryptedBadge')"
               >
                 🔒
               </span>
@@ -234,11 +244,11 @@
 
       <PromptDialog
         :visible="mkdir.show"
-        title="新建文件夹"
-        description="名称会被加密成 token 存进云端目录树；取消勾选则使用明文名称。"
-        placeholder="文件夹名称"
-        confirm-text="创建"
-        checkbox-label="加密名称"
+        :title="$t('files.mkdirTitle')"
+        :description="$t('browse.mkdirDesc')"
+        :placeholder="$t('files.folderNamePlaceholder')"
+        :confirm-text="$t('files.create')"
+        :checkbox-label="$t('files.encryptName')"
         :checked-by-default="true"
         :busy="mkdir.busy"
         :error="mkdir.error"
@@ -248,11 +258,11 @@
 
       <PromptDialog
         :visible="rename.show"
-        :title="rename.target?.isDir ? '重命名文件夹' : '重命名'"
-        description="加密条目会重新加密为新名字，未加密的条目保持明文。"
-        placeholder="新名称"
+        :title="rename.target?.isDir ? $t('files.renameFolder') : $t('files.rename')"
+        :description="$t('files.renameDesc')"
+        :placeholder="$t('files.newNamePlaceholder')"
         :initial-value="rename.target?.name || ''"
-        confirm-text="重命名"
+        :confirm-text="$t('files.rename')"
         :busy="rename.busy"
         :error="rename.error"
         @cancel="rename.show = false"
@@ -261,7 +271,7 @@
 
       <ConfirmDialog
         :visible="removal.show"
-        title="确认删除"
+        :title="$t('files.deleteTitle')"
         :description="removalDescription"
         :busy="removal.busy"
         :error="removal.error"
@@ -287,8 +297,8 @@
             <path d="M8 11l4 4 4-4" />
             <path d="M4 17v2.5A1.5 1.5 0 0 0 5.5 21h13a1.5 1.5 0 0 0 1.5-1.5V17" />
           </svg>
-          <p>松开以上传到「{{ crumbs().at(-1)?.label || '/' }}」</p>
-          <span>确认后按你的设置加密上传</span>
+          <p>{{ $t('browse.dropTitle', { path: crumbs().at(-1)?.label || '/' }) }}</p>
+          <span>{{ $t('browse.dropHint') }}</span>
         </div>
       </div>
     </template>
@@ -334,6 +344,7 @@ import {
   playerMenuItems,
 } from '../state/media-link.js'
 import { playEntry } from '../state/player.js'
+import { t } from '../i18n.js'
 
 const view = ref('grid')
 
@@ -411,7 +422,7 @@ async function submitOtp({ text }) {
   try {
     const connected = await ensureConnected({ force: true, otpCode: text })
     if (connected) otp.show = false
-    else otp.error = cloud.error || '验证码无效，请重试'
+    else otp.error = cloud.error || t('browse.otpInvalid')
   } finally {
     otp.busy = false
   }
@@ -571,7 +582,7 @@ async function download(entry) {
       path: entry.path,
       name: entry.name,
     })
-    toast(`已加入下载：${entry.name}`, 'ok')
+    toast(t('files.queuedOne', { name: entry.name }), 'ok')
   } catch (err) {
     toast(err.message, 'error')
   }
@@ -601,14 +612,14 @@ async function downloadMany(entries) {
     }
   }
 
-  if (added) toast(`已加入下载：${added} 个文件`, 'ok')
+  if (added) toast(t('files.queuedMany', { count: added }), 'ok')
   if (failure) toast(failure.message, 'error')
 }
 
 function downloadSelected() {
   const files = downloadableSelected.value
   if (!files.length) {
-    toast('选中的项目里没有可下载的文件', 'error')
+    toast(t('browse.nothingDownloadable'), 'error')
     return
   }
   downloadMany(files)
@@ -645,10 +656,10 @@ function grouped(groups) {
 function buildMenu(entry, players = []) {
   if (!entry) {
     return grouped([
-      [{ label: '上传', icon: '⤒', action: pickUploads }],
+      [{ label: t('browse.upload'), icon: '⤒', action: pickUploads }],
       [
-        { label: '新建文件夹', icon: '📁', action: openMkdir },
-        { label: '刷新', icon: '🔄', action: reload },
+        { label: t('files.mkdirTitle'), icon: '📁', action: openMkdir },
+        { label: t('files.refresh'), icon: '🔄', action: reload },
       ],
     ])
   }
@@ -663,16 +674,16 @@ function buildMenu(entry, players = []) {
     return grouped([
       [
         {
-          label: `下载 ${files.length} 个文件`,
+          label: t('files.downloadCount', { count: files.length }),
           icon: '⤓',
           disabled: !files.length,
           action: () => downloadMany(files),
         },
       ],
-      [{ label: '取消选择', icon: '✕', action: clearSelection }],
+      [{ label: t('files.clearSelection'), icon: '✕', action: clearSelection }],
       [
         {
-          label: `删除 ${targets.length} 项`,
+          label: t('files.deleteCount', { count: targets.length }),
           icon: '🗑️',
           danger: true,
           action: () => openDeleteMany(targets),
@@ -687,21 +698,21 @@ function buildMenu(entry, players = []) {
   const file = []
   if (!entry.isDir) {
     file.push({
-      label: '下载',
+      label: t('files.download'),
       icon: '⤓',
       // A container that failed the key check has nothing to write out.
       disabled: entry.locked,
       action: () => download(entry),
     })
   }
-  file.push({ label: '重命名', icon: '✏️', action: () => openRename(entry) })
+  file.push({ label: t('files.rename'), icon: '✏️', action: () => openRename(entry) })
 
   const playback = []
   if (copyable(entry)) {
     playback.push(
-      { label: '复制播放链接', icon: '🔗', disabled: entry.locked, action: () => copyLink(entry) },
+      { label: t('files.copyLink'), icon: '🔗', disabled: entry.locked, action: () => copyLink(entry) },
       {
-        label: '外部播放器',
+        label: t('files.externalPlayer'),
         icon: '🎬',
         disabled: entry.locked,
         // Second level: which player. Detection happens in the main process.
@@ -710,7 +721,7 @@ function buildMenu(entry, players = []) {
     )
   }
 
-  const destroy = [{ label: '删除', icon: '🗑️', danger: true, action: () => openDelete(entry) }]
+  const destroy = [{ label: t('common.delete'), icon: '🗑️', danger: true, action: () => openDelete(entry) }]
 
   return grouped([file, playback, destroy])
 }
@@ -730,7 +741,7 @@ async function copyLink(entry) {
       path: entry.path,
       name: entry.name,
     })
-    toast('播放链接已复制，可粘贴到 mpv / VLC 等播放器；复制其他文件或退出应用后失效', 'ok')
+    toast(t('files.linkCopied'), 'ok')
   } catch (err) {
     toast(err.message, 'error')
   }
@@ -753,7 +764,7 @@ async function playExternal(entry, exe = '') {
       },
       exe,
     )
-    toast(`已用 ${res.player || '外部播放器'} 打开；播放期间请保持应用运行`, 'ok')
+    toast(t('files.openedWith', { player: res.player || t('files.externalPlayer') }), 'ok')
   } catch (err) {
     toast(err.message, 'error')
   }
@@ -844,7 +855,7 @@ async function onDrop(event) {
   try {
     const files = await prepareUploads(paths)
     if (!files.length) {
-      toast('拖入的内容里没有可上传的文件（文件夹不会被展开）', 'error')
+      toast(t('browse.dragNoFiles'), 'error')
       return
     }
 
@@ -853,7 +864,7 @@ async function onDrop(event) {
     upload.show = true
 
     if (files.length < paths.length) {
-      toast(`已忽略 ${paths.length - files.length} 个文件夹`, 'error')
+      toast(t('browse.ignoredFolders', { count: paths.length - files.length }), 'error')
     }
   } catch (err) {
     toast(err.message, 'error')
@@ -863,7 +874,7 @@ async function onDrop(event) {
 async function pickUploads() {
   const res = await window.ske.dialog.pickUploadFiles()
   if (!res?.ok) {
-    toast(res?.error || '无法打开文件选择器', 'error')
+    toast(res?.error || t('browse.pickFailed'), 'error')
     return
   }
   if (!res.files?.length) return
@@ -885,7 +896,7 @@ async function submitUpload({ encrypt }) {
     })
     upload.ids = (jobs || []).map((job) => job.id)
     upload.show = false
-    toast(`已加入上传队列：${upload.ids.length} 个文件`, 'ok')
+    toast(t('browse.uploadQueued', { count: upload.ids.length }), 'ok')
   } catch (err) {
     upload.error = err.message
   } finally {
@@ -912,8 +923,9 @@ watch(
 
     const failed = batch.filter((item) => item.status === 'failed')
     upload.ids = []
-    if (failed.length) toast(`${failed.length} 个文件上传失败：${failed[0].error}`, 'error')
-    else toast('上传完成', 'ok')
+    if (failed.length) {
+      toast(t('browse.uploadFailed', { count: failed.length, error: failed[0].error }), 'error')
+    } else toast(t('browse.uploadDone'), 'ok')
     reload()
   },
 )
@@ -926,8 +938,8 @@ const removal = reactive({ show: false, targets: [], busy: false, error: '' })
 const removalDescription = computed(() => {
   const targets = removal.targets
   if (!targets.length) return ''
-  if (targets.length === 1) return `「${targets[0].name}」将从云端删除，此操作不可撤销。`
-  return `选中的 ${targets.length} 项将从云端删除，此操作不可撤销。`
+  if (targets.length === 1) return t('browse.removeOne', { name: targets[0].name })
+  return t('browse.removeMany', { count: targets.length })
 })
 
 function openMkdir() {
@@ -941,7 +953,7 @@ async function submitMkdir({ text, checked }) {
   try {
     await makeFolder(cloud.path, text, checked)
     mkdir.show = false
-    toast(`已创建文件夹：${text}`, 'ok')
+    toast(t('files.created', { name: text }), 'ok')
   } catch (err) {
     mkdir.error = err.message
   } finally {
@@ -968,7 +980,7 @@ async function submitRename({ text }) {
   try {
     await renameEntry(target.path, text)
     rename.show = false
-    toast(`已重命名为：${text}`, 'ok')
+    toast(t('files.renamed', { name: text }), 'ok')
   } catch (err) {
     rename.error = err.message
   } finally {
@@ -1011,10 +1023,15 @@ async function submitDelete() {
     exitSelectMode()
 
     if (failed.length) {
-      toast(`${failed.length} 项删除失败：${failed[0].error}`, 'error')
+      toast(t('files.removeFailed', { count: failed.length, error: failed[0].error }), 'error')
       return
     }
-    toast(targets.length === 1 ? `已删除：${targets[0].name}` : `已删除 ${targets.length} 项`, 'ok')
+    toast(
+      targets.length === 1
+        ? t('files.removedOne', { name: targets[0].name })
+        : t('files.removedMany', { count: targets.length }),
+      'ok',
+    )
   } catch (err) {
     removal.error = err.message
   } finally {
@@ -1029,8 +1046,8 @@ async function submitDelete() {
  * from the main process (a name that decrypts).
  */
 function tagLabel(entry) {
-  if (entry.locked) return '无法解密'
-  return entry.encrypted ? '加密' : '未加密'
+  if (entry.locked) return t('browse.tagLocked')
+  return entry.encrypted ? t('browse.tagEncrypted') : t('browse.tagPlain')
 }
 
 function tagClass(entry) {

@@ -16,6 +16,8 @@
  * Insertion order is the order the picker shows: AList first, because it is the
  * project most users already run.
  */
+import { t } from '../i18n.js'
+
 export const BACKENDS = {
   alist: {
     id: 'alist',
@@ -23,8 +25,8 @@ export const BACKENDS = {
     repo: 'AlistGo/alist',
     exeBase: 'alist',
     preferLite: false,
-    /** Shown in the picker: what each backend is better at. */
-    blurb: '更老牌、驱动更多；上传走普通请求。',
+    /** Shown in the picker: what each backend is better at (an i18n key). */
+    blurb: 'embedded.blurbAlist',
   },
   openlist: {
     id: 'openlist',
@@ -36,7 +38,7 @@ export const BACKENDS = {
      * speaks HTTP to the API, so a third of the download buys nothing.
      */
     preferLite: true,
-    blurb: 'AList 的社区分支，额外支持分片上传，大文件更稳。',
+    blurb: 'embedded.blurbOpenlist',
   },
 }
 
@@ -119,6 +121,10 @@ export function pickAsset(release, backendId, platform = process.platform, arch 
     }
   }
   throw new Error(
-    `该版本没有适用于当前平台的 ${normalizeBackend(backendId).label} 安装包（${platform}/${arch}）`,
+    t('errors.unsupportedPlatform', {
+      label: normalizeBackend(backendId).label,
+      platform,
+      arch,
+    }),
   )
 }

@@ -2,18 +2,18 @@
   <div class="page">
     <div class="page-head">
       <div>
-        <h2>云端配置</h2>
-        <p>每个配置是一套 AList 或 OpenList 账号加一套独立的加密密码，可随时切换。</p>
+        <h2>{{ $t('profiles.title') }}</h2>
+        <p>{{ $t('profiles.subtitle') }}</p>
       </div>
-      <button class="primary" type="button" @click="openNew">新建配置</button>
+      <button class="primary" type="button" @click="openNew">{{ $t('profiles.new') }}</button>
     </div>
 
     <EmptyState
       v-if="!session.profiles.length"
       icon="☁"
-      title="还没有云端配置"
-      description="添加 AList 或 OpenList 服务器地址与账号后，就能浏览加密目录并直接播放。密码会通过系统钥匙串加密保存。"
-      action-text="添加第一个配置"
+      :title="$t('profiles.emptyTitle')"
+      :description="$t('profiles.emptyDesc')"
+      :action-text="$t('profiles.emptyAction')"
       @action="openNew"
     />
 
@@ -28,9 +28,9 @@
           <div class="title">
             <span class="mark" aria-hidden="true">☁</span>
             <strong>{{ profile.name }}</strong>
-            <span v-if="profile.id === session.activeId" class="badge ok">当前使用</span>
-            <span v-if="profile.insecure" class="badge warn" title="系统钥匙串不可用，密码以弱保护形式保存">
-              钥匙串不可用
+            <span v-if="profile.id === session.activeId" class="badge ok">{{ $t('profiles.current') }}</span>
+            <span v-if="profile.insecure" class="badge warn" :title="$t('profiles.insecureTitle')">
+              {{ $t('profiles.insecureBadge') }}
             </span>
           </div>
           <div class="server mono" :title="profile.server">{{ profile.server }}</div>
@@ -40,23 +40,23 @@
              stored is the thing worth scanning for, so each gets its own mark. -->
         <div class="facts">
           <span class="fact">
-            <span class="k">服务端</span>
+            <span class="k">{{ $t('profiles.server') }}</span>
             <span class="v">{{ profile.provider === 'openlist' ? 'OpenList' : 'AList' }}</span>
           </span>
           <span class="fact">
-            <span class="k">用户</span>
-            <span class="v">{{ profile.username || '未填写' }}</span>
+            <span class="k">{{ $t('profiles.user') }}</span>
+            <span class="v">{{ profile.username || $t('profiles.notFilled') }}</span>
           </span>
           <span class="fact" :class="{ on: profile.hasPassword }">
             <i class="dot" aria-hidden="true" />
-            登录密码{{ profile.hasPassword ? '已保存' : '未保存' }}
+            {{ profile.hasPassword ? $t('profiles.loginSaved') : $t('profiles.loginUnsaved') }}
           </span>
           <span class="fact" :class="{ on: profile.hasSkePassword }">
             <i class="dot" aria-hidden="true" />
-            加密密码{{ profile.hasSkePassword ? '已保存' : '未保存' }}
+            {{ profile.hasSkePassword ? $t('profiles.keySaved') : $t('profiles.keyUnsaved') }}
           </span>
           <span v-if="profile.basePath" class="fact mono">
-            <span class="k">根目录</span>
+            <span class="k">{{ $t('profiles.rootDir') }}</span>
             <span class="v">{{ profile.basePath }}</span>
           </span>
         </div>
@@ -68,10 +68,14 @@
             :disabled="profile.id === session.activeId"
             @click="use(profile)"
           >
-            {{ profile.id === session.activeId ? '使用中' : '切换到此配置' }}
+            {{ profile.id === session.activeId ? $t('profiles.inUse') : $t('profiles.switchTo') }}
           </button>
-          <button class="ghost sm" type="button" @click="openEdit(profile)">编辑</button>
-          <button class="danger sm" type="button" @click="remove(profile)">删除</button>
+          <button class="ghost sm" type="button" @click="openEdit(profile)">
+            {{ $t('profiles.edit') }}
+          </button>
+          <button class="danger sm" type="button" @click="remove(profile)">
+            {{ $t('profiles.delete') }}
+          </button>
         </div>
       </article>
     </div>
@@ -85,7 +89,7 @@
 
     <ConfirmDialog
       :visible="removal.show"
-      title="删除云端配置"
+      :title="$t('profiles.removeTitle')"
       :description="removalDescription"
       :busy="removal.busy"
       :error="removal.error"
@@ -101,6 +105,7 @@ import ConfirmDialog from '../components/ConfirmDialog.vue'
 import EmptyState from '../components/EmptyState.vue'
 import ProfileDialog from '../components/ProfileDialog.vue'
 import { activateProfile, attempt, removeProfile, session, toast } from '../state/session.js'
+import { t } from '../i18n.js'
 
 const dialogVisible = ref(false)
 const editing = ref(null)
@@ -118,16 +123,16 @@ function openEdit(profile) {
 
 function onSaved() {
   dialogVisible.value = false
-  toast(editing.value ? '配置已更新' : '配置已添加', 'ok')
+  toast(editing.value ? t('profiles.savedUpdated') : t('profiles.savedCreated'), 'ok')
 }
 
 function use(profile) {
-  attempt(() => activateProfile(profile.id), { success: `已切换到「${profile.name}」` })
+  attempt(() => activateProfile(profile.id), { success: t('profiles.switched', { name: profile.name }) })
 }
 
 const removalDescription = computed(() => {
   const name = removal.profile?.name || ''
-  return `删除「${name}」？只会移除本地保存的账号与密码，云端文件不受影响。`
+  return t('profiles.removeDesc', { name })
 })
 
 function remove(profile) {
@@ -150,7 +155,7 @@ async function confirmRemove() {
   try {
     await removeProfile(profile.id)
     removal.show = false
-    toast('配置已删除', 'ok')
+    toast(t('profiles.removed'), 'ok')
   } catch (err) {
     removal.error = err.message
   } finally {

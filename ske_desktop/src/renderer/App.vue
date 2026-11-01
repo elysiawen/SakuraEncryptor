@@ -29,7 +29,7 @@
     </div>
 
     <div v-else-if="session.bootError" class="boot boot-error">
-      <h1>无法启动</h1>
+      <h1>{{ $t('common.bootFailed') }}</h1>
       <p>{{ session.bootError }}</p>
     </div>
 
@@ -102,6 +102,7 @@ import {
   togglePlay,
 } from './state/player.js'
 import { publishTrack, publishTransport, unbindMediaSession } from './state/media-session.js'
+import { t } from './i18n.js'
 import { describeTrack } from './state/track-tags.js'
 import { subscribeDownloads, downloads } from './state/downloads.js'
 import { subscribeUploads } from './state/uploads.js'
@@ -226,7 +227,7 @@ function onAudioError() {
   if (source && source !== player.url) return
 
   player.playing = false
-  player.error = '音频加载失败，文件可能已损坏或无法解密'
+  player.error = t('player.audioFailed')
 }
 
 // ── Music window bridge ──
@@ -255,7 +256,7 @@ function publishAudioState() {
   } catch (err) {
     // A clone failure would otherwise kill every later push, leaving the music
     // window on its fallback message with no clue why.
-    console.error('[player] 无法同步播放状态', err)
+    console.error('[player] could not publish the playback state', err)
   }
 }
 

@@ -10,6 +10,7 @@ import fsp from 'node:fs/promises'
 import path from 'node:path'
 import { listPlayers, playExternal } from './external-player.js'
 import { decryptName, deriveNameKey, encryptName } from './ske-names.js'
+import { applyLanguage, currentLocale, t } from './i18n.js'
 
 function handle(channel, fn) {
   ipcMain.handle(channel, async (event, ...args) => {
@@ -90,6 +91,7 @@ function decodeSubtitleBuffer(buf) {
  * @param {(webContentsId: number) => import('electron').WebContents | null} [deps.stageOwnerOf]
  * @param {() => void} [deps.closeMusicStage]
  * @param {() => void} [deps.onLock]
+ * @param {() => void} [deps.onLocaleChange]  rebuild anything that captured the old strings
  */
 export function registerIpc({
   storage,
@@ -110,6 +112,7 @@ export function registerIpc({
   stageOwnerOf,
   closeMusicStage,
   onLock,
+  onLocaleChange,
 }) {
   /** Secrets of the active profile, used as the default encryption password. */
   function activeSecrets() {
@@ -142,7 +145,7 @@ export function registerIpc({
    * screen: rebinding a factor there would be a way around it.
    */
   const requireUnlocked = () => {
-    if (security.isEnabled() && !security.unlocked) throw new Error('应用已锁定')
+    if (security.isEnabled() && !security.unlocked) throw new Error(t('errors.locked'))
   }
 
   handle('security:state', () => ({ state: security.state() }))
@@ -209,7 +212,14 @@ export function registerIpc({
 
   // --- settings ------------------------------------------------------------
 
-  handle('settings:get', () => ({ settings: storage.settings }))
+  /**
+   * Both settings calls report `locale` next to `settings`.
+   *
+   * The renderer stores the user's *choice* (`auto` included); only this process
+   * can turn `auto` into a code, so it answers with the resolved value instead
+   * of letting each window guess from `navigator.language`.
+   */
+  handle('settings:get', () => ({ settings: storage.settings, locale: currentLocale() }))
 
   handle('settings:patch', async (_e, patch) => {
     const settings = await storage.patchSettings(patch)
@@ -221,7 +231,13 @@ export function registerIpc({
         await cloud.syncThumbCache()
       }
     }
-    return { settings }
+    // A language write is not just data: the tray menu baked the old strings
+    // into a native menu, so it has to be rebuilt here rather than next launch.
+    if (patch && typeof patch === 'object' && 'language' in patch) {
+      applyLanguage(settings.language, app.getLocale())
+      onLocaleChange?.()
+    }
+    return { settings, locale: currentLocale() }
   })
 
   // --- dialogs -------------------------------------------------------------
@@ -231,11 +247,11 @@ export function registerIpc({
     const win = mainWindow()
     if (!win) return { path: null }
     const result = await dialog.showOpenDialog(win, {
-      title: '选择 .ske 文件',
+      title: t('dialogs.pickContainer'),
       properties: ['openFile'],
       filters: [
-        { name: 'Sakura Encryptor 容器', extensions: ['ske'] },
-        { name: '所有文件', extensions: ['*'] },
+        { name: t('dialogs.filterContainer'), extensions: ['ske'] },
+        { name: t('dialogs.filterAllFiles'), extensions: ['*'] },
       ],
     })
     return { path: result.canceled ? null : result.filePaths[0] }
@@ -253,9 +269,9 @@ export function registerIpc({
     const win = mainWindow()
     if (!win) return { paths: [] }
     const result = await dialog.showOpenDialog(win, {
-      title: '选择要加密的文件',
+      title: t('dialogs.pickSources'),
       properties: ['openFile', 'multiSelections'],
-      filters: [{ name: '所有文件', extensions: ['*'] }],
+      filters: [{ name: t('dialogs.filterAllFiles'), extensions: ['*'] }],
     })
     return { paths: result.canceled ? [] : result.filePaths }
   })
@@ -270,9 +286,9 @@ export function registerIpc({
     const win = mainWindow()
     if (!win) return { files: [] }
     const result = await dialog.showOpenDialog(win, {
-      title: '选择要上传的文件',
+      title: t('dialogs.pickUpload'),
       properties: ['openFile', 'multiSelections'],
-      filters: [{ name: '所有文件', extensions: ['*'] }],
+      filters: [{ name: t('dialogs.filterAllFiles'), extensions: ['*'] }],
     })
     if (result.canceled) return { files: [] }
 
@@ -295,12 +311,15 @@ export function registerIpc({
     const win = mainWindow()
     if (!win) return { path: null }
     const result = await dialog.showOpenDialog(win, {
-      title: '选择外部播放器',
+      title: t('dialogs.pickPlayer'),
       properties: ['openFile'],
       filters:
         process.platform === 'win32'
-          ? [{ name: '可执行文件', extensions: ['exe'] }, { name: '所有文件', extensions: ['*'] }]
-          : [{ name: '所有文件', extensions: ['*'] }],
+          ? [
+              { name: t('dialogs.filterExecutable'), extensions: ['exe'] },
+              { name: t('dialogs.filterAllFiles'), extensions: ['*'] },
+            ]
+          : [{ name: t('dialogs.filterAllFiles'), extensions: ['*'] }],
     })
     return { path: result.canceled ? null : result.filePaths[0] }
   })
@@ -309,7 +328,7 @@ export function registerIpc({
     const win = mainWindow()
     if (!win) return { path: null }
     const result = await dialog.showOpenDialog(win, {
-      title: '选择文件夹',
+      title: t('dialogs.pickDirectory'),
       properties: ['openDirectory'],
     })
     return { path: result.canceled ? null : result.filePaths[0] }
@@ -386,11 +405,11 @@ export function registerIpc({
   // --- cloud ---------------------------------------------------------------
 
   handle('cloud:connect', async (_e, profileId, otpCode = '') => {
-    if (security.isEnabled() && !security.unlocked) throw new Error('应用已锁定')
+    if (security.isEnabled() && !security.unlocked) throw new Error(t('errors.locked'))
 
     const { profiles } = storage.listProfiles()
     const profile = profiles.find((p) => p.id === profileId)
-    if (!profile) throw new Error('配置不存在')
+    if (!profile) throw new Error(t('errors.profileMissing'))
 
     // Secrets are unsealed here and handed straight to CloudService; they never
     // travel back through IPC. `otpCode` comes from the renderer because a
@@ -441,17 +460,17 @@ export function registerIpc({
    * tree keeps tokens, and a plain entry stays plain (see `CloudService.rename`).
    */
   handle('cloud:mkdir', (_e, { sessionId, path, name, encrypt } = {}) => {
-    if (security.isEnabled() && !security.unlocked) throw new Error('应用已锁定')
+    if (security.isEnabled() && !security.unlocked) throw new Error(t('errors.locked'))
     return cloud.makeDir(sessionId, path, name, { encrypt })
   })
 
   handle('cloud:rename', (_e, { sessionId, path, newName } = {}) => {
-    if (security.isEnabled() && !security.unlocked) throw new Error('应用已锁定')
+    if (security.isEnabled() && !security.unlocked) throw new Error(t('errors.locked'))
     return cloud.rename(sessionId, path, newName)
   })
 
   handle('cloud:remove', (_e, { sessionId, path } = {}) => {
-    if (security.isEnabled() && !security.unlocked) throw new Error('应用已锁定')
+    if (security.isEnabled() && !security.unlocked) throw new Error(t('errors.locked'))
     return cloud.remove(sessionId, path)
   })
 
@@ -459,10 +478,10 @@ export function registerIpc({
 
   handle('media:open', async (event, payload = {}) => {
     if (security.isEnabled() && !security.unlocked) {
-      throw new Error('应用已锁定')
+      throw new Error(t('errors.locked'))
     }
     const server = serverInfo()
-    if (!server) throw new Error('本地服务尚未就绪')
+    if (!server) throw new Error(t('errors.serverNotReady'))
 
     const info = await registry.open({
       target: payload.target,
@@ -485,10 +504,10 @@ export function registerIpc({
    */
   handle('media:openCloud', async (event, { sessionId, path, name }) => {
     if (security.isEnabled() && !security.unlocked) {
-      throw new Error('应用已锁定')
+      throw new Error(t('errors.locked'))
     }
     const server = serverInfo()
-    if (!server) throw new Error('本地服务尚未就绪')
+    if (!server) throw new Error(t('errors.serverNotReady'))
 
     const session = cloud.get(sessionId)
     const { rawUrl } = await cloud.resolve(sessionId, path)
@@ -524,20 +543,20 @@ export function registerIpc({
     let password = ''
 
     if (mode === 'local') {
-      if (!localLibrary.unlocked) throw new Error('本地库尚未解锁')
+      if (!localLibrary.unlocked) throw new Error(t('errors.localLocked'))
       target = localLibrary.filePath(path)
       password = localLibrary.password
     } else {
       const session = cloud.get(sessionId)
-      if (!session) throw new Error('云端会话已断开，请重新连接')
+      if (!session) throw new Error(t('errors.cloudDisconnected'))
       target = (await cloud.resolve(sessionId, path)).rawUrl
       password = session.skePassword
     }
 
     const info = await registry.open({ target, password, name: name || path })
     try {
-      if (info.size > MAX_SUBTITLE_BYTES) throw new Error('文本文件超过 2 MB，已跳过')
-      if (info.size === 0) throw new Error('文件内容为空')
+      if (info.size > MAX_SUBTITLE_BYTES) throw new Error(t('errors.tooLargeText'))
+      if (info.size === 0) throw new Error(t('errors.emptyFile'))
 
       const opened = registry.get(info.id)
       const chunks = []
@@ -550,8 +569,8 @@ export function registerIpc({
   }
 
   handle('subtitles:read', async (_e, { mode, path, name, sessionId } = {}) => {
-    if (security.isEnabled() && !security.unlocked) throw new Error('应用已锁定')
-    if (!path) throw new Error('缺少字幕文件')
+    if (security.isEnabled() && !security.unlocked) throw new Error(t('errors.locked'))
+    if (!path) throw new Error(t('errors.subtitleMissing'))
     return readTextFile({ mode, path, name, sessionId })
   })
 
@@ -563,7 +582,7 @@ export function registerIpc({
    * then language variants (`<track>.zh.lrc`) — the same shape subtitles use.
    */
   handle('lyrics:read', async (_e, { mode, path, name, sessionId } = {}) => {
-    if (security.isEnabled() && !security.unlocked) throw new Error('应用已锁定')
+    if (security.isEnabled() && !security.unlocked) throw new Error(t('errors.locked'))
     if (!path) return { text: '', size: 0 }
 
     const dir = path.slice(0, path.lastIndexOf('/')) || '/'
@@ -619,17 +638,17 @@ export function registerIpc({
 
   // Same writes as the cloud library, applied to the selected directory on disk.
   handle('local:mkdir', (_e, { path, name, encrypt } = {}) => {
-    if (security.isEnabled() && !security.unlocked) throw new Error('应用已锁定')
+    if (security.isEnabled() && !security.unlocked) throw new Error(t('errors.locked'))
     return localLibrary.makeDir(path, name, { encrypt })
   })
 
   handle('local:rename', (_e, { path, newName } = {}) => {
-    if (security.isEnabled() && !security.unlocked) throw new Error('应用已锁定')
+    if (security.isEnabled() && !security.unlocked) throw new Error(t('errors.locked'))
     return localLibrary.rename(path, newName)
   })
 
   handle('local:remove', (_e, { path } = {}) => {
-    if (security.isEnabled() && !security.unlocked) throw new Error('应用已锁定')
+    if (security.isEnabled() && !security.unlocked) throw new Error(t('errors.locked'))
     return localLibrary.remove(path)
   })
 
@@ -638,11 +657,11 @@ export function registerIpc({
    * a stream URL, same as the cloud path.
    */
   handle('local:play', async (event, { path, name }) => {
-    if (security.isEnabled() && !security.unlocked) throw new Error('应用已锁定')
-    if (!localLibrary.unlocked) throw new Error('本地库尚未解锁')
+    if (security.isEnabled() && !security.unlocked) throw new Error(t('errors.locked'))
+    if (!localLibrary.unlocked) throw new Error(t('errors.localLocked'))
 
     const server = serverInfo()
-    if (!server) throw new Error('本地服务尚未就绪')
+    if (!server) throw new Error(t('errors.serverNotReady'))
 
     const target = localLibrary.filePath(path)
     const info = await registry.open({
@@ -662,12 +681,12 @@ export function registerIpc({
 
   handle('jobs:add', (_e, payload = {}) => {
     const { srcPath, destDir, password } = payload
-    if (security.isEnabled() && !security.unlocked) throw new Error('应用已锁定')
+    if (security.isEnabled() && !security.unlocked) throw new Error(t('errors.locked'))
 
     // An empty password field means "use the active profile's media password",
     // which is what most users expect when they only have one vault.
     const secret = password || activeSecrets()?.skePassword || ''
-    if (!secret) throw new Error('请填写加密密码，或先配置一个带媒体密码的云端配置')
+    if (!secret) throw new Error(t('errors.needSecret'))
 
     return {
       job: jobs.add({
@@ -700,19 +719,19 @@ export function registerIpc({
   handle('text:convert', (_e, { direction, text, password } = {}) => {
     requireUnlocked()
     const source = typeof text === 'string' ? text.trim() : ''
-    if (!source) throw new Error('请先输入内容')
+    if (!source) throw new Error(t('errors.emptyInput'))
 
     // Same fallback as the encryption queue: an empty field means "use the
     // active profile's media password".
     const secret = String(password || '') || activeSecrets()?.skePassword || ''
-    if (!secret) throw new Error('请填写加密密码，或先配置一个带媒体密码的云端配置')
+    if (!secret) throw new Error(t('errors.needSecret'))
 
     const key = deriveNameKey(secret)
     if (direction === 'decrypt') {
       try {
         return { text: decryptName(source, key) }
       } catch {
-        throw new Error('解密失败：加密密码错误，或这段文字不是本工具生成的密文')
+        throw new Error(t('errors.textDecryptFailed'))
       }
     }
     return { text: encryptName(source, key) }
@@ -723,10 +742,10 @@ export function registerIpc({
   handle('downloads:list', () => ({ downloads: downloads.snapshot() }))
 
   handle('downloads:add', (_e, payload = {}) => {
-    if (security.isEnabled() && !security.unlocked) throw new Error('应用已锁定')
+    if (security.isEnabled() && !security.unlocked) throw new Error(t('errors.locked'))
 
     const destDir = payload.destDir || storage.settings.download?.dir || ''
-    if (!destDir) throw new Error('请先在设置里选择下载目录')
+    if (!destDir) throw new Error(t('errors.needDownloadDir'))
 
     const download = downloads.add({
       mode: payload.mode,
@@ -745,7 +764,7 @@ export function registerIpc({
 
   handle('downloads:reveal', (_e, id) => {
     const job = downloads.snapshot().find((item) => item.id === id)
-    if (!job?.outPath) throw new Error('文件尚未下载完成')
+    if (!job?.outPath) throw new Error(t('errors.downloadIncomplete'))
     shell.showItemInFolder(job.outPath)
     return { revealed: true }
   })
@@ -799,6 +818,28 @@ export function registerIpc({
     return { theme: value }
   })
 
+  // --- locale --------------------------------------------------------------
+
+  /**
+   * Repaint every other window in the new language.
+   *
+   * `settings:patch` already applied the switch inside this process, so the
+   * second `applyLanguage` is a no-op there; keeping it makes the channel
+   * correct on its own, and the tray is rebuilt for the same reason the theme
+   * is broadcast at all — a native menu cannot re-read a string it captured.
+   */
+  handle('locale:broadcast', (event, language) => {
+    applyLanguage(language, app.getLocale())
+    onLocaleChange?.()
+    const code = currentLocale()
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed() && win.webContents.id !== event.sender.id) {
+        win.webContents.send('locale:changed', code)
+      }
+    }
+    return { locale: code }
+  })
+
   // --- windows -------------------------------------------------------------
 
   handle('window:new', (_e, route) => {
@@ -831,7 +872,7 @@ export function registerIpc({
 
   handle('window:toggleMaximize', (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)
-    if (!win) throw new Error('窗口已关闭')
+    if (!win) throw new Error(t('errors.windowClosed'))
     if (win.isMaximized()) win.unmaximize()
     else win.maximize()
     return { maximized: win.isMaximized() }
@@ -839,7 +880,7 @@ export function registerIpc({
 
   handle('window:alwaysOnTop', (event, flag) => {
     const win = BrowserWindow.fromWebContents(event.sender)
-    if (!win) throw new Error('窗口已关闭')
+    if (!win) throw new Error(t('errors.windowClosed'))
     // 'floating' is the macOS level that sits above normal windows; Windows
     // ignores the level argument, so one call covers both platforms.
     win.setAlwaysOnTop(!!flag, 'floating')
@@ -848,7 +889,7 @@ export function registerIpc({
 
   handle('window:toggleFullScreen', (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)
-    if (!win) throw new Error('窗口已关闭')
+    if (!win) throw new Error(t('errors.windowClosed'))
     win.setFullScreen(!win.isFullScreen())
     return { fullScreen: win.isFullScreen() }
   })
@@ -864,7 +905,7 @@ export function registerIpc({
    */
   handle('window:fitAspect', (event, aspect, chrome = 0) => {
     const win = BrowserWindow.fromWebContents(event.sender)
-    if (!win) throw new Error('窗口已关闭')
+    if (!win) throw new Error(t('errors.windowClosed'))
     const ratio = Number(aspect)
     if (!Number.isFinite(ratio) || ratio <= 0) return { resized: false }
     if (win.isMaximized() || win.isFullScreen()) return { resized: false }
@@ -891,8 +932,8 @@ export function registerIpc({
   // --- player window -------------------------------------------------------
 
   handle('player:openWindow', (event, payload = {}) => {
-    if (security.isEnabled() && !security.unlocked) throw new Error('应用已锁定')
-    if (!payload?.item) throw new Error('缺少要播放的文件')
+    if (security.isEnabled() && !security.unlocked) throw new Error(t('errors.locked'))
+    if (!payload?.item) throw new Error(t('errors.playerItemMissing'))
     // The opening renderer is remembered: the music window can route its
     // commands back to the shell that owns the audio element.
     return { opened: !!openStage?.(payload, event.sender.id) }
@@ -922,8 +963,8 @@ export function registerIpc({
   handle('player:command', (event, command = {}) => {
     const owner = stageOwnerOf?.(event.sender.id) || mainWindow()
     if (!owner || owner.isDestroyed()) {
-      console.warn('[player] 找不到打开播放窗口的界面，指令无法转发')
-      throw new Error('主窗口不可用，请重启应用')
+      console.warn('[player] no window owns this player, so the command cannot be forwarded')
+      throw new Error(t('errors.playerHostMissing'))
     }
     owner.send('player:command', command)
     return {}
@@ -937,9 +978,9 @@ export function registerIpc({
    */
   handle('player:external', (_e, { url, exe } = {}) => {
     const server = serverInfo()
-    if (!server) throw new Error('本地服务尚未就绪')
+    if (!server) throw new Error(t('errors.serverNotReady'))
     if (typeof url !== 'string' || !url.startsWith(`${server.origin}/media/`)) {
-      throw new Error('只能把解密流交给外部播放器')
+      throw new Error(t('errors.externalOnly'))
     }
     // The submenu picks one for this file; otherwise the configured player,
     // otherwise whatever detection found first. A choice made by hand is strict:
@@ -967,7 +1008,7 @@ export function registerIpc({
    */
   handle('clipboard:write', (_event, text) => {
     const value = typeof text === 'string' ? text.trim() : ''
-    if (!value) throw new Error('没有可复制的内容')
+    if (!value) throw new Error(t('errors.nothingToCopy'))
     clipboard.writeText(value)
     return {}
   })
