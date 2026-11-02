@@ -100,8 +100,8 @@ function closeWindow() {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  flex: 0 0 40px;
-  height: 40px;
+  flex: 0 0 var(--titlebar-h);
+  height: var(--titlebar-h);
   /* 20 px lines the wordmark up with the sidebar's nav labels below it. */
   padding: 0 6px 0 20px;
   background: var(--bg);

@@ -445,10 +445,9 @@ onUnmounted(() => {
 
 .toasts {
   position: fixed;
-  /* Centred under the caption strip. The window is frameless, so the top 40 px
-     is the drag region: a toast there would move the window instead of being
-     read. */
-  top: 56px;
+  /* Centred under the caption strip. The window is frameless, so that strip is a
+     drag region: a toast there would move the window instead of being read. */
+  top: calc(var(--titlebar-h) + 16px);
   left: 50%;
   transform: translateX(-50%);
   z-index: 200;

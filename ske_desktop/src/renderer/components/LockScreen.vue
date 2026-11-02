@@ -143,10 +143,10 @@ async function submit() {
 <style scoped>
 .lock {
   position: fixed;
-  /* Below the title bar, and below it in the stack: 40 px is the caption strip's
-     height. Covering it turned the whole frameless window into one no-drag box,
-     so a locked window could neither be moved nor closed without unlocking. */
-  inset: 40px 0 0;
+  /* Below the title bar, and below it in the stack. Covering the caption strip
+     turned the whole frameless window into one no-drag box, so a locked window
+     could neither be moved nor closed without unlocking. */
+  inset: var(--titlebar-h) 0 0;
   z-index: 90;
   display: grid;
   place-items: center;
