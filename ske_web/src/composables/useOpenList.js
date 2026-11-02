@@ -31,9 +31,9 @@ const session = createProviderSession({
  * have the feature.
  *
  * @param {object} [options]
- * @param {(ratio: number) => void} [options.onProgress] 0..1, per file
+ * @param {(progress: {sent: number, stored: number|null, phase: string}) => void} [options.onProgress]
  */
-export function uploadFile(path, file, asTask = false, options = {}) {
+export function uploadFile(path, file, asTask = true, options = {}) {
     return session.uploadFile(path, file, asTask, options)
 }
 

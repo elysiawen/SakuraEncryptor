@@ -811,9 +811,21 @@ const activeBatch = computed(() =>
   uploads.items.filter((item) => item.status === 'queued' || item.status === 'running'),
 )
 
+/**
+ * One number for the whole batch.
+ *
+ * Encrypting counts as local progress and the transfer as delivered progress;
+ * the cloud write is left out on purpose — the chip exists to say "the queue
+ * is moving", and a batch is done when the last byte reached the server.
+ */
 const uploadPercent = computed(() => {
-  const total = activeBatch.value.reduce((sum, item) => sum + item.totalBytes, 0)
-  const done = activeBatch.value.reduce((sum, item) => sum + item.doneBytes, 0)
+  let total = 0
+  let done = 0
+  for (const item of activeBatch.value) {
+    const size = item.uploadBytes || item.totalBytes || 0
+    total += size
+    done += item.phase === 'encrypting' ? size * (item.encryptRatio || 0) : Math.min(size, item.sentBytes || 0)
+  }
   return total ? Math.min(100, Math.round((done / total) * 100)) : 0
 })
 

@@ -25,13 +25,15 @@
     </section>
 
     <section class="card">
-      <h3>{{ $t('settings.lock.title') }}</h3>
-      <p class="hint">{{ $t('settings.lock.hint') }}</p>
-
-      <div class="status-line">
+      <div class="card-head">
+        <h3>{{ $t('settings.lock.title') }}</h3>
         <span class="badge" :class="{ ok: session.lock.enabled }">
           {{ session.lock.enabled ? $t('settings.lock.enabled') : $t('settings.lock.disabled') }}
         </span>
+      </div>
+      <p class="hint">{{ $t('settings.lock.hint') }}</p>
+
+      <div v-if="session.lock.hasPassword || session.lock.hasTotp" class="status-line">
         <span v-if="session.lock.hasPassword" class="badge">{{ $t('settings.lock.passwordBadge') }}</span>
         <span v-if="session.lock.hasTotp" class="badge">TOTP</span>
       </div>
@@ -69,8 +71,9 @@
         </div>
         <input
           type="checkbox"
-          class="check"
+          class="toggle"
           :checked="session.lock.match === 'any'"
+          :aria-label="$t('settings.lock.anyFactor')"
           @change="(e) => updateMatch(e.target.checked ? 'any' : 'all')"
         />
       </div>
@@ -166,8 +169,9 @@
         </div>
         <input
           type="checkbox"
-          class="check"
+          class="toggle"
           :checked="cache.thumbEnabled"
+          :aria-label="$t('settings.cache.thumbTitle')"
           @change="(e) => updateCache({ thumbEnabled: e.target.checked })"
         />
       </div>
@@ -285,8 +289,9 @@
         </div>
         <input
           type="checkbox"
-          class="check"
+          class="toggle"
           :checked="playback.autoPlayNext"
+          :aria-label="$t('settings.playback.autoNext')"
           @change="(e) => updatePlayback({ autoPlayNext: e.target.checked })"
         />
       </div>
@@ -313,6 +318,74 @@
         </div>
       </div>
     </section>
+
+    <section class="card">
+      <h3>{{ $t('settings.dav.title') }}</h3>
+      <p class="hint">{{ $t('settings.dav.hint') }}</p>
+
+      <!-- Nothing listens while this is off: mounting is a convenience, not a
+           permanent hole in the machine. -->
+      <div class="switch-row">
+        <div>
+          <div class="label">{{ $t('settings.dav.enable') }}</div>
+          <div class="desc">{{ $t('settings.dav.enableDesc') }}</div>
+        </div>
+        <input
+          type="checkbox"
+          class="toggle"
+          :checked="dav.enabled"
+          :disabled="davToggling"
+          :aria-label="$t('settings.dav.enable')"
+          @change="toggleDav($event.target.checked)"
+        />
+      </div>
+
+      <template v-if="dav.enabled">
+        <div class="field dav-port">
+          <label for="dav-port">{{ $t('settings.dav.port') }}</label>
+          <div class="row">
+            <input
+              id="dav-port"
+              v-model.number="davForm.port"
+              type="number"
+              min="1024"
+              max="65535"
+              class="mono"
+              @input="portEdited = true"
+            />
+            <button class="primary sm" type="button" :disabled="!davPortDirty" @click="saveDavPort">
+              {{ $t('settings.dav.save') }}
+            </button>
+          </div>
+          <div class="meta">{{ $t('settings.dav.portHint') }}</div>
+        </div>
+
+        <p v-if="dav.conflict" class="hint">
+          {{ $t('settings.dav.conflict', { port: dav.port }) }}
+        </p>
+
+        <div class="switch-row">
+          <div>
+            <div class="label">{{ $t('settings.dav.accounts') }}</div>
+            <div class="desc">{{ $t('settings.dav.accountsDesc') }}</div>
+          </div>
+          <button class="ghost sm" type="button" @click="accountsOpen = true">
+            {{ $t('settings.dav.manageAccounts') }}
+          </button>
+        </div>
+
+        <p class="hint dav-note">{{ $t('settings.dav.readWrite') }}</p>
+      </template>
+    </section>
+
+    <DavAccountsDialog
+      :visible="accountsOpen"
+      :accounts="dav.accounts"
+      :profiles="session.profiles"
+      :active-profile-id="session.activeId || ''"
+      @cancel="accountsOpen = false"
+      @changed="applyDav"
+    />
 
     <section class="card">
       <h3>{{ $t('settings.download.title') }}</h3>
@@ -342,8 +415,9 @@
         </div>
         <input
           type="checkbox"
-          class="check"
+          class="toggle"
           :checked="winPrefs.closeToTray"
+          :aria-label="$t('settings.window.closeToTray')"
           @change="(e) => updateWindow({ closeToTray: e.target.checked })"
         />
       </div>
@@ -398,6 +472,7 @@ import {
   statusDetail,
 } from '../state/embedded.js'
 import LockDialog from '../components/LockDialog.vue'
+import DavAccountsDialog from '../components/DavAccountsDialog.vue'
 import EmbeddedBackendDialog from '../components/EmbeddedBackendDialog.vue'
 import EmbeddedAccountDialog from '../components/EmbeddedAccountDialog.vue'
 import EmbeddedStorageDialog from '../components/EmbeddedStorageDialog.vue'
@@ -419,6 +494,111 @@ const languageOptions = computed(() => [
 async function onLanguageChange(event) {
   await setLocale(event.target.value)
 }
+
+/**
+ * The libraries as mounted folders.
+ *
+ * The card owns the switch and the port; the accounts live behind a button,
+ * because that is where "what am I exposing" is answered and it is long enough
+ * to be its own dialog. Passwords are minted by the main process and sealed
+ * there, so nothing here is worth caching — a refresh always tells the truth.
+ */
+const dav = reactive({
+  /** The switch: whether a listener should be running at all. */
+  enabled: true,
+  port: 0,
+  conflict: false,
+  accounts: [],
+})
+
+/** Whether the account list is on screen; it is the only thing it holds. */
+const accountsOpen = ref(false)
+
+/** A switch flip is a round-trip; the checkbox waits for the answer. */
+const davToggling = ref(false)
+
+/**
+ * The one field that rebinds the listener.
+ *
+ * Kept apart from `dav` so a background refresh cannot overwrite something that
+ * is half-typed.
+ */
+const davForm = reactive({ port: 0 })
+
+/**
+ * Whether the port field has been typed in.
+ *
+ * Comparing the two values cannot tell "untouched, still showing the initial 0"
+ * from "the user really wants that number", which is exactly how the field used
+ * to sit at 0 while the listener was already on 20080. An explicit flag says
+ * what actually happened.
+ */
+const portEdited = ref(false)
+
+const davPortDirty = computed(() => davForm.port !== dav.port)
+
+/** `ipcMain.handle` reports failures as `{ ok: false, error }` rather than throwing. */
+function unwrapDav(res) {
+  if (res?.ok === false) throw new Error(res.error || t('errors.operationFailed'))
+  return res
+}
+
+function applyDav(res) {
+  dav.enabled = res?.enabled !== false
+  dav.port = res?.port || 0
+  dav.conflict = !!res?.conflict
+  dav.accounts = res?.accounts || []
+  // Follow the running port unless the field is being typed in. A conflict is
+  // the other exception: settings still hold the chosen port, so the field keeps
+  // showing it and the warning explains which one is live right now.
+  if (!portEdited.value && !dav.conflict) davForm.port = dav.port
+}
+
+async function refreshDav() {
+  try {
+    applyDav(unwrapDav(await window.ske.webdav.info()))
+  } catch {
+    dav.accounts = []
+  }
+}
+
+/** Start or stop the listener. The accounts are untouched either way. */
+async function toggleDav(enabled) {
+  if (davToggling.value) return
+  davToggling.value = true
+  try {
+    // The port about to come back belongs to a fresh listener: let it sync.
+    portEdited.value = false
+    applyDav(unwrapDav(await window.ske.webdav.update({ enabled })))
+    if (enabled) toast(t('settings.dav.enabledToast'), 'ok')
+    else toast(t('settings.dav.disabledToast'), 'ok')
+  } catch (err) {
+    toast(err?.message || t('errors.operationFailed'), 'error')
+    // The checkbox is bound to the server's answer, so re-reading it is enough
+    // to move the switch back where it was.
+    await refreshDav()
+  } finally {
+    davToggling.value = false
+  }
+}
+
+async function saveDavPort() {
+  try {
+    const res = unwrapDav(await window.ske.webdav.update({ port: davForm.port }))
+    // The submitted value is the running one from here on: let refreshes follow.
+    portEdited.value = false
+    applyDav(res)
+    toast(t('settings.dav.saved'), 'ok')
+  } catch (err) {
+    toast(err?.message || t('errors.operationFailed'), 'error')
+  }
+}
+
+/*
+ * Adding, editing and removing an account is a sitting's work, not a field this
+ * card keeps: it all lives in `DavAccountsDialog`, which hands back the new list
+ * and lets `applyDav` store it here.
+ */
 
 /**
  * Mirrors `MIN_PASSWORD_LENGTH` in `src/main/security.js`.
@@ -504,10 +684,15 @@ onMounted(() => {
   // the same push channel as the dedicated page.
   loadEmbedded()
   stopEmbedded = bindEmbedded()
+  refreshDav()
+  // Unlocking a library or connecting a profile happens on other pages; coming
+  // back from the file manager is the natural moment to re-read that state.
+  window.addEventListener('focus', refreshDav)
 })
 onUnmounted(() => {
   clearInterval(usageTimer)
   stopEmbedded()
+  window.removeEventListener('focus', refreshDav)
 })
 
 /**
@@ -673,10 +858,41 @@ async function submitLockDialog(payload) {
   cursor: pointer;
 }
 
+/* A card-level state badge sits beside the title: it describes the card, not the
+   first thing inside it. */
+.card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.card-head h3 {
+  margin-bottom: 0;
+}
+
 .status-line {
   display: flex;
   gap: 8px;
   margin-bottom: 14px;
+}
+
+/* The port is a field, not a switch row, so it does not get the row's own
+   separator: without this rule it reads as part of the switch above. */
+.field.dav-port {
+  padding-top: 12px;
+  border-top: 1px solid var(--line-soft);
+}
+
+/* The account row and the note under it answer different questions — "who can
+   get in" and "what they may do" — so a hairline keeps them from reading as one
+   paragraph.
+   No top margin: the rule belongs to the row above it, and any margin here
+   would push the row's content up between the two hairlines. */
+.hint.dav-note {
+  margin: 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--line-soft);
 }
 
 /* Live cache usage: same rhythm as the switch rows above, with the numbers
@@ -741,13 +957,6 @@ async function submitLockDialog(payload) {
   width: 22px;
 }
 
-.check {
-  width: 16px;
-  height: 16px;
-  margin-left: 4px;
-  accent-color: var(--accent);
-  cursor: pointer;
-}
 
 .about {
   display: flex;

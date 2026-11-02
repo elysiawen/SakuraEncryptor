@@ -24,6 +24,7 @@
     <string name="transfers_resume_download">Resume download</string>
     <string name="transfers_saved">Saved to %1$s</string>
     <string name="transfers_saved_device">Saved on this device · %1$s</string>
+    <string name="transfers_storing_cloud">Writing to cloud</string>
     <string name="transfers_tasks">No tasks</string>
     <string name="transfers_transfers">No transfers</string>
     <string name="transfers_upload_files_cloud_folder_download_encrypted">Upload files to a cloud folder or download encrypted files, and the tasks appear here. Encryption and decryption run on this device and continue when you leave the page.</string>
@@ -31,5 +32,8 @@
     <string name="transfers_uploading">Uploading</string>
     <string name="transfers_uploads_progress">No uploads in progress</string>
     <string name="transfers_waiting">Waiting…</string>
+    <string name="transfers_waiting_cloud_write">The server is still writing this file to your cloud storage…</string>
     <string name="transfers_waiting_start">Waiting to start</string>
+    <string name="upload_payload_missing">The file kept for this upload is gone, so it has to be picked again</string>
+    <string name="upload_task_gone">That upload task is gone from the server after the restart — it may have finished; refresh the folder to check</string>
 </resources>

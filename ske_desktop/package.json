@@ -19,6 +19,9 @@
     "verify:names": "node scripts/verify-names.mjs",
     "verify:totp": "node scripts/verify-totp.mjs",
     "verify:cloud": "node scripts/verify-cloud.mjs",
+    "verify:upload": "node scripts/verify-upload.mjs",
+    "verify:resume": "node scripts/verify-resume.mjs",
+    "verify:history": "node scripts/verify-history.mjs",
     "verify:writer": "node scripts/verify-writer.mjs",
     "verify:jobs": "node scripts/verify-jobs.mjs",
     "verify:i18n": "node scripts/i18n-audit.mjs"

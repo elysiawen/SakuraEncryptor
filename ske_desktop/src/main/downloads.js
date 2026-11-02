@@ -46,12 +46,21 @@ export class DownloadQueue {
    * @param {import('./media-router.js').MediaRegistry} options.registry
    * @param {import('./cloud.js').CloudService} options.cloud
    * @param {import('./local-fs.js').LocalLibrary} options.localLibrary
+   * @param {import('./transfer-history.js').TransferHistory} [options.history]
    * @param {(jobs: object[]) => void} [options.onUpdate]
    */
-  constructor({ registry, cloud, localLibrary, onUpdate, maxConcurrent = DEFAULT_CONCURRENT } = {}) {
+  constructor({
+    registry,
+    cloud,
+    localLibrary,
+    history,
+    onUpdate,
+    maxConcurrent = DEFAULT_CONCURRENT,
+  } = {}) {
     this.registry = registry
     this.cloud = cloud
     this.localLibrary = localLibrary
+    this.history = history
     this.onUpdate = onUpdate
     this.maxConcurrent = Math.max(1, maxConcurrent)
     this.items = new Map()
@@ -85,6 +94,58 @@ export class DownloadQueue {
       startedAt: job.startedAt,
       finishedAt: job.finishedAt,
     }))
+  }
+
+  /**
+   * Put settled rows back after a restart.
+   *
+   * They go into the same map as live jobs, which is what makes them behave
+   * exactly like rows finished in this session — "show in folder" only needs
+   * `outPath`, and nothing in the UI can tell the difference.
+   */
+  restore(records = []) {
+    for (const record of records) {
+      if (!record?.id || this.items.has(record.id)) continue
+      this.items.set(record.id, {
+        id: record.id,
+        mode: record.mode === 'local' ? 'local' : 'cloud',
+        sessionId: '',
+        path: record.sourcePath || '',
+        name: record.name || '',
+        destDir: record.destDir || '',
+        status: ['done', 'failed', 'cancelled'].includes(record.status) ? record.status : 'failed',
+        totalBytes: record.totalBytes || 0,
+        doneBytes: record.doneBytes || 0,
+        outPath: record.outPath || '',
+        error: record.error || '',
+        startedAt: record.startedAt || 0,
+        finishedAt: record.finishedAt || 0,
+      })
+    }
+    if (records.length) this.#scheduleEmit()
+  }
+
+  /** What survives a restart: the row the user saw, and nothing else. */
+  #record(job) {
+    return {
+      kind: 'download',
+      id: job.id,
+      name: job.name,
+      mode: job.mode,
+      sourcePath: job.path,
+      destDir: job.destDir,
+      outPath: job.outPath,
+      status: job.status,
+      totalBytes: job.totalBytes,
+      doneBytes: job.doneBytes,
+      error: job.error,
+      startedAt: job.startedAt,
+      finishedAt: job.finishedAt,
+    }
+  }
+
+  #remember(job) {
+    this.history?.remember(this.#record(job))
   }
 
   add({ mode = 'cloud', sessionId = '', path: plainPath, name, destDir } = {}) {
@@ -193,6 +254,7 @@ export class DownloadQueue {
       if (mediaId) await this.registry.close(mediaId).catch(() => {})
       this.controllers.delete(job.id)
       job.finishedAt = Date.now()
+      this.#remember(job)
       this.#scheduleEmit()
     }
   }
@@ -205,6 +267,7 @@ export class DownloadQueue {
       job.status = 'cancelled'
       job.finishedAt = Date.now()
       this.pending = this.pending.filter((item) => item.id !== id)
+      this.#remember(job)
       this.#scheduleEmit()
       return true
     }
@@ -219,13 +282,52 @@ export class DownloadQueue {
 
   /** Drop finished rows so the list does not grow without bound. */
   clearFinished() {
+    const cleared = []
     for (const [id, job] of this.items) {
       if (['done', 'failed', 'cancelled'].includes(job.status)) {
         this.items.delete(id)
+        cleared.push(id)
       }
     }
+    // The history is what makes them come back on the next launch.
+    this.history?.forget('download', cleared)
     this.#scheduleEmit()
     return this.snapshot()
+  }
+
+  /**
+   * Drop one settled row and its history line, leaving the file on disk.
+   *
+   * @returns {boolean} whether a row was there to drop
+   */
+  forget(id) {
+    const job = this.items.get(id)
+    if (!job) return false
+    if (job.status === 'queued' || job.status === 'running') return false
+    this.items.delete(id)
+    this.history?.forget('download', [id])
+    this.#scheduleEmit()
+    return true
+  }
+
+  /**
+   * Delete the downloaded file, then the row.
+   *
+   * Only a finished download has a path worth deleting: a failed one already
+   * removed its half-written file, and `outPath` was cleared with it.
+   *
+   * @returns {Promise<boolean>} whether a row was dropped
+   */
+  async deleteFile(id) {
+    const job = this.items.get(id)
+    if (!job) return false
+    if (job.status !== 'done' || !job.outPath) return false
+
+    await fsp.rm(job.outPath, { force: true }).catch((err) => {
+      // A file the user already moved away is not an error worth a dialog.
+      if (err.code !== 'ENOENT') throw err
+    })
+    return this.forget(id)
   }
 
   cancelAll() {

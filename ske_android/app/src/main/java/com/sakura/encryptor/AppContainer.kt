@@ -33,6 +33,7 @@ import com.sakura.encryptor.core.security.KeyStoreManager
 import com.sakura.encryptor.core.session.NameKeyCache
 import com.sakura.encryptor.core.session.VaultSession
 import com.sakura.encryptor.core.subtitle.SubtitleRepository
+import com.sakura.encryptor.core.upload.PendingUploads
 import com.sakura.encryptor.core.upload.UploadManager
 import com.sakura.encryptor.data.db.SakuraDatabase
 import com.sakura.encryptor.data.prefs.SettingsStore
@@ -43,6 +44,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
+import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
@@ -239,13 +241,40 @@ class AppContainer(private val appContext: Context) {
     }
 
     /**
+     * Uploads the server may still be writing.
+     *
+     * In `filesDir`, beside the download partials: the system clears `cacheDir`
+     * between launches, and a task id is worthless if the file holding it is
+     * gone. The payload itself is never stored here — by the time a row is
+     * written, AList already has every byte.
+     */
+    val uploadPending: PendingUploads by lazy {
+        PendingUploads(File(appContext.filesDir, "pending_uploads.json")).load()
+    }
+
+    /**
      * Queue for encrypting and pushing local files to the cloud.
      *
-     * Kept in memory on purpose: the picked documents are content URIs whose
-     * read grant dies with the activity, so a restored job could only fail.
+     * The *job* is in memory on purpose: the picked documents are content URIs
+     * whose read grant dies with the activity, so a restored job could only
+     * fail. What a restart does resume is the server-side write, which needs no
+     * document at all.
      */
+    /**
+     * Containers kept for a chunked upload, in `filesDir` for the same reason
+     * as the rows: a half-sent upload is only resumable while the bytes are
+     * still readable after a restart.
+     */
+    val uploadPayloadDir: File by lazy { File(appContext.filesDir, "ske_uploads") }
+
     val uploadManager: UploadManager by lazy {
-        UploadManager(remoteRepository, vault, cryptoTaskRunner)
+        UploadManager(
+            repository = remoteRepository,
+            vault = vault,
+            runner = cryptoTaskRunner,
+            pending = uploadPending,
+            payloadDir = uploadPayloadDir,
+        )
     }
 
     init {
@@ -295,6 +324,15 @@ class AppContainer(private val appContext: Context) {
             // Sequenced after the profile restore so the embedded server's
             // login wins over a stored profile that now points nowhere.
             embeddedServer.restore()
+        }
+
+        // A task id only means something on the server that issued it, so the
+        // resume waits for a signed-in session — the stored profile above, or a
+        // manual login minutes later. Both arrive through the same flow.
+        scope.launch {
+            remoteRepository.isLoggedInFlow.collect { loggedIn ->
+                if (loggedIn) runCatching { uploadManager.restorePending() }
+            }
         }
 
         val invalidate = {

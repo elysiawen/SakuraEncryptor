@@ -123,6 +123,28 @@ contextBridge.exposeInMainWorld('ske', {
     pickPlayer: () => invoke('dialog:pickPlayer'),
   },
 
+  /**
+   * The libraries mounted as a WebDAV folder, so Explorer / Finder / Nautilus
+   * can browse them like a drive — and write to them: a save is encrypted into
+   * a container on the way in, so the drive stays plaintext to the user and
+   * ciphertext on disk.
+   */
+  webdav: {
+    info: () => invoke('webdav:info'),
+    /**
+     * `{ enabled?, port?, accounts? }` — persisted and rebound, so a mapped
+     * drive survives. `accounts` replaces the whole share list, each entry
+     * being `{ id?, name, token, username?, password?, kind, profileId, base }`.
+     */
+    update: (patch) => invoke('webdav:update', patch),
+    /**
+     * One folder of a share's target: `{ kind, profileId, path }` in,
+     * `{ path, parent, directories }` out. Works while mounting is off.
+     */
+    browse: (target) => invoke('webdav:browse', target),
+    open: (accountId) => invoke('webdav:open', accountId),
+  },
+
   cloud: {
     /** `otpCode` is only needed when the profile has 2FA (OpenList answer 402). */
     connect: (profileId, otpCode = '') => invoke('cloud:connect', profileId, otpCode),
@@ -167,6 +189,9 @@ contextBridge.exposeInMainWorld('ske', {
     cancel: (id) => invoke('downloads:cancel', id),
     clear: () => invoke('downloads:clear'),
     reveal: (id) => invoke('downloads:reveal', id),
+    /** Finished rows: drop the record, or the file it points at as well. */
+    forget: (id) => invoke('downloads:forget', id),
+    deleteFile: (id) => invoke('downloads:deleteFile', id),
     /** Returns an unsubscribe function so views can clean up on unmount. */
     onUpdate: (callback) => {
       const handler = (_event, snapshot) => callback(snapshot)
@@ -187,6 +212,9 @@ contextBridge.exposeInMainWorld('ske', {
     add: (payload) => invoke('uploads:add', payload),
     cancel: (id) => invoke('uploads:cancel', id),
     clear: () => invoke('uploads:clear'),
+    /** Finished rows: drop the record, or the cloud file it points at as well. */
+    forget: (id) => invoke('uploads:forget', id),
+    deleteRemote: (id) => invoke('uploads:deleteRemote', id),
     /** Returns an unsubscribe function so views can clean up on unmount. */
     onUpdate: (callback) => {
       const handler = (_event, snapshot) => callback(snapshot)

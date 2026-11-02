@@ -84,6 +84,22 @@ data class RenameRequest(val path: String, val name: String)
 @Serializable
 data class RemoveRequest(val dir: String, val names: List<String>)
 
+/**
+ * One entry of `/api/task/upload/info`.
+ *
+ * [progress] is the server's own write towards the storage backend, not the
+ * bytes we sent: with `As-Task` the request returns as soon as the body has
+ * arrived, and the file only lands in the cloud when this reaches 100.
+ */
+@Serializable
+data class UploadTaskInfo(
+    val id: String = "",
+    val name: String? = null,
+    val state: String? = null,
+    val progress: Double = 0.0,
+    val error: String? = null,
+)
+
 /** A cloud entry with its encrypted name already decrypted for display. */
 data class DecryptedEntry(
     val raw: FileEntry,

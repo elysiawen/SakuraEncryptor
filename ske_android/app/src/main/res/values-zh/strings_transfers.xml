@@ -24,6 +24,7 @@
     <string name="transfers_resume_download">继续下载</string>
     <string name="transfers_saved">已保存至 %1$s</string>
     <string name="transfers_saved_device">已保存到本机 · %1$s</string>
+    <string name="transfers_storing_cloud">写入云端</string>
     <string name="transfers_tasks">暂无任务</string>
     <string name="transfers_transfers">没有传输任务</string>
     <string name="transfers_upload_files_cloud_folder_download_encrypted">在云端目录中上传文件，或下载加密文件，任务会出现在这里。加密与解密都在本机完成，切换页面不影响进度。</string>
@@ -31,5 +32,8 @@
     <string name="transfers_uploading">上传中</string>
     <string name="transfers_uploads_progress">暂无进行中的上传</string>
     <string name="transfers_waiting">等待中…</string>
+    <string name="transfers_waiting_cloud_write">服务器还在把文件写入你的云端存储…</string>
     <string name="transfers_waiting_start">等待开始</string>
+    <string name="upload_payload_missing">这次上传保存的文件已经不见了，需要重新选择文件</string>
+    <string name="upload_task_gone">重启后找不到了服务器上的这个上传任务，它可能已经完成——请刷新目录确认</string>
 </resources>

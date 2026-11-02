@@ -149,9 +149,10 @@ export function createProviderSession({
     /**
      * Upload a file.
      *
-     * @param {(ratio: number) => void} [options.onProgress] 0..1, per file
+     * @param {object} [options]
+     * @param {(progress: {sent: number, stored: number|null, phase: string}) => void} [options.onProgress]
      */
-    async function uploadFile(path, file, asTask = false, options = {}) {
+    async function uploadFile(path, file, asTask = true, options = {}) {
         if (!state.server) restoreSession()
         return remoteUploadFile(remoteContext(), getAbsPath(path), file, {
             asTask,

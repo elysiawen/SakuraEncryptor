@@ -93,19 +93,46 @@
           </div>
 
           <div v-if="current.key !== 'finished'" class="bar">
-            <div
-              class="fill"
-              :class="{ failed: job.status === 'failed' }"
-              :style="{ width: `${percent(job)}%` }"
-            />
+            <!-- A download is one stream; an upload is two: the bytes the
+                 server took delivery of, and the bytes it managed to write
+                 through to the storage backend. -->
+            <template v-if="job.kind === 'download'">
+              <div
+                class="fill"
+                :class="{ failed: job.status === 'failed' }"
+                :style="{ width: `${percent(job)}%` }"
+              />
+            </template>
+            <template v-else>
+              <div
+                v-if="job.phase === 'encrypting'"
+                class="fill sent"
+                :style="{ width: `${encryptPercent(job)}%` }"
+              />
+              <template v-else>
+                <div class="fill sent" :style="{ width: `${sentPercent(job)}%` }" />
+                <div
+                  class="fill stored"
+                  :class="{ failed: job.status === 'failed' }"
+                  :style="{ width: `${storedPercent(job)}%` }"
+                />
+              </template>
+              <div v-if="isStoringUnknown(job)" class="sweep" />
+            </template>
           </div>
 
           <div class="foot">
             <span class="kind">
               {{ job.kind === 'download' ? $t('transfers.kindDownload') : $t('transfers.kindUpload') }}
             </span>
-            <span class="mono">
+            <span v-if="job.kind === 'download'" class="mono">
               {{ formatSize(job.doneBytes) }} / {{ formatSize(job.totalBytes) }}
+            </span>
+            <span v-else class="mono">
+              {{ formatSize(job.sentBytes) }} / {{ formatSize(uploadTotal(job)) }}
+            </span>
+            <span v-if="showsCloud(job)" class="mono cloud">
+              {{ $t('transfers.cloudPercent', { percent: storedPercent(job) }) }}
             </span>
 
             <span v-if="job.error" class="err" :title="job.error">{{ job.error }}</span>
@@ -133,22 +160,62 @@
               >
                 {{ $t('common.cancel') }}
               </button>
+
+              <!-- Finished rows keep the two actions apart: wanting the row gone
+                   should not force deleting the file, and the other way round. -->
+              <button
+                v-if="deletable(job)"
+                class="ghost sm danger-text"
+                type="button"
+                @click="askDeleteFile(job)"
+              >
+                {{
+                  job.kind === 'download'
+                    ? $t('transfers.deleteLocalFile')
+                    : $t('transfers.deleteRemoteFile')
+                }}
+              </button>
+              <button
+                v-if="isFinished(job)"
+                class="ghost sm"
+                type="button"
+                @click="forgetRow(job)"
+              >
+                {{ $t('transfers.deleteRecord') }}
+              </button>
             </div>
           </div>
         </article>
       </div>
     </template>
+
+    <ConfirmDialog
+      :visible="removal.show"
+      :title="
+        removal.job?.kind === 'download'
+          ? $t('transfers.deleteLocalFile')
+          : $t('transfers.deleteRemoteFile')
+      "
+      :description="removalDescription"
+      :busy="removal.busy"
+      :error="removal.error"
+      @cancel="removal.show = false"
+      @confirm="confirmDeleteFile"
+    />
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
+import ConfirmDialog from '../components/ConfirmDialog.vue'
 import EmptyState from '../components/EmptyState.vue'
 import { patchSettings, session, toast } from '../state/session.js'
 import {
   cancelDownload,
   clearDownloads,
+  deleteDownloadFile,
   downloads,
+  forgetDownload,
   refreshDownloads,
   revealDownload,
   subscribeDownloads,
@@ -156,6 +223,8 @@ import {
 import {
   cancelUpload,
   clearUploads,
+  deleteUploadFile,
+  forgetUpload,
   refreshUploads,
   subscribeUploads,
   uploads,
@@ -243,16 +312,69 @@ function percent(job) {
   return Math.min(100, Math.round((job.doneBytes / job.totalBytes) * 100))
 }
 
+/** Denominator for an upload: the container, which is what actually moves. */
+function uploadTotal(job) {
+  return job.uploadBytes || job.totalBytes || 0
+}
+
+function ratioBytes(bytes, job) {
+  const total = uploadTotal(job)
+  if (!total) return 0
+  return Math.min(100, Math.round(((bytes || 0) / total) * 100))
+}
+
+/** Delivered to AList — the light blue. */
+function sentPercent(job) {
+  if (job.status === 'done') return 100
+  return ratioBytes(job.sentBytes, job)
+}
+
+/** Written through to the storage backend — the solid blue on top of it. */
+function storedPercent(job) {
+  if (job.status === 'done') return 100
+  return job.storedBytes === null ? 0 : ratioBytes(job.storedBytes, job)
+}
+
+function encryptPercent(job) {
+  return Math.min(100, Math.round((job.encryptRatio || 0) * 100))
+}
+
+/**
+ * Delivered, but the server has not said how far the cloud write got.
+ *
+ * Most backends can only be watched through their own upload task; when that
+ * is unavailable the bar keeps that part honest by sweeping rather than
+ * inventing a percentage.
+ */
+function isStoringUnknown(job) {
+  return (
+    job.status === 'running' &&
+    job.phase === 'storing' &&
+    job.storedBytes === null &&
+    sentPercent(job) > 0
+  )
+}
+
+function showsCloud(job) {
+  return job.kind === 'upload' && job.status === 'running' && job.storedBytes !== null
+}
+
 function statusText(job) {
   switch (job.status) {
     case 'queued':
       return t('transfers.statusQueued')
     case 'running':
-      // Uploading has two visible stages; saying which one is running explains
-      // why a big file sits at 50% while the network is idle. The transfer
-      // itself has no percentage — only the encrypting half is measurable.
+      // Uploading has three visible stages, and saying which one is running is
+      // the point: the file is on the server long before it is on the cloud,
+      // and only the second number explains why the network looks idle.
       if (job.kind === 'upload') {
-        return job.phase === 'encrypting' ? t('transfers.statusEncrypting') : t('transfers.statusUploading')
+        if (job.phase === 'encrypting') return t('transfers.statusEncrypting')
+        if (job.phase === 'storing') {
+          return job.storedBytes === null
+            ? t('transfers.statusStoringPending')
+            : t('transfers.statusStoring', { percent: storedPercent(job) })
+        }
+        return t('transfers.statusUploading', { percent: sentPercent(job) })
       }
       return `${percent(job)}%`
     case 'done':
@@ -303,6 +425,63 @@ async function clearFinished() {
   try {
     await clearDownloads()
     await clearUploads()
+  } catch (err) {
+    toast(err.message, 'error')
+  }
+}
+
+/**
+ * Whether the file behind a settled row can be deleted from here.
+ *
+ * A download needs the path it actually wrote; an upload needs the name it was
+ * stored under, which rows recorded before that existed do not have — those can
+ * still be forgotten, just not deleted from the cloud.
+ */
+function deletable(job) {
+  if (job.status !== 'done') return false
+  return job.kind === 'download' ? Boolean(job.outPath) : Boolean(job.remoteName)
+}
+
+const removal = reactive({ show: false, job: null, busy: false, error: '' })
+
+const removalDescription = computed(() => {
+  const job = removal.job
+  if (!job) return ''
+  return job.kind === 'download'
+    ? t('transfers.deleteLocalFileDesc', { name: job.name })
+    : t('transfers.deleteRemoteFileDesc', { name: job.name, dir: job.dir })
+})
+
+function askDeleteFile(job) {
+  removal.job = job
+  removal.error = ''
+  removal.busy = false
+  removal.show = true
+}
+
+async function confirmDeleteFile() {
+  const job = removal.job
+  if (!job) return
+
+  removal.busy = true
+  try {
+    if (job.kind === 'download') await deleteDownloadFile(job.id)
+    else await deleteUploadFile(job.id)
+    removal.show = false
+    toast(t('transfers.deletedFile'), 'ok')
+  } catch (err) {
+    // The row stays: it is the only handle on a file the storage refused.
+    removal.error = err.message
+  } finally {
+    removal.busy = false
+  }
+}
+
+/** Drop the row only; the file stays wherever it is. */
+async function forgetRow(job) {
+  try {
+    if (job.kind === 'download') await forgetDownload(job.id)
+    else await forgetUpload(job.id)
   } catch (err) {
     toast(err.message, 'error')
   }
@@ -424,22 +603,63 @@ async function clearFinished() {
   white-space: nowrap;
 }
 
+/* Two layers on one track: the pale part is what the server has taken delivery
+   of, the solid part is what it has written through to the storage backend.
+   The solid one sits on top and grows from the left, so the pale tail is
+   exactly "already in AList, not in the cloud yet". */
 .bar {
-  height: 4px;
+  position: relative;
+  height: 5px;
   border-radius: 999px;
   background: var(--line-strong);
   overflow: hidden;
 }
 
 .fill {
-  height: 100%;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
   border-radius: 999px;
   background: var(--accent);
   transition: width 0.2s ease;
 }
 
+.fill.sent {
+  background: color-mix(in srgb, var(--accent) 38%, transparent);
+}
+
 .fill.failed {
   background: var(--danger);
+}
+
+/* Delivered, but the cloud write cannot be measured: a moving band says "still
+   working" without inventing a percentage nobody reports. */
+.sweep {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 45%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--accent) 90%, transparent),
+    transparent
+  );
+  animation: sweep 1.5s linear infinite;
+}
+
+@keyframes sweep {
+  from {
+    left: -45%;
+  }
+  to {
+    left: 100%;
+  }
+}
+
+.cloud {
+  color: var(--accent-strong);
 }
 
 .foot {
@@ -479,5 +699,15 @@ async function clearFinished() {
   margin-left: auto;
   display: flex;
   gap: 6px;
+}
+
+/* Deleting a file is the one action here that cannot be undone, so it reads
+   red even before the dialog explains it. */
+.danger-text {
+  color: var(--danger);
+}
+
+.danger-text:hover {
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
 }
 </style>

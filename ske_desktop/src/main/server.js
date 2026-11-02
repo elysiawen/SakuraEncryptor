@@ -93,6 +93,7 @@ async function serveStatic(res, root, pathname) {
  * @param {object} options
  * @param {import('./media-router.js').MediaRegistry} options.registry
  * @param {string} [options.rendererDir] directory of the built renderer
+ * @param {object} [options.cloud]
  * @returns {Promise<{ port: number, token: string, origin: string, close: () => Promise<void> }>}
  */
 export async function startServer({ registry, rendererDir, cloud }) {
@@ -310,6 +311,87 @@ export async function startServer({ registry, rendererDir, cloud }) {
     port,
     token,
     origin: `http://127.0.0.1:${port}`,
+    close: () =>
+      new Promise((resolve) => {
+        server.closeAllConnections?.()
+        server.close(() => resolve())
+      }),
+  }
+}
+
+/**
+ * The drive-mapped view of the libraries, on its own listener.
+ *
+ * Separate from the server above on purpose. That one is internal — the renderer
+ * and its media requests — and has to stay on an ephemeral port with a token
+ * that rotates every launch. This one is an address a user types into "map
+ * network drive", so its port and credential are persisted and editable;
+ * folding it into the other listener would mean either rotating the drive's
+ * address every launch or freezing the internal one.
+ *
+ * @param {object} options
+ * @param {import('./webdav.js').WebdavGateway} options.webdav
+ * @param {number} [options.port] preferred port; 0 lets the OS choose
+ * @param {string} [options.host]
+ * @returns {Promise<{ port: number, origin: string, conflict: boolean, close: () => Promise<void> }>}
+ */
+export async function startDavServer({ webdav, port = 0, host = '127.0.0.1' }) {
+  const create = () =>
+    http.createServer((req, res) => {
+      let url
+      try {
+        url = new URL(req.url, 'http://127.0.0.1')
+      } catch {
+        sendText(res, 400, 'Bad request')
+        return
+      }
+
+      webdav
+        .handle(req, res, url)
+        .then((handled) => {
+          // The gateway declines anything it does not own; without this the
+          // request would be dropped here and the client would wait forever.
+          if (!handled && !res.headersSent) sendText(res, 404, 'Not found')
+        })
+        .catch((err) => {
+          console.error('[dav] unhandled:', err.message)
+          if (!res.headersSent) sendText(res, 500, err.message)
+          else res.destroy(err)
+        })
+    })
+
+  const listen = (wanted) =>
+    new Promise((resolve, reject) => {
+      const server = create()
+      const onError = (err) => {
+        server.close()
+        reject(err)
+      }
+      server.once('error', onError)
+      server.listen(wanted, host, () => {
+        server.off('error', onError)
+        server.on('error', (err) => console.error('[dav] server:', err.message))
+        resolve(server)
+      })
+    })
+
+  let server
+  let conflict = false
+  try {
+    server = await listen(port)
+  } catch (err) {
+    // The chosen port is taken. Serve on any free one and say so, rather than
+    // refusing to start and leaving an already-mapped drive pointing at nothing.
+    if (err.code !== 'EADDRINUSE' || port === 0) throw err
+    conflict = true
+    server = await listen(0)
+  }
+
+  const { port: actual } = server.address()
+  return {
+    port: actual,
+    origin: `http://${host}:${actual}`,
+    conflict,
     close: () =>
       new Promise((resolve) => {
         server.closeAllConnections?.()

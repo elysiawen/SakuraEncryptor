@@ -442,7 +442,11 @@ private fun UploadCard(
         UploadStatus.RUNNING -> Tone(
             MaterialTheme.colorScheme.secondaryContainer,
             MaterialTheme.colorScheme.onSecondaryContainer,
-            if (task.phase == UploadPhase.ENCRYPTING) t(R.string.transfers_encrypting) else t(R.string.transfers_uploading),
+            when (task.phase) {
+                UploadPhase.ENCRYPTING -> t(R.string.transfers_encrypting)
+                UploadPhase.UPLOADING -> t(R.string.transfers_uploading)
+                UploadPhase.STORING -> t(R.string.transfers_storing_cloud)
+            },
         )
 
         UploadStatus.DONE -> Tone(
@@ -717,6 +721,8 @@ private fun uploadDetail(task: UploadTask): String = when (task.status) {
         UploadPhase.ENCRYPTING -> t(R.string.transfers_encrypting_device)
         UploadPhase.UPLOADING ->
             "${formatBytes(task.doneBytes)} / ${formatBytes(task.totalBytes)}"
+
+        UploadPhase.STORING -> t(R.string.transfers_waiting_cloud_write)
     }
 
     UploadStatus.DONE -> t(R.string.transfers_saved, task.dir)

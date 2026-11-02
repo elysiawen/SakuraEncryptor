@@ -7,9 +7,10 @@ import okhttp3.OkHttpClient
 /**
  * Thin AList client.
  *
- * AList has no chunked upload endpoint, so the shared form upload from
- * [RemoteClient] is its only upload path. The embedded-server admin surface
- * lives in the `openlist` flavor, so builds without it carry no part of it.
+ * AList has no chunked upload endpoint, so uploads go through the shared raw
+ * body (`As-Task`) or form path in [RemoteClient]; the task mode is what makes
+ * an upload resumable across restarts. The embedded-server admin surface lives
+ * in the `openlist` flavor, so builds without it carry no part of it.
  */
 class AListApi(
     client: OkHttpClient,

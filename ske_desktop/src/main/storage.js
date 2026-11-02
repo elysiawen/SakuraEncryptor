@@ -72,6 +72,38 @@ export const DEFAULT_SETTINGS = {
     /** Recorded by the embedded service: the tag that last started cleanly. */
     installedTag: '',
   },
+  /**
+   * The drive-mapped view of the libraries.
+   *
+   * Both values are persisted so a mapped network drive survives a restart: a
+   * port that changes every launch would break the mapping, and a token that
+   * changes would break the URL. `port: 0` means "pick a free one now and keep
+   * it", which is how the first launch fills this in.
+   *
+   * The token is sealed like a profile password — it is the only credential in
+   * front of a whole library over loopback.
+   *
+   * `accounts` replaced the single `token`: one share per entry, each with its
+   * own token, credentials and target (see `webdav.js`). Both secrets are
+   * sealed — a mapped drive has to survive a restart, which means the password
+   * is kept rather than minted per launch. `token` stays as the legacy field a
+   * pre-accounts build wrote; it is read once and then migrated into an
+   * account.
+   */
+  webdav: {
+    /**
+     * Whether the listener runs at all.
+     *
+     * Mounting is a feature, not a law: someone who copies files out once a
+     * month should not keep a port open the rest of it. Off means no listener
+     * and no port, while the shares stay configured for the next time it is
+     * switched on.
+     */
+    enabled: true,
+    port: 0,
+    token: null,
+    accounts: [],
+  },
 }
 
 function userDataPath(name) {
@@ -176,6 +208,7 @@ export class Storage {
         download: { ...DEFAULT_SETTINGS.download, ...(settings.download || {}) },
         window: { ...DEFAULT_SETTINGS.window, ...(settings.window || {}) },
         embedded: { ...DEFAULT_SETTINGS.embedded, ...(settings.embedded || {}) },
+        webdav: { ...DEFAULT_SETTINGS.webdav, ...(settings.webdav || {}) },
       }
     }
 

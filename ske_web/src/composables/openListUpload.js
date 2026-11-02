@@ -65,7 +65,8 @@ export async function uploadMultipart(ctx, absPath, file, { onProgress } = {}) {
         }
     }
     let receivedBytes = Number(session.received_bytes) || 0
-    onProgress?.(Math.min(1, receivedBytes / file.size))
+    const sentRatio = () => Math.min(1, receivedBytes / Math.max(1, file.size))
+    onProgress?.({ sent: sentRatio(), stored: null, phase: 'uploading' })
 
     try {
         for (let index = 0; index < totalChunks; index += 1) {
@@ -74,8 +75,12 @@ export async function uploadMultipart(ctx, absPath, file, { onProgress } = {}) {
             const blob = file.slice(start, Math.min(file.size, start + chunkSize))
             const snapshot = await sendChunk(ctx, uploadId, index, blob)
             receivedBytes = Math.max(receivedBytes, Number(snapshot?.received_bytes) || 0)
-            onProgress?.(Math.min(1, receivedBytes / file.size))
+            onProgress?.({ sent: sentRatio(), stored: null, phase: 'uploading' })
         }
+
+        // Every part is on the server; the merge is what moves the bytes into
+        // the storage backend, and it reports nothing of its own.
+        onProgress?.({ sent: 1, stored: null, phase: 'storing' })
 
         const completeRes = await fetch(`${ctx.server}/api/fs/multipart/complete`, {
             method: 'POST',
@@ -85,7 +90,7 @@ export async function uploadMultipart(ctx, absPath, file, { onProgress } = {}) {
         if (!completeRes.ok || completeJson?.code !== 200) {
             throw new Error(completeJson?.message || t('errors.chunkMergeFailed'))
         }
-        onProgress?.(1)
+        onProgress?.({ sent: 1, stored: 1, phase: 'storing' })
         return completeJson.data
     } catch (err) {
         // Best effort: do not leave a session (and its temp chunks) behind.

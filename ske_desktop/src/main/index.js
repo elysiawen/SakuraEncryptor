@@ -1,15 +1,18 @@
 import { app, BrowserWindow, Menu, shell, webContents } from 'electron'
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { MediaRegistry } from './media-router.js'
-import { startServer } from './server.js'
-import { Storage } from './storage.js'
+import { startDavServer, startServer } from './server.js'
+import { sealSecret, Storage, unsealSecret } from './storage.js'
 import { Security } from './security.js'
 import { CloudService } from './cloud.js'
 import { ThumbDiskCache } from './thumb-cache.js'
 import { LocalLibrary } from './local-fs.js'
 import { UploadQueue } from './uploads.js'
+import { TransferHistory } from './transfer-history.js'
+import { PendingUploads } from './pending-uploads.js'
 import { JobQueue } from './jobs.js'
 import { DownloadQueue } from './downloads.js'
 import { listPlayers } from './external-player.js'
@@ -17,6 +20,7 @@ import { createTray } from './tray.js'
 import { registerIpc } from './ipc.js'
 import { applyLanguage, t } from './i18n.js'
 import { EmbeddedService } from './embedded/index.js'
+import { WebdavGateway } from './webdav.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const rootDir = path.resolve(here, '../..')
@@ -49,6 +53,249 @@ thumbCache.load().catch(() => {})
 const cloud = new CloudService({ thumbCache })
 const localLibrary = new LocalLibrary()
 
+/**
+ * The libraries as a WebDAV folder, so Explorer / Finder / Nautilus can mount
+ * them. Mounting happens per library and per request; the gateway holds no
+ * secret of its own beyond the credentials it mints at launch.
+ */
+const webdav = new WebdavGateway({
+  registry,
+  localLibrary,
+  cloud,
+  // Shares bound to a cloud profile log in for themselves, so the gateway needs
+  // the vault to read that profile's secrets.
+  storage,
+  // A mounted folder is a second door into the same vault, so it has to close
+  // the moment the launch lock goes up.
+  isLocked: () => security.isEnabled() && !security.unlocked,
+})
+
+/** The dedicated WebDAV listener, once it is up. */
+let davServer = null
+
+/**
+ * The shares as the settings file keeps them, with the sealed tokens unsealed.
+ *
+ * A build before accounts wrote a single `token`; that becomes the one mixed
+ * share, which is exactly what it used to be. A token the user never chose is
+ * generated once and sealed with the OS keychain, like a profile password.
+ */
+function davShares() {
+  const saved = Array.isArray(storage.settings.webdav?.accounts) ? storage.settings.webdav.accounts : []
+  const shares = saved
+    .map((account) => ({
+      ...account,
+      token: unsealSecret(account.token),
+      password: unsealSecret(account.password),
+    }))
+    .filter((account) => account.id && account.token)
+  if (shares.length) return shares
+
+  // Nothing usable: migrate the single token a pre-accounts build wrote, or
+  // mint one. A keychain that cannot unseal counts as "nothing usable" too —
+  // a share with an empty token would be unreachable anyway.
+  const legacy = unsealSecret(storage.settings.webdav?.token)
+  return [
+    {
+      id: 'main',
+      name: t('settings.dav.defaultShare'),
+      token: legacy || crypto.randomBytes(16).toString('hex'),
+      kind: 'mixed',
+    },
+  ]
+}
+
+/** The live shares in the shape settings keeps: secrets sealed, never in clear. */
+function storedShares() {
+  return webdav.list().map((account) => ({
+    id: account.id,
+    name: account.name,
+    username: account.username,
+    kind: account.kind,
+    profileId: account.profileId,
+    base: account.base,
+    token: sealSecret(account.token),
+    // Sealed like the token: a mapped drive must keep working after a restart,
+    // which means the credentials have to outlive the process.
+    password: sealSecret(account.password),
+  }))
+}
+
+/**
+ * Start (or restart) the WebDAV listener on the persisted port.
+ *
+ * The port, the tokens and the credentials are settings, not per-launch values:
+ * a mapped network drive survives a restart only if all three stay put.
+ */
+async function startDav() {
+  webdav.configure(davShares())
+
+  const wanted = Number(storage.settings.webdav?.port) || 0
+  const running = await startDavServer({ webdav, port: wanted })
+  davServer = running
+
+  const patch = { accounts: storedShares() }
+  // `0` on the first launch means "whatever was free": record it so the next
+  // launch binds the same one. A conflict reports the temporary port but keeps
+  // the user's choice, so it is tried again next time.
+  if (!running.conflict && Number(storage.settings.webdav?.port) !== running.port) {
+    patch.port = running.port
+  }
+  // Kept in step with the first share so a downgrade still finds its token.
+  patch.token = sealSecret(webdav.list()[0]?.token || '')
+  await storage.patchSettings({ webdav: patch })
+
+  console.log(`[ske] webdav origin: ${running.origin} (${webdav.list().length} share(s))`)
+  return running
+}
+
+/**
+ * Stop the listener and let go of the files it had open.
+ *
+ * The shares themselves stay configured: switching mounting back on restores
+ * every address, because they only depend on settings, not on this process.
+ */
+async function stopDav() {
+  const running = davServer
+  davServer = null
+  if (!running) return
+  await running.close().catch(() => {})
+  await webdav.dispose().catch(() => {})
+}
+
+/** Whether the user wants the listener running; defaults on for older installs. */
+function davEnabled() {
+  return storage.settings.webdav?.enabled !== false
+}
+
+function davInfo() {
+  const enabled = davEnabled()
+
+  // Switched off: the shares are still there, so show what will come back when
+  // it is switched on — just without an address, because nothing is listening.
+  if (!enabled) {
+    return {
+      available: false,
+      enabled: false,
+      accounts: webdav.list().map((account) => ({ ...account, url: '' })),
+    }
+  }
+
+  if (!davServer) return { available: false, enabled: true, accounts: [] }
+  return {
+    available: true,
+    enabled: true,
+    origin: davServer.origin,
+    port: davServer.port,
+    conflict: !!davServer.conflict,
+    accounts: webdav.list().map((account) => ({
+      ...account,
+      url: `${davServer.origin}/${account.token}/`,
+    })),
+  }
+}
+
+/**
+ * Check the share list the settings card sent before it becomes live.
+ *
+ * The rules are ones the URL imposes — a token has to survive percent encoding
+ * unchanged and never contain the `/` that separates path segments — plus the
+ * target has to exist, or the share would only ever answer 423.
+ */
+function checkShares(inputs) {
+  if (!Array.isArray(inputs)) throw new Error(t('errors.davToken'))
+  // At least one share stays: there is no "mounting off" switch, so an empty
+  // list would come back as a regenerated default on the next launch.
+  if (!inputs.length) throw new Error(t('errors.davLastShare'))
+  const { profiles } = storage.listProfiles()
+  const ids = new Set()
+  const tokens = new Set()
+  const usernames = new Set()
+
+  return inputs.map((input) => {
+    const id = String(input?.id || '') || crypto.randomBytes(6).toString('hex')
+    if (ids.has(id)) throw new Error(t('errors.davShare'))
+    ids.add(id)
+
+    const token = String(input?.token || '').trim()
+    if (!/^[A-Za-z0-9._~-]{8,64}$/.test(token)) throw new Error(t('errors.davToken'))
+    if (tokens.has(token)) throw new Error(t('errors.davTokenUsed'))
+    tokens.add(token)
+
+    // Empty means "generate one"; a name the user typed has to fit a Basic
+    // header and the first path segment of a hand-written URL.
+    const username = String(input.username || '').trim()
+    if (username) {
+      if (!/^[A-Za-z0-9._~-]{1,32}$/.test(username)) throw new Error(t('errors.davUsername'))
+      const key = username.toLowerCase()
+      if (usernames.has(key)) throw new Error(t('errors.davUsernameUsed'))
+      usernames.add(key)
+    }
+
+    // Empty means "leave the running one alone"; main generates one for a new
+    // share and seals whatever ends up live.
+    const password = String(input.password || '')
+    if (password && (password.length < 8 || password.length > 128)) {
+      throw new Error(t('errors.davPassword'))
+    }
+
+    const kind = input.kind === 'local' || input.kind === 'cloud' ? input.kind : 'mixed'
+    const profileId = kind === 'cloud' ? String(input.profileId || '') : ''
+    if (kind === 'cloud' && !profiles.some((profile) => profile.id === profileId)) {
+      throw new Error(t('errors.davProfile'))
+    }
+
+    return {
+      id,
+      name: String(input.name || '').trim() || t('settings.dav.defaultShare'),
+      token,
+      username,
+      password,
+      kind,
+      profileId,
+      // A mixed share spans both libraries, so a base path would be ambiguous.
+      base: kind === 'mixed' ? '' : String(input.base || '').trim(),
+    }
+  })
+}
+
+/** Apply a new switch / port / share list from the settings card, then rebind. */
+async function updateDav(input = {}) {
+  const patch = {}
+  let rebind = false
+
+  if (input.port !== undefined) {
+    const port = Number(input.port)
+    if (!Number.isInteger(port) || port < 1024 || port > 65535) {
+      throw new Error(t('errors.davPort'))
+    }
+    patch.port = port
+    rebind = true
+  }
+
+  if (input.accounts !== undefined) {
+    webdav.configure(checkShares(input.accounts))
+    patch.accounts = storedShares()
+    patch.token = sealSecret(webdav.list()[0]?.token || '')
+  }
+
+  if (input.enabled !== undefined) {
+    patch.enabled = !!input.enabled
+    rebind = true
+  }
+
+  if (Object.keys(patch).length) await storage.patchSettings({ webdav: patch })
+
+  if (rebind) {
+    // Stop first either way: switching off has to release the port, and
+    // switching on (or changing it) must not inherit a stale listener.
+    await stopDav()
+    if (davEnabled()) await startDav()
+  }
+
+  return davInfo()
+}
+
 /** Push a snapshot to every window: progress must not be polled per window. */
 function broadcaster(channel) {
   return (payload) => {
@@ -58,11 +305,25 @@ function broadcaster(channel) {
   }
 }
 
+// Finished transfers outlive the window: the queue rows are what the transfers
+// page shows, and "what did I upload yesterday" is a question nobody wants to
+// answer by browsing the server.
+const transferHistory = new TransferHistory({
+  filePath: path.join(app.getPath('userData'), 'transfers.json'),
+})
+
+// Uploads whose storage write is still running on the server: the task id is
+// the only handle on them once this process is gone.
+const pendingUploads = new PendingUploads({
+  filePath: path.join(app.getPath('userData'), 'pending-uploads.json'),
+})
+
 const jobs = new JobQueue({ onUpdate: broadcaster('jobs:update') })
 const downloads = new DownloadQueue({
   registry,
   cloud,
   localLibrary,
+  history: transferHistory,
   onUpdate: broadcaster('downloads:update'),
 })
 
@@ -70,9 +331,111 @@ const downloads = new DownloadQueue({
 // nothing readable behind, and removed as soon as the job ends either way.
 const uploads = new UploadQueue({
   cloud,
+  history: transferHistory,
+  pending: pendingUploads,
   onUpdate: broadcaster('uploads:update'),
   tempDir: path.join(app.getPath('temp'), 'ske-upload'),
+  // A chunked upload keeps its container here until it either finishes or is
+  // given up on; `temp` may be cleared by the OS between launches.
+  payloadDir: path.join(app.getPath('userData'), 'upload-payloads'),
 })
+
+/**
+ * Pick up uploads the server is still running after a restart.
+ *
+ * Only tasks that already have an id are recoverable: without one the bytes
+ * never finished crossing to AList, and AList keeps nothing for an interrupted
+ * body — that row is simply dropped. With one, the storage backend is writing
+ * on its own clock, and this launch can watch it finish.
+ *
+ * A `chunk` row is the other half: the server only ever got some of the chunks,
+ * and the container is still on this machine, so the job continues by sending
+ * the rest of it.
+ */
+async function resumePendingUploads() {
+  const entries = pendingUploads.entries()
+  if (!entries.length) return
+
+  // One login per profile, shared by every task that belongs to it.
+  const sessions = new Map()
+  const sessionFor = (profileId) => {
+    if (!sessions.has(profileId)) {
+      sessions.set(
+        profileId,
+        (async () => {
+          const profile = profileId
+            ? storage.listProfiles().profiles.find((item) => item.id === profileId)
+            : null
+          if (!profile) throw new Error(t('errors.profileMissing'))
+          const secrets = storage.getSecrets(profileId)
+          const opened = await cloud.login({
+            profile,
+            password: secrets.password,
+            skePassword: secrets.skePassword,
+          })
+          return cloud.get(opened.sessionId)
+        })(),
+      )
+    }
+    return sessions.get(profileId)
+  }
+
+  for (const entry of entries) {
+    // A chunked upload has no task to claim: only some of the chunks reached
+    // the server, and the rest is still on this machine.
+    if (entry.mode === 'chunk') {
+      const payload = entry.payloadPath || ''
+      if (!payload || !fs.existsSync(payload)) {
+        // The kept container is gone, so there is nothing left to send and
+        // nothing to wait for. Say so instead of leaving a phantom row.
+        uploads.failPending(entry, t('errors.uploadPayloadMissing'))
+        continue
+      }
+      const { job, signal } = uploads.adoptChunk(entry)
+      // Not awaited: a slow login or a long upload must not hold the window.
+      // eslint-disable-next-line no-use-before-define
+      resumeChunkUpload(entry, job, signal, sessionFor)
+      continue
+    }
+    if (!entry.taskId) {
+      pendingUploads.remove(entry.id)
+      continue
+    }
+    const { job, signal } = uploads.adopt(entry)
+    // eslint-disable-next-line no-use-before-define
+    resumeUploadTask(entry, job, signal, sessionFor)
+  }
+}
+
+async function resumeUploadTask(entry, job, signal, sessionFor) {
+  try {
+    const session = await sessionFor(entry.profileId)
+    await session.client.waitForUploadTask(entry.taskId, {
+      size: job.uploadBytes,
+      signal,
+      onProgress: (progress) => {
+        if (!Number.isFinite(progress?.stored)) return
+        job.storedBytes = Math.min(job.uploadBytes, progress.stored)
+        uploads.touch()
+      },
+    })
+    uploads.finishRestored(job, 'done')
+  } catch (err) {
+    uploads.finishRestored(job, signal.aborted ? 'cancelled' : 'failed', err.message)
+  }
+}
+
+async function resumeChunkUpload(entry, job, signal, sessionFor) {
+  let session
+  try {
+    session = await sessionFor(entry.profileId)
+  } catch (err) {
+    // No account to send with: the container stays, the row is resolved.
+    uploads.finishRestored(job, 'failed', err.message)
+    return
+  }
+  await uploads.resumeChunk(job, session.client, { signal })
+}
 
 let server = null
 /** The window that owns dialogs and window geometry; not necessarily the only one. */
@@ -486,6 +849,21 @@ if (!app.requestSingleInstanceLock()) {
 
 app.whenReady().then(async () => {
   await storage.load()
+
+  // Rows finished in a previous run go back into the same maps as live jobs, so
+  // the transfers page renders history without a special case for it.
+  await transferHistory.load()
+  downloads.restore(transferHistory.recordsFor('download'))
+  uploads.restore(transferHistory.recordsFor('upload'))
+
+  // Uploads the server may still be writing: adopted into the queue and watched
+  // in the background, so the transfers page shows them moving again.
+  await pendingUploads.load()
+  // Containers left behind by a crash are dead weight; keep only the ones a
+  // pending row still needs before anything is adopted.
+  await uploads.sweepPayloads().catch(() => {})
+  resumePendingUploads().catch(() => {})
+
   // Before any window exists: the shell and the tray both ask for strings, and
   // `auto` can only be resolved here, where `app.getLocale()` is available.
   applyLanguage(storage.settings.language, app.getLocale())
@@ -499,6 +877,20 @@ app.whenReady().then(async () => {
 
   console.log(`[ske] loopback origin: ${server.origin}`)
 
+  // The shares exist whether or not the listener does: the settings card shows
+  // them while mounting is off, and switching it on must not need a restart.
+  webdav.configure(davShares())
+
+  // Off only when the user switched it off. A busy port must not stop the app
+  // from starting either: the listener falls back to a free one and the
+  // settings card says so.
+  if (davEnabled()) {
+    await startDav().catch((err) => {
+      console.error('[dav] cannot start:', err.message)
+      davServer = null
+    })
+  }
+
   if (!isDev) Menu.setApplicationMenu(null)
 
   ipcApi = registerIpc({
@@ -511,6 +903,9 @@ app.whenReady().then(async () => {
     downloads,
     uploads,
     embedded,
+    webdav,
+    davInfo,
+    updateDav,
     serverInfo: () => (server ? { origin: server.origin, token: server.token } : null),
     mainWindow: activeWindow,
     openWindow,
@@ -519,9 +914,13 @@ app.whenReady().then(async () => {
     stageWindows: stageWindowList,
     stageOwnerOf,
     closeMusicStage,
-    // Locking closes the player windows: leaving a video over the lock screen
-    // would defeat the lock.
-    onLock: destroyStageWindows,
+    // Locking closes the player windows and forgets the mounted libraries:
+    // leaving either behind would defeat the lock.
+    onLock: () => {
+      destroyStageWindows()
+      webdav.clearCloudSession()
+      webdav.dispose().catch(() => {})
+    },
     // The tray holds a native menu with the strings it was built with, so a
     // language switch has to hand it a newly built one.
     onLocaleChange: () => tray?.refresh?.(),
@@ -575,11 +974,20 @@ app.on('before-quit', async (event) => {
   event.preventDefault()
 
   clearTimeout(saveTimer)
+  // Seal the transfer history while the queue rows still mean something: the
+  // cancels below are this quit's doing, not the user's.
+  transferHistory.stop()
+  // What is still in flight has to be on disk *before* the queues are torn
+  // down: those rows are what the next launch resumes.
+  pendingUploads.flush()
   jobs.cancelAll()
   downloads.cancelAll()
   cloud.logoutAll()
   tray?.destroy()
   tray = null
+  await davServer?.close().catch(() => {})
+  davServer = null
+  await webdav.dispose().catch(() => {})
   await registry.closeAll().catch(() => {})
   // Before the media server: the built-in server owns a child process whose
   // database wants a clean shutdown on POSIX.

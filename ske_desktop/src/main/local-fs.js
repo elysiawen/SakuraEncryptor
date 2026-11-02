@@ -30,6 +30,11 @@ const IMAGE = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'avif', 'heic
 
 const collator = new Intl.Collator('zh-CN', { numeric: true, sensitivity: 'base' })
 
+/** Windows compares paths case-insensitively; a literal compare is a trap there. */
+function samePath(a, b) {
+  return process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b
+}
+
 function kindOf(name, ext) {
   const lower = ext || name.slice(name.lastIndexOf('.') + 1).toLowerCase()
   if (VIDEO.has(lower)) return 'video'
@@ -195,14 +200,39 @@ export class LocalLibrary {
   }
 
   /**
-   * Rename in place, keeping the entry as encrypted (or plain) as it was.
+   * Where a write of `relPath` must land, and what that write replaces.
+   *
+   * The stored name is a fresh token for the plaintext name, so an older
+   * container under a different token — or a plain file somebody dropped in by
+   * hand — would survive as a second row with the *same* display name. The
+   * caller removes `replace` before encrypting, which keeps every name unique.
+   */
+  async writeTarget(relPath) {
+    if (!this.unlocked) throw new Error(t('errors.localLocked'))
+    const parts = String(relPath).replace(/\\/g, '/').split('/').filter(Boolean)
+    const name = checkName(parts.pop(), t('errors.labelName'))
+    const dirRel = parts.length ? `/${parts.join('/')}` : '/'
+
+    const absolute = path.join(this.resolveInside(dirRel), `${encryptName(name, this.nameKey)}.ske`)
+    const existing = await this.#entry(relPath)
+    const replace = existing && !samePath(existing.absolute, absolute) ? existing.absolute : ''
+
+    // The container this write produces is now the truth for that name.
+    this.pathIndex.set(`/${[...parts, name].join('/')}`, absolute)
+    // `existed` decides 201 or 204 at the WebDAV layer: a replace is not a create.
+    return { absolute, name, replace, existed: !!existing }
+  }
+
+  /**
+   * Move or rename an entry, keeping it as encrypted (or plain) as it was.
    *
    * Same rule as the cloud library: a plain file must not gain an encrypted
    * name, and a container must keep its `.ske` marker.
    */
-  async rename(relPath, newName) {
+  async move(relPath, destDirRel, newName) {
     if (!this.unlocked) throw new Error(t('errors.localLocked'))
     const absolute = this.resolveInside(relPath)
+    if (absolute === this.root) throw new Error(t('errors.illegalPath'))
     const trimmed = checkName(newName, t('errors.labelName'))
 
     const storedName = path.basename(absolute)
@@ -212,9 +242,9 @@ export class LocalLibrary {
       ? `${encryptName(trimmed, this.nameKey)}${container ? '.ske' : ''}`
       : trimmed
 
-    const target = path.join(path.dirname(absolute), nextName)
+    const target = path.join(this.resolveInside(destDirRel), nextName)
     // `fs.rename` replaces silently on POSIX; refuse instead of losing a file.
-    if (target !== absolute) {
+    if (!samePath(target, absolute)) {
       const taken = await fsp.access(target).then(
         () => true,
         () => false,
@@ -224,7 +254,24 @@ export class LocalLibrary {
 
     await fsp.rename(absolute, target)
     this.#forget(relPath)
+    this.#forget(`/${[...String(destDirRel).split('/').filter(Boolean), trimmed].join('/')}`)
     return { name: trimmed, storedName: nextName }
+  }
+
+  /** Rename in place: the same rule, one folder. */
+  async rename(relPath, newName) {
+    return this.move(relPath, path.posix.dirname(String(relPath).replace(/\\/g, '/')), newName)
+  }
+
+  /** Resolve a plaintext path that may not exist; null when it does not. */
+  async #entry(relPath) {
+    try {
+      const absolute = this.resolveInside(relPath)
+      return { absolute, stat: await fsp.stat(absolute) }
+    } catch (err) {
+      if (err?.code === 'ENOENT') return null
+      throw err
+    }
   }
 
   /** Delete an entry from disk. There is no trash, so the UI confirms first. */
@@ -237,6 +284,17 @@ export class LocalLibrary {
     await fsp.rm(absolute, { recursive: true, force: false })
     this.#forget(relPath)
     return { removed: true }
+  }
+
+  /**
+   * Whether a display path exists right now.
+   *
+   * A cold index cannot answer for a file it never listed, so a caller that
+   * needs certainty lists the parent first — the WebDAV gateway does exactly
+   * that before a write or a delete.
+   */
+  async exists(relPath) {
+    return (await this.#entry(relPath)) !== null
   }
 
   /** Absolute path of a listed file, for the media registry. */

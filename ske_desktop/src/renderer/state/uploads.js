@@ -79,6 +79,19 @@ export async function clearUploads() {
   if (res.uploads) uploads.items = res.uploads
 }
 
+/** Finished rows: drop the record only, or the cloud file with it too. */
+export async function forgetUpload(id) {
+  const res = await window.ske.uploads.forget(id)
+  if (!res?.ok) throw new Error(res?.error || t('errors.cleanFailed'))
+  if (res.uploads) uploads.items = res.uploads
+}
+
+export async function deleteUploadFile(id) {
+  const res = await window.ske.uploads.deleteRemote(id)
+  if (!res?.ok) throw new Error(res?.error || t('errors.deleteFileFailed'))
+  if (res.uploads) uploads.items = res.uploads
+}
+
 /** Rows that still have work to do. */
 export function activeUploads() {
   return uploads.items.filter((item) => item.status === 'queued' || item.status === 'running')

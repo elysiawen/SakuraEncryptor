@@ -182,7 +182,9 @@ class RemoteRepository(
         parentPath: String,
         fileName: String,
         file: File,
+        asTask: Boolean = false,
         onProgress: ((bytesWritten: Long, contentLength: Long) -> Unit)? = null,
+        onTaskId: ((String) -> Unit)? = null,
         onCall: ((Call) -> Unit)? = null,
     ): Result<Unit> = runCatching {
         activeApi.upload(
@@ -191,9 +193,41 @@ class RemoteRepository(
             dirPath = session.absolutePath(parentPath),
             fileName = fileName,
             file = file,
+            asTask = asTask,
             onProgress = onProgress,
+            onTaskId = onTaskId,
             onCall = onCall,
         )
+    }
+
+    /** Whether an upload of [size] bytes would be chunked by the active backend. */
+    fun usesChunkedUpload(size: Long): Boolean = activeApi.usesChunkedUpload(size)
+
+    /**
+     * Watch an upload task the server is still running.
+     *
+     * Strict: once this process has been restarted there is no request left to
+     * fall back on, so a task that cannot be found is an error rather than a
+     * success with no evidence.
+     */
+    suspend fun waitForUploadTask(
+        taskId: String,
+        size: Long,
+        onProgress: ((Long, Long) -> Unit)? = null,
+    ): Result<Unit> = runCatching {
+        activeApi.waitForUploadTask(
+            server = session.server,
+            token = session.token,
+            taskId = taskId,
+            size = size,
+            onProgress = onProgress,
+            strict = true,
+        )
+    }
+
+    /** Stop a task the server is running on its own; best effort. */
+    suspend fun cancelUploadTask(taskId: String) {
+        activeApi.cancelUploadTask(session.server, session.token, taskId)
     }
 
     /** Decrypt a single listing entry's name, tolerating non-encrypted entries. */

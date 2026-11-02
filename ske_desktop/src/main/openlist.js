@@ -89,7 +89,7 @@ export class OpenListClient extends RemoteClient {
       }
     }
     let receivedBytes = Number(session.received_bytes) || 0
-    onProgress?.(Math.min(1, receivedBytes / Math.max(1, size)))
+    onProgress?.({ sent: Math.min(receivedBytes, size), stored: null, phase: 'uploading' })
 
     try {
       for (let index = 0; index < totalChunks; index += 1) {
@@ -99,8 +99,12 @@ export class OpenListClient extends RemoteClient {
         const blob = file.slice(start, Math.min(size, start + chunkSize))
         const snapshot = await this.#sendChunk(uploadId, index, blob, signal)
         receivedBytes = Math.max(receivedBytes, Number(snapshot?.received_bytes) || 0)
-        onProgress?.(Math.min(1, receivedBytes / Math.max(1, size)))
+        onProgress?.({ sent: Math.min(receivedBytes, size), stored: null, phase: 'uploading' })
       }
+
+      // Every part is on the server; the merge is what moves the bytes into
+      // the storage backend, and it reports nothing of its own.
+      onProgress?.({ sent: size, stored: null, phase: 'storing' })
 
       const completeRes = await fetch(`${this.server}/api/fs/multipart/complete`, {
         method: 'POST',
@@ -114,8 +118,8 @@ export class OpenListClient extends RemoteClient {
           completeJson?.code,
         )
       }
-      onProgress?.(1)
-      return true
+      onProgress?.({ sent: size, stored: size, phase: 'storing' })
+      return { sent: size, stored: size }
     } catch (err) {
       if (err.name === 'AbortError' || signal?.aborted) throw new Error(t('errors.cancelled'))
       // Best effort: do not leave a session (and its temp chunks) behind. The

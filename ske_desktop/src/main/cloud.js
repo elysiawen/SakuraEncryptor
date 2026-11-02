@@ -49,6 +49,27 @@ const REMOTE_THUMB_TTL_MS = 30 * 60_000
 // decrypted names, so the two frontends show an identical listing.
 const collator = new Intl.Collator('zh-CN', { numeric: true, sensitivity: 'base' })
 
+/** Paths already reported by `storedDirOf`; see the warning there. */
+const warnedPaths = new Set()
+
+/**
+ * Wording a storage uses for "this entry is not there".
+ *
+ * It matters because a WebDAV write has two requests behind one save: the
+ * listing that decides where the bytes go, and the upload itself. A storage's
+ * directory cache lags its objects by a beat, so both can be answering about a
+ * tree that changed a second ago — and "not there" is then a stale answer, not
+ * a failure.
+ */
+const MISSING = /不存在|not exist|no such file|not found|object not found/i
+
+/** Whether an error means "the storage does not have it", not "the call failed". */
+function isMissing(err) {
+  return err?.code === 'ENOENT' || MISSING.test(String(err?.message || ''))
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
 export function extensionOf(name = '') {
   const dot = name.lastIndexOf('.')
   return dot > 0 ? name.slice(dot + 1).toLowerCase() : ''
@@ -74,6 +95,29 @@ function splitPath(plainPath) {
     .replace(/\\/g, '/')
     .split('/')
     .filter(Boolean)
+}
+
+/** The folder a plain path lives in, spelled the way `list` keys it. */
+function plainDir(plainPath) {
+  const parts = splitPath(plainPath)
+  parts.pop()
+  return `/${parts.join('/')}`
+}
+
+/**
+ * Whether a stored entry answers to a plain name.
+ *
+ * Both spellings are legitimate: this app writes encrypted tokens, while a tree
+ * that arrived another way (created in the web UI, or before the app was pointed
+ * at this storage) keeps plain names.
+ */
+function entryNameMatches(storedName, plainName, nameKey) {
+  if (storedName === plainName) return true
+  try {
+    return decryptStoredName(storedName, nameKey) === plainName
+  } catch {
+    return false
+  }
 }
 
 export class CloudService {
@@ -140,6 +184,12 @@ export class CloudService {
       // stored as `token.ske` while a folder is a bare `token`: re-encrypting a
       // plain path cannot know which one it is looking at.
       pathIndex: new Map(),
+      // storedPath -> plaintext length for files written through WebDAV. The
+      // listing reports the ciphertext size, which is ~0.1% larger; a client
+      // that compares sizes after a copy would call the copy corrupt.
+      plainSizes: new Map(),
+      // Folders whose last listing predates a write made through this app.
+      staleDirs: new Set(),
       createdAt: Date.now(),
     }
 
@@ -193,6 +243,74 @@ export class CloudService {
    * Encryption remains the fallback for paths no listing has produced, e.g. a
    * deep link straight into the tree.
    */
+  /**
+   * Stored path of one plain folder, walking the tree when the index is cold.
+   *
+   * Re-encrypting a path reproduces only the tree this app wrote: a folder that
+   * came from somewhere else carries a plain name, and re-deriving it points at
+   * a token folder that was never there. The storage then answers "no such file
+   * or directory" for every path underneath — which is exactly how a save over
+   * WebDAV failed into a folder created outside the app.
+   *
+   * Listing each level is what teaches the real names; the walk also fills the
+   * index for the levels it passes, so a second write to the same folder costs
+   * no extra request.
+   */
+  async storedDirOf(sessionId, plainPath = '/') {
+    const session = this.get(sessionId)
+    try {
+      return await this.#walkStoredDir(session, plainPath)
+    } catch (err) {
+      // The index can outlive the folder it points at: a rename or delete made by
+      // another client leaves a stored path that no longer exists, and every
+      // write through it fails until the app restarts. Dropping the chain costs
+      // one listing and turns a dead mount back into a working one.
+      if (!isMissing(err)) throw err
+      this.#forgetChain(session, plainPath)
+      return await this.#walkStoredDir(session, plainPath)
+    }
+  }
+
+  async #walkStoredDir(session, plainPath) {
+    let stored = session.basePath
+    let plain = ''
+
+    for (const part of splitPath(plainPath)) {
+      plain += `/${part}`
+      const cached = session.pathIndex.get(plain)
+      if (cached) {
+        stored = cached
+        continue
+      }
+
+      const entries = await session.client.list(stored)
+      // Folders only: a file whose encrypted name happens to match would send
+      // the caller into `<file>/…`, which the storage answers with "no such file
+      // or directory" — the same wording as a genuinely missing folder.
+      const hit = entries.find(
+        (entry) => entry.is_dir && entryNameMatches(String(entry.name || ''), part, session.nameKey),
+      )
+      if (!hit) {
+        // One line per path: a client retrying a dead folder (Explorer does, every
+        // few seconds) must not turn the console into a wall of the same text.
+        if (!warnedPaths.has(plain)) {
+          warnedPaths.add(plain)
+          // English on purpose: the Windows console these land in is not UTF-8,
+          // and a mangled hint helps nobody.
+          console.warn(`[dav] folder not found: ${plain} (${entries.length} entries in ${stored})`)
+        }
+        // Tagged, not just worded: callers have to tell "the folder is gone from
+        // the index" from "the storage refused".
+        throw Object.assign(new Error(t('errors.entryGone')), { code: 'ENOENT' })
+      }
+
+      stored = joinPath(stored, String(hit.name))
+      session.pathIndex.set(plain, stored)
+    }
+
+    return stored
+  }
+
   toStoredPath(session, plainPath) {
     const parts = splitPath(plainPath)
     const indexed = session.pathIndex.get(`/${parts.join('/')}`)
@@ -236,6 +354,20 @@ export class CloudService {
   }
 
   /**
+   * Drop every ancestor mapping of one plain path.
+   *
+   * Narrower than `#forgetIndex` on purpose: `storedDirOf` repairs a chain, and
+   * a chain is exactly the mappings above the folder that failed.
+   */
+  #forgetChain(session, plainPath) {
+    let plain = ''
+    for (const part of splitPath(plainPath)) {
+      plain += `/${part}`
+      session.pathIndex.delete(plain)
+    }
+  }
+
+  /**
    * Everything an upload needs for one folder.
    *
    * Kept here so the renderer never sees the media password or the name key: the
@@ -249,7 +381,108 @@ export class CloudService {
       dir: this.toStoredPath(session, plainPath),
       password: session.skePassword,
       nameKey: session.nameKey,
+      // Which profile the server-side task belongs to: after a restart the
+      // session is gone, and only the profile can log back in to claim it.
+      profileId: session.profileId,
     }
+  }
+
+  /**
+   * Write one already-encrypted container over `plainPath`.
+   *
+   * A save from a file manager arrives as plaintext that was encrypted on the
+   * way in, so this is the only place a write lands. The stored name is derived
+   * from the plaintext one, which makes an older entry with the same name — a
+   * plain upload, or a container from a previous token — a *second* row in every
+   * listing. Those are cleaned up *after* the upload succeeds: deleting them
+   * first meant a failed upload left the folder empty, which is the worst of the
+   * two outcomes for a save.
+   *
+   * @param {string} sessionId
+   * @param {string} plainPath full display path of the file
+   * @param {string} filePath the finished container on disk
+   * @param {{ plainSize?: number }} [options] length the client sent, for size checks
+   */
+  async storeContainer(sessionId, plainPath, filePath, { plainSize = 0 } = {}) {
+    const session = this.get(sessionId)
+    const parts = splitPath(plainPath)
+    const name = checkName(parts.pop() || '', t('errors.labelName'))
+    const dirPlain = `/${parts.join('/')}`
+    const plainKey = `/${[...parts, name].join('/')}`
+
+    // The folder itself first: its real stored name may be a plain one, and
+    // `list(dirPlain)` cannot learn it — that writes the folder's *children*
+    // into the index, never the folder.
+    const storedDir = await this.storedDirOf(sessionId, dirPlain)
+    const storedPath = joinPath(storedDir, `${encryptName(name, session.nameKey)}.ske`)
+
+    // What already answers to this name. The listing is forced, because this is
+    // the question the storage's own cache answers wrong: it still shows a row
+    // for a file that was deleted outside the app, which is how an empty folder
+    // ends up replying "there is already a file with that name".
+    const answering = await this.#answeringEntries(session, dirPlain, name).catch(() => [])
+
+    const upload = () => session.client.upload(storedPath, filePath)
+
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        await upload()
+        break
+      } catch (err) {
+        // `op.Put` resolves the destination folder from the storage's object
+        // cache before a single byte is sent, and any listing that lands in
+        // between empties that cache. A WebDAV client polls the folder it copies
+        // into every few seconds, so the window is always open: the storage
+        // answers "no such file or directory" for a folder that is plainly there.
+        // A forced listing puts the folder back; the upload itself never started,
+        // so retrying costs nothing but the request. A short backoff matters
+        // more than the count: the poll that emptied the cache is over by then.
+        if (attempt >= 3 || !isMissing(err)) {
+          console.warn(`[dav] upload failed: ${storedPath} (${err.message})`)
+          throw err
+        }
+        await sleep(150 * 2 ** attempt)
+        await this.list(sessionId, dirPlain, { refresh: true }).catch(() => {})
+      }
+    }
+
+    session.pathIndex.set(plainKey, storedPath)
+    this.#forgetCaches(session, storedPath)
+    // After the caches are dropped: the plaintext length describes the file that
+    // is now there, so it must survive the invalidation above.
+    if (plainSize > 0) session.plainSizes.set(storedPath, plainSize)
+
+    for (const entry of answering) {
+      if (entry.stored === storedPath) continue
+      try {
+        await session.client.remove(entry.dir, [entry.leaf])
+        this.#forgetCaches(session, entry.stored)
+      } catch (err) {
+        // A row the cache kept after the storage dropped it: there is nothing to
+        // delete, and failing the save over it would be absurd.
+        if (!isMissing(err)) console.warn(`[dav] duplicate kept: ${entry.stored} (${err.message})`)
+      }
+    }
+
+    // The listing the storage already has predates this file.
+    session.staleDirs?.add(dirPlain)
+    // `existed` decides 201 or 204 at the WebDAV layer: a replace is not a create.
+    return { storedPath, existed: answering.length > 0 }
+  }
+
+  /**
+   * Files in one folder that answer to a plain name.
+   *
+   * Both spellings count: this app writes `token.ske`, while a tree that arrived
+   * another way keeps plain names. Kept as `{ dir, leaf }` rather than a full
+   * path so the caller can delete without re-parsing.
+   */
+  async #answeringEntries(session, dirPlain, name) {
+    const listing = await this.list(session.id, dirPlain, { refresh: true })
+    const dir = await this.storedDirOf(session.id, dirPlain)
+    return listing.entries
+      .filter((entry) => !entry.isDir && entry.name === name)
+      .map((entry) => ({ stored: joinPath(dir, entry.storedName), dir, leaf: entry.storedName }))
   }
 
   /** Signed URLs and previews for a path that was renamed or deleted. */
@@ -258,6 +491,7 @@ export class CloudService {
     session.thumbs.delete(storedPath)
     session.remoteThumbs.delete(storedPath)
     session.stamps.delete(storedPath)
+    session.plainSizes?.delete(storedPath)
   }
 
   /**
@@ -273,6 +507,7 @@ export class CloudService {
     const trimmed = checkName(name, t('errors.labelFolder'))
     const storedName = encrypt ? encryptName(trimmed, session.nameKey) : trimmed
     await session.client.mkdir(joinPath(this.toStoredPath(session, plainPath), storedName))
+    session.staleDirs?.add(plainPath)
     return { name: trimmed, storedName }
   }
 
@@ -299,6 +534,7 @@ export class CloudService {
     await session.client.rename(storedPath, nextName)
     this.#forgetIndex(session, plainPath)
     this.#forgetCaches(session, storedPath)
+    session.staleDirs?.add(plainDir(plainPath))
     return { name: trimmed, storedName: nextName }
   }
 
@@ -309,9 +545,43 @@ export class CloudService {
     const dir = storedPath.slice(0, storedPath.lastIndexOf('/')) || '/'
     const name = storedPath.slice(storedPath.lastIndexOf('/') + 1)
 
-    await session.client.remove(dir, [name])
+    try {
+      await session.client.remove(dir, [name])
+    } catch (err) {
+      // The index is built from a listing, and a listing can carry a row the
+      // storage has already dropped. Deleting something that is not there gives
+      // the client exactly what it asked for; failing it makes the mount look
+      // broken and keeps the phantom row alive for the next attempt.
+      if (!isMissing(err)) throw err
+    }
     this.#forgetIndex(session, plainPath)
     this.#forgetCaches(session, storedPath)
+    session.staleDirs?.add(plainDir(plainPath))
+    return { removed: true }
+  }
+
+  /**
+   * Delete a file an upload produced, addressed the way the history knows it.
+   *
+   * A finished upload row keeps the plain folder and the stored leaf: a token
+   * for an encrypted upload, the file's own name for a plain one. The folder is
+   * derived exactly as [uploadTarget] derived it, so nothing has to be listed
+   * first — the upload may be weeks old.
+   */
+  async removeUpload(sessionId, plainDir, storedName) {
+    const session = this.get(sessionId)
+    const folder = this.toStoredPath(session, plainDir || '/')
+    const leaf = String(storedName || '').replace(/^\/+/, '')
+    if (!leaf) throw new Error(t('errors.pathMissing'))
+
+    try {
+      await session.client.remove(folder, [leaf])
+    } catch (err) {
+      // Same reasoning as [remove]: a row that is already gone is a success.
+      if (!isMissing(err)) throw err
+    }
+    this.#forgetCaches(session, joinPath(folder, leaf))
+    session.staleDirs?.add(plainDir || '/')
     return { removed: true }
   }
 
@@ -330,7 +600,12 @@ export class CloudService {
     // `refresh` is the web client's manual-refresh flag: it tells AList to drop
     // its own directory cache, so files changed elsewhere show up immediately
     // instead of after the storage driver's cache expires.
-    const raw = await session.client.list(storedPath, { refresh })
+    //
+    // A write marks its folder stale, because the storage's cached listing is
+    // older than the file just written: without this one forced refresh the new
+    // entry stays invisible to both a re-listing and a GET.
+    const stale = session.staleDirs?.delete(plainPath) === true
+    const raw = await session.client.list(storedPath, { refresh: refresh || stale })
 
     const entries = raw.map((entry) => {
       const storedName = String(entry.name || '')
@@ -366,11 +641,17 @@ export class CloudService {
         session.remoteThumbs.set(stored, { url: remoteThumb, at: Date.now() })
       }
 
+      // A container is stored larger than the plaintext it holds. When this
+      // session wrote the file it knows the real length, and anything that
+      // compares sizes — Explorer right after a copy, the grid's size column —
+      // should see that instead of the padding.
+      const plainSize = entry.is_dir ? 0 : session.plainSizes?.get(stored)
+
       return {
         name,
         storedName,
         isDir: !!entry.is_dir,
-        size: Number(entry.size) || 0,
+        size: plainSize ?? (Number(entry.size) || 0),
         modified: entry.modified || '',
         encrypted,
         locked: !decrypted && isEncryptedName(storedName),

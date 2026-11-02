@@ -14,13 +14,19 @@ import com.sakura.encryptor.core.alist.MkdirRequest
 import com.sakura.encryptor.core.alist.ProgressRequestBody
 import com.sakura.encryptor.core.alist.RemoveRequest
 import com.sakura.encryptor.core.alist.RenameRequest
+import com.sakura.encryptor.core.alist.UploadTaskInfo
 import com.sakura.encryptor.core.alist.UserInfo
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import okhttp3.Call
@@ -83,10 +89,26 @@ abstract class RemoteClient(
 
         /** Guard against a server that ignores paging and never reports a total. */
         private const val MAX_LIST_PAGES = 200
+
+        /** How often the server's own storage write is polled. */
+        private const val TASK_POLL_MS = 600L
+
+        /** Task states that mean the write is over; anything else keeps polling. */
+        private val TASK_DONE_STATES = setOf("succeeded")
+        private val TASK_FAILED_STATES = setOf("failed", "canceled", "cancelled", "errored")
     }
 
     /** Backend name used in error copy. */
     protected abstract val label: String
+
+    /**
+     * Whether [upload] takes the chunked path for a container of [size].
+     *
+     * The queue asks before it starts, because a chunked upload keeps its
+     * payload on disk and can be picked up again after a restart, while a
+     * single request cannot.
+     */
+    fun usesChunkedUpload(size: Long): Boolean = supportsMultipart && size >= MULTIPART_MIN_BYTES
 
     /** Whether this backend serves the `/api/fs/multipart` endpoints at all. */
     protected open val supportsMultipart: Boolean get() = false
@@ -245,11 +267,12 @@ abstract class RemoteClient(
         file: File,
         asTask: Boolean = false,
         onProgress: ((bytesWritten: Long, contentLength: Long) -> Unit)? = null,
+        onTaskId: ((String) -> Unit)? = null,
         onCall: ((Call) -> Unit)? = null,
     ) {
         val remotePath = normalizeUploadPath(dirPath, fileName)
 
-        if (supportsMultipart && file.length() >= MULTIPART_MIN_BYTES) {
+        if (usesChunkedUpload(file.length())) {
             try {
                 uploadMultipart(server, token, remotePath, file, onProgress, onCall)
                 return
@@ -259,7 +282,136 @@ abstract class RemoteClient(
             }
         }
 
-        uploadForm(server, token, remotePath, fileName, file, asTask, onProgress, onCall)
+        // `As-Task` is what makes the second half observable — and, with the id
+        // handed to [onTaskId], recoverable after this process is gone.
+        if (asTask && uploadAsTask(server, token, remotePath, file, onProgress, onTaskId, onCall)) {
+            return
+        }
+
+        // Fallback path. `As-Task` is asked for here too: AList and OpenList
+        // both accept it on the form endpoint (the web client relies on it for
+        // every upload), so a server without the raw-body endpoint still gets a
+        // chance at a resumable task.
+        val taskId = uploadForm(
+            server, token, remotePath, fileName, file, asTask, onProgress, onCall,
+        )
+        if (taskId != null) {
+            onTaskId?.invoke(taskId)
+            waitForUploadTask(server, token, taskId, file.length(), onProgress)
+        }
+    }
+
+    /**
+     * `PUT /api/fs/put` with `As-Task: true`.
+     *
+     * The raw-body endpoint answers with a task id before the storage write is
+     * over, which is what both other clients use on AList. A server that does
+     * not serve it says so with 403/404/405; the caller then falls back to the
+     * form upload above, which asks for the same task.
+     *
+     * @return false when this endpoint is unavailable, true when the upload was
+     *   handled (synchronously or through a task).
+     */
+    private suspend fun uploadAsTask(
+        server: String,
+        token: String,
+        remotePath: String,
+        file: File,
+        onProgress: ((Long, Long) -> Unit)?,
+        onTaskId: ((String) -> Unit)?,
+        onCall: ((Call) -> Unit)?,
+    ): Boolean = withContext(Dispatchers.IO) {
+        val size = file.length()
+        val fileBody = file.asRequestBody(OCTET_MEDIA)
+        val body = if (onProgress != null) ProgressRequestBody(fileBody, onProgress) else fileBody
+        val request = Request.Builder()
+            .url(url(server, "/api/fs/put"))
+            .put(body)
+            .header("Authorization", token)
+            .header("File-Path", remotePath)
+            .header("Content-Type", "application/octet-stream")
+            .header("Content-Length", size.toString())
+            .header("As-Task", "true")
+            .build()
+
+        val raw = sendRaw(request, onCall)
+        if (raw.httpCode in 403..405) return@withContext false
+
+        val envelope = readEnvelope(raw)
+        if (!envelope.ok) {
+            throw RemoteException(
+                envelope.code,
+                envelope.message ?: t(R.string.remote_upload_failed_http, raw.httpCode),
+            )
+        }
+
+        val taskId = taskIdOf(envelope.data)
+        if (taskId == null) {
+            // Synchronous write: the answer only exists once the file is stored.
+            onProgress?.invoke(size, size)
+            return@withContext true
+        }
+
+        // Told before the wait starts, so a launch that dies mid-write still
+        // leaves the id somewhere the next one can find it.
+        onTaskId?.invoke(taskId)
+        waitForUploadTask(server, token, taskId, size, onProgress)
+        true
+    }
+
+    /**
+     * Watch one upload task until the server is done with it.
+     *
+     * [strict] separates the two callers. During a live upload a task that
+     * cannot be read means "no news worth failing over" — the bytes were
+     * delivered either way. After a restart it means we genuinely do not know
+     * whether the file landed, and reporting success would be a lie.
+     */
+    suspend fun waitForUploadTask(
+        server: String,
+        token: String,
+        taskId: String,
+        size: Long,
+        onProgress: ((Long, Long) -> Unit)? = null,
+        strict: Boolean = false,
+    ) {
+        var completed = false
+        try {
+            while (true) {
+                delay(TASK_POLL_MS)
+                val task = findUploadTask(server, token, taskId)
+                if (task == null) {
+                    if (strict) throw RemoteException(-1, t(R.string.upload_task_gone))
+                    return
+                }
+
+                val percent = task.progress.coerceIn(0.0, 100.0)
+                if (size > 0) onProgress?.invoke((size * percent / 100.0).toLong(), size)
+
+                val state = task.state?.lowercase().orEmpty()
+                if (state in TASK_FAILED_STATES) {
+                    throw RemoteException(-1, task.error ?: t(R.string.upload_upload_failed))
+                }
+                if (state in TASK_DONE_STATES || percent >= 100.0) {
+                    completed = true
+                    onProgress?.invoke(size, size)
+                    return
+                }
+            }
+        } catch (e: CancellationException) {
+            // The storage write keeps running after the user stops it unless the
+            // server is told, and a cancelled coroutine cannot make that call.
+            taskAction("cancel", server, token, taskId)
+            throw e
+        } finally {
+            // Finished rows pile up in the server's task list otherwise.
+            if (completed) taskAction("delete", server, token, taskId)
+        }
+    }
+
+    /** Stop a task the server is running on its own; best effort. */
+    suspend fun cancelUploadTask(server: String, token: String, taskId: String) {
+        taskAction("cancel", server, token, taskId)
     }
 
     /**
@@ -288,6 +440,12 @@ abstract class RemoteClient(
     // Upload internals
     // -----------------------------------------------------------------------
 
+    /**
+     * `PUT /api/fs/form`, the classic multipart upload.
+     *
+     * @return the server-side task id when `As-Task` was honoured, null when the
+     *   server wrote synchronously (or was not asked for a task).
+     */
     private suspend fun uploadForm(
         server: String,
         token: String,
@@ -297,7 +455,7 @@ abstract class RemoteClient(
         asTask: Boolean,
         onProgress: ((Long, Long) -> Unit)?,
         onCall: ((Call) -> Unit)?,
-    ) = withContext(Dispatchers.IO) {
+    ): String? = withContext(Dispatchers.IO) {
         val fileBody = file.asRequestBody(OCTET_MEDIA)
         val partBody = if (onProgress != null) ProgressRequestBody(fileBody, onProgress) else fileBody
         val body = MultipartBody.Builder()
@@ -322,7 +480,65 @@ abstract class RemoteClient(
                 envelope.message ?: t(R.string.remote_upload_failed_http, raw.httpCode),
             )
         }
+        taskIdOf(envelope.data)
     }
+
+    // -----------------------------------------------------------------------
+    // Server-side upload tasks
+    // -----------------------------------------------------------------------
+
+    /** `data.task.id` from an `As-Task` answer, or null for a synchronous write. */
+    private fun taskIdOf(data: JsonElement?): String? {
+        val obj = data as? JsonObject ?: return null
+        val task = obj["task"] as? JsonObject ?: return null
+        return (task["id"] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() }
+    }
+
+    /** One poll of `/api/task/upload/info`; null when the task cannot be read. */
+    private suspend fun findUploadTask(
+        server: String,
+        token: String,
+        taskId: String,
+    ): UploadTaskInfo? {
+        val query = "/api/task/upload/info?tid=${encodeQuery(taskId)}"
+        val data = runCatching { requestJson("POST", url(server, query), token, "{}") }.getOrNull()
+            ?: return null
+
+        val candidates = when (data) {
+            is JsonArray -> data.mapNotNull { toUploadTask(it) }
+            else -> listOfNotNull(toUploadTask(data))
+        }
+        // Documented as an array of tasks; a build that answers with the task
+        // itself has no id to compare against, so it is taken as-is.
+        return candidates.firstOrNull { it.id == taskId }
+            ?: candidates.firstOrNull { it.id.isEmpty() }
+    }
+
+    private fun toUploadTask(element: JsonElement?): UploadTaskInfo? {
+        val obj = element as? JsonObject ?: return null
+        val task = obj["task"] as? JsonObject ?: obj
+        return runCatching {
+            json.decodeFromJsonElement(UploadTaskInfo.serializer(), task)
+        }.getOrNull()
+    }
+
+    /**
+     * Cancel or delete a task server-side.
+     *
+     * Never throws: this runs while an upload is already failing or being
+     * cancelled, where a second error would only hide the first one.
+     */
+    private suspend fun taskAction(name: String, server: String, token: String, taskId: String) {
+        withContext(NonCancellable) {
+            runCatching {
+                val query = "/api/task/upload/$name?tid=${encodeQuery(taskId)}"
+                requestJson("POST", url(server, query), token, "{}")
+            }
+        }
+    }
+
+    private fun encodeQuery(value: String): String =
+        java.net.URLEncoder.encode(value, "UTF-8")
 
     // -----------------------------------------------------------------------
     // Internals

@@ -20,9 +20,14 @@ const session = createProviderSession({
     label: 'AList',
 })
 
-/** Upload a file using the AList form upload API (no chunked endpoint). */
-export function uploadFile(path, file, asTask = false) {
-    return session.uploadFile(path, file, asTask)
+/**
+ * Upload a file using the AList form upload API (no chunked endpoint).
+ *
+ * `options.onProgress` receives `{ sent, stored, phase }`; AList reports both
+ * halves, OpenList only the first.
+ */
+export function uploadFile(path, file, asTask = true, options = {}) {
+    return session.uploadFile(path, file, asTask, options)
 }
 
 export const {

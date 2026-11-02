@@ -82,6 +82,9 @@ function decodeSubtitleBuffer(buf) {
  * @param {import('./downloads.js').DownloadQueue} deps.downloads
  * @param {import('./uploads.js').UploadQueue} deps.uploads
  * @param {import('./embedded/index.js').EmbeddedService} deps.embedded
+ * @param {import('./webdav.js').WebdavGateway} [deps.webdav]
+ * @param {() => { available: boolean, origin?: string, port?: number, url?: string }} [deps.davInfo]
+ * @param {(patch: { port?: number, token?: string }) => Promise<object>} [deps.updateDav]
  * @param {() => { origin: string, token: string } | null} deps.serverInfo
  * @param {() => import('electron').BrowserWindow | null} deps.mainWindow
  * @param {(route?: string) => import('electron').BrowserWindow | null} [deps.openWindow]
@@ -103,6 +106,9 @@ export function registerIpc({
   downloads,
   uploads,
   embedded,
+  webdav,
+  davInfo,
+  updateDav,
   serverInfo,
   mainWindow,
   openWindow,
@@ -421,6 +427,9 @@ export function registerIpc({
       skePassword: secrets.skePassword,
       otpCode: typeof otpCode === 'string' ? otpCode.trim() : '',
     })
+    // The drive mount follows the profile the user is actually looking at, so
+    // the WebDAV folder always mirrors the connected library.
+    webdav?.setCloudSession(result.sessionId)
     return { session: result }
   })
 
@@ -428,7 +437,89 @@ export function registerIpc({
 
   handle('cloud:disconnect', (_e, sessionId) => {
     cloud.logout(sessionId)
+    // `setCloudSession` ignores an empty id, so clear explicitly.
+    if (webdav && webdav.cloudSessionId === sessionId) webdav.clearCloudSession()
     return { disconnected: true }
+  })
+
+  // --- drive mount (WebDAV) ------------------------------------------------
+
+  /** One shape for "read" and "after an edit", so the card cannot diverge. */
+  function davPayload(info) {
+    if (!webdav) return { enabled: false, accounts: [] }
+    return {
+      enabled: info?.enabled !== false,
+      // Each share's token is its root, not a segment under it: Windows keys a
+      // WebDAV connection on whatever follows `@port` and drops deeper paths,
+      // so the credential has to sit exactly there. The port and the tokens
+      // come from settings, which is what keeps a mapped drive pointing at the
+      // same place after a restart.
+      port: info?.port || 0,
+      conflict: !!info?.conflict,
+      accounts: info?.accounts || [],
+    }
+  }
+
+  handle('webdav:info', () => davPayload(davInfo?.()))
+
+  handle('webdav:update', async (_e, patch) => {
+    if (!updateDav) throw new Error(t('errors.serverNotReady'))
+    return davPayload(await updateDav(patch || {}))
+  })
+
+  /** The gateway speaks WebDAV; the settings card speaks the user's language. */
+  const DAV_BROWSE_ERRORS = {
+    localLocked: 'errors.davLocalLocked',
+    localEmpty: 'errors.davNoRoot',
+    noProfile: 'errors.davProfile',
+    noSession: 'errors.davProfile',
+    profileMissing: 'errors.davProfileGone',
+    profileLocked: 'errors.davProfilePassword',
+    needsOtp: 'errors.davProfileOtp',
+  }
+
+  /**
+   * One folder of a target, for the picker in the share dialog.
+   *
+   * Listing a cloud folder logs the profile in exactly the way a mounted
+   * request would, so the picker shows what a mounted request would see. It
+   * works while mounting is off: configuring a share before switching the
+   * listener on is the point.
+   */
+  handle('webdav:browse', async (_e, target) => {
+    if (!webdav) throw new Error(t('errors.serverNotReady'))
+    try {
+      return await webdav.browse(target || {})
+    } catch (err) {
+      if (err?.reason === 'loginFailed') {
+        throw new Error(t('errors.davProfileLogin', { message: err.message }))
+      }
+      const key = DAV_BROWSE_ERRORS[err?.reason]
+      if (key) throw new Error(t(key))
+      if (err?.code === 'ENOENT') throw new Error(t('errors.davFolderMissing'))
+      throw err
+    }
+  })
+
+  /**
+   * Hand one share to the OS file manager. Windows speaks WebDAV over a UNC
+   * path (`\\host@port\share`), which Explorer turns into a browsable location
+   * without a drive letter and without us choosing one for the user.
+   */
+  handle('webdav:open', async (_e, accountId) => {
+    const info = davInfo?.()
+    if (!info?.available) throw new Error(t('errors.serverNotReady'))
+    if (process.platform !== 'win32') return { opened: false }
+
+    const account = info.accounts?.find((item) => item.id === accountId) || info.accounts?.[0]
+    if (!account) throw new Error(t('errors.serverNotReady'))
+
+    const url = new URL(info.origin)
+    // `\\host@port\share` — the share is its token, and the redirector will
+    // PROPFIND exactly that path.
+    const unc = `\\\\${url.hostname}@${url.port}\\${account.token}`
+    const error = await shell.openPath(unc)
+    return { opened: !error, error, unc }
   })
 
   handle('cloud:list', async (_e, { sessionId, path, refresh } = {}) => {
@@ -769,6 +860,19 @@ export function registerIpc({
     return { revealed: true }
   })
 
+  /** Drop the row from the finished list, keeping the downloaded file. */
+  handle('downloads:forget', (_e, id) => {
+    if (security.isEnabled() && !security.unlocked) throw new Error(t('errors.locked'))
+    return { forgotten: downloads.forget(id), downloads: downloads.snapshot() }
+  })
+
+  /** Delete the downloaded file too. */
+  handle('downloads:deleteFile', async (_e, id) => {
+    if (security.isEnabled() && !security.unlocked) throw new Error(t('errors.locked'))
+    const removed = await downloads.deleteFile(id)
+    return { removed, downloads: downloads.snapshot() }
+  })
+
   // --- uploads -------------------------------------------------------------
 
   handle('uploads:list', () => ({ uploads: uploads.snapshot() }))
@@ -805,6 +909,49 @@ export function registerIpc({
   handle('uploads:cancel', (_e, id) => ({ cancelled: uploads.cancel(id), uploads: uploads.snapshot() }))
 
   handle('uploads:clear', () => ({ uploads: uploads.clearFinished() }))
+
+  /** Drop the row from the finished list, keeping the file in the cloud. */
+  handle('uploads:forget', (_e, id) => {
+    requireUnlocked()
+    return { forgotten: uploads.forget(id), uploads: uploads.snapshot() }
+  })
+
+  /**
+   * Delete the uploaded file from the cloud, then its row.
+   *
+   * The row is all that is left of that upload, so the account is signed in
+   * again from the stored profile: the browser session that sent the file is
+   * long gone, and the queue keeps no credentials.
+   */
+  handle('uploads:deleteRemote', async (_e, id) => {
+    requireUnlocked()
+    const job = uploads.snapshot().find((item) => item.id === id)
+    if (!job) throw new Error(t('errors.uploadGone'))
+    if (job.status !== 'done' || !job.remoteName || !job.profileId) {
+      // Rows from before this was recorded have nothing to address the file by.
+      throw new Error(t('errors.uploadNotOnCloud'))
+    }
+
+    const { profiles } = storage.listProfiles()
+    const profile = profiles.find((item) => item.id === job.profileId)
+    if (!profile) throw new Error(t('errors.profileMissing'))
+    const secrets = storage.getSecrets(job.profileId) || {}
+
+    const opened = await cloud.login({
+      profile,
+      password: secrets.password,
+      skePassword: secrets.skePassword,
+    })
+    try {
+      await cloud.removeUpload(opened.sessionId, job.dir, job.remoteName)
+    } finally {
+      // A delete does not need the session to outlive it.
+      cloud.logout(opened.sessionId)
+    }
+
+    uploads.forget(id)
+    return { uploads: uploads.snapshot() }
+  })
 
   // --- theme ---------------------------------------------------------------
 

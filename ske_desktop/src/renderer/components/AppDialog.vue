@@ -27,7 +27,13 @@
           aria-modal="true"
           :aria-label="title || undefined"
         >
-          <h2 v-if="title">{{ title }}</h2>
+          <!-- The title row, with room for one dialog-level action on its right:
+               something that acts on the whole panel rather than on its body. -->
+          <div v-if="title || $slots.header" class="dlg-head">
+            <h2 v-if="title">{{ title }}</h2>
+            <slot name="header" />
+          </div>
+
           <p v-if="description" class="dlg-desc">{{ description }}</p>
 
           <!-- Only the body scrolls: on a short window a long form must not drag
@@ -73,6 +79,17 @@ const props = defineProps({
 
 const emit = defineEmits(['cancel', 'submit'])
 
+/**
+ * Open dialogs, in the order they turned visible.
+ *
+ * One Escape must close one dialog: a folder picker on top of a form would
+ * otherwise take the form down with it, and the form's own parent with that.
+ */
+const stack = []
+
+/** This instance's place in the stack; identity, not a copied value. */
+const self = {}
+
 function cancel() {
   if (props.busy || !props.dismissible) return
   emit('cancel')
@@ -92,6 +109,8 @@ function submit() {
  */
 function onKeydown(event) {
   if (event.key !== 'Escape') return
+  // Only the innermost dialog answers.
+  if (stack[stack.length - 1] !== self) return
   event.preventDefault()
   cancel()
 }
@@ -99,11 +118,18 @@ function onKeydown(event) {
 watch(
   () => props.visible,
   (visible) => {
+    const index = stack.indexOf(self)
+    if (visible && index < 0) stack.push(self)
+    else if (!visible && index >= 0) stack.splice(index, 1)
     if (visible) window.addEventListener('keydown', onKeydown)
     else window.removeEventListener('keydown', onKeydown)
   },
   { immediate: true },
 )
 
-onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKeydown)
+  const index = stack.indexOf(self)
+  if (index >= 0) stack.splice(index, 1)
+})
 </script>

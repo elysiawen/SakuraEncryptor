@@ -119,6 +119,14 @@
         </n-checkbox>
       </div>
       <p v-if="upload.progressText" class="upload-progress">{{ upload.progressText }}</p>
+      <!-- Two halves on one track: the pale part is what the server has taken
+           delivery of, the solid part is what it has written to the cloud. -->
+      <div v-if="upload.loading" class="upload-track">
+        <div class="upload-fill sent" :style="{ width: `${uploadSent}%` }"></div>
+        <div class="upload-fill stored" :style="{ width: `${uploadStored}%` }"></div>
+        <div v-if="uploadWaiting" class="upload-sweep"></div>
+      </div>
+      <p v-if="upload.loading" class="upload-stage">{{ uploadStage }}</p>
       <template #action>
         <div class="modal-actions">
           <n-button class="modal-btn" quaternary :disabled="upload.loading" @click="resetUpload">{{ t('common.cancel') }}</n-button>
@@ -285,7 +293,35 @@ async function doMkdir() {
 }
 
 // ── Upload ──
-const upload = reactive({ show: false, files: [], encrypt: true, loading: false, progressText: '' })
+const upload = reactive({
+  show: false,
+  files: [],
+  encrypt: true,
+  loading: false,
+  progressText: '',
+  /** `{ sent, stored, phase }` from the upload, all ratios in 0..1. */
+  progress: { sent: 0, stored: null, phase: 'uploading' },
+})
+
+/** Delivered to the server — the pale half of the bar. */
+const uploadSent = computed(() => Math.round((upload.progress?.sent || 0) * 100))
+/** Written through to the storage backend — the solid half. */
+const uploadStored = computed(() => {
+  const stored = upload.progress?.stored
+  return stored === null || stored === undefined ? 0 : Math.round(stored * 100)
+})
+/** Delivered, but the server has not said how far the cloud write got. */
+const uploadWaiting = computed(
+  () => upload.loading && upload.progress?.phase === 'storing' && upload.progress?.stored == null,
+)
+const uploadStage = computed(() => {
+  if (upload.progress?.phase === 'storing') {
+    return upload.progress.stored == null
+      ? t('browser.uploadStoringPending')
+      : t('browser.uploadStoring', { percent: uploadStored.value })
+  }
+  return t('browser.uploadSent', { percent: uploadSent.value })
+})
 
 function openUploadPicker() {
   if (upload.loading) return
@@ -308,6 +344,7 @@ function resetUpload(force = false) {
   upload.files = []
   upload.encrypt = true
   upload.progressText = ''
+  upload.progress = { sent: 0, stored: null, phase: 'uploading' }
 }
 
 async function doUpload() {
@@ -332,6 +369,7 @@ async function doUpload() {
         name: sourceFile.name,
       })
       upload.progressText = label
+      upload.progress = { sent: 0, stored: null, phase: 'uploading' }
 
       let targetName = sourceFile.name
       let fileToUpload = sourceFile
@@ -345,9 +383,11 @@ async function doUpload() {
         })
       }
 
-      await uploadRemoteFile(joinPath(path, targetName), fileToUpload, false, {
-        onProgress: (ratio) => {
-          upload.progressText = `${label} (${Math.round(ratio * 100)}%)`
+      // `true` = let the server write through a background task, which is the
+      // only way it can report how far the cloud upload got.
+      await uploadRemoteFile(joinPath(path, targetName), fileToUpload, true, {
+        onProgress: (progress) => {
+          upload.progress = progress
         },
       })
     }
@@ -825,6 +865,63 @@ watch(
   margin-bottom: 0;
   color: var(--text-secondary);
   font-size: 13px;
+}
+
+/* Two halves on one track: pale is what the server received, solid is what it
+   has written through to the storage backend. The solid one grows from the left
+   on top, so the pale tail is exactly "in AList, not in the cloud yet". */
+.upload-track {
+  position: relative;
+  height: 6px;
+  margin-top: 10px;
+  border-radius: 999px;
+  background: var(--border-glass);
+  overflow: hidden;
+}
+
+.upload-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  border-radius: 999px;
+  background: var(--accent-gradient);
+  transition: width 0.2s ease;
+}
+
+.upload-fill.sent {
+  background: color-mix(in srgb, var(--accent-end) 35%, transparent);
+}
+
+/* Delivered, but the cloud write cannot be measured: a moving band says "still
+   working" without inventing a percentage nobody reports. */
+.upload-sweep {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 45%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--accent-end) 85%, transparent),
+    transparent
+  );
+  animation: upload-sweep 1.5s linear infinite;
+}
+
+@keyframes upload-sweep {
+  from {
+    left: -45%;
+  }
+  to {
+    left: 100%;
+  }
+}
+
+.upload-stage {
+  margin: 6px 0 0;
+  color: var(--text-secondary);
+  font-size: 12px;
 }
 
 .modal-actions {

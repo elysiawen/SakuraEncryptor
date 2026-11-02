@@ -78,3 +78,16 @@ export async function revealDownload(id) {
   const res = await window.ske.downloads.reveal(id)
   if (!res?.ok) throw new Error(res?.error || t('errors.openFolderFailed'))
 }
+
+/** Finished rows: drop the record only, or the downloaded file with it too. */
+export async function forgetDownload(id) {
+  const res = await window.ske.downloads.forget(id)
+  if (!res?.ok) throw new Error(res?.error || t('errors.cleanFailed'))
+  if (res.downloads) downloads.items = res.downloads
+}
+
+export async function deleteDownloadFile(id) {
+  const res = await window.ske.downloads.deleteFile(id)
+  if (!res?.ok) throw new Error(res?.error || t('errors.deleteFileFailed'))
+  if (res.downloads) downloads.items = res.downloads
+}

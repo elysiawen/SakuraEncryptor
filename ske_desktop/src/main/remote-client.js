@@ -11,8 +11,10 @@
  * The shapes match `ske_web/src/composables`, including the 500-per-page
  * listing limit both servers clamp to.
  */
-import { openAsBlob } from 'node:fs'
+import { createReadStream, openAsBlob } from 'node:fs'
 import fsp from 'node:fs/promises'
+import http from 'node:http'
+import https from 'node:https'
 import path from 'node:path'
 import { t } from './i18n.js'
 
@@ -39,6 +41,20 @@ export const MULTIPART_MIN_BYTES = 32 * 1024 * 1024
 export const MULTIPART_MAX_RETRIES = 6
 /** Say "this server does not have the feature" rather than "upload failed". */
 export const MULTIPART_FALLBACK_STATUS = new Set([403, 404, 405])
+/** Raw-body upload missing (older build): the form endpoint is the way in. */
+const UPLOAD_FALLBACK_STATUS = new Set([404, 405, 501])
+
+/**
+ * How often the server's own upload task is polled.
+ *
+ * The write to the storage backend takes far longer than the body transfer on
+ * a throttled server, so this is what makes the second half of the bar move.
+ * Fast enough to look live, slow enough to be one tiny request per file.
+ */
+const TASK_POLL_MS = 600
+/** Task states that mean "no further progress is coming". */
+const TASK_FAILED_STATES = new Set(['failed', 'canceled', 'cancelled', 'errored'])
+const TASK_DONE_STATES = new Set(['succeeded', ...TASK_FAILED_STATES])
 
 /**
  * Absolute form of a value the server returned.
@@ -63,20 +79,31 @@ export async function readJson(res) {
   }
 }
 
-/** Abortable delay for the chunked upload's flow-control retries. */
+/**
+ * Abortable delay for the chunked upload's flow-control retries.
+ *
+ * The listener is detached when the timer fires, not only when it aborts: this
+ * sits inside poll loops (`#followUploadTask` wakes up every 600 ms for as long
+ * as the storage write takes), and a `{ once: true }` listener that is never
+ * reached stays on the signal — a minute-long upload would pile up a hundred
+ * of them and trip EventTarget's warning.
+ */
 export function delay(ms, signal) {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(resolve, ms)
-    if (!signal) return
-    if (signal.aborted) {
-      clearTimeout(timer)
+    if (signal?.aborted) {
       reject(new Error(t('errors.cancelled')))
       return
     }
-    signal.addEventListener('abort', () => {
+    let timer = null
+    const onAbort = () => {
       clearTimeout(timer)
       reject(new Error(t('errors.cancelled')))
-    }, { once: true })
+    }
+    timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    signal?.addEventListener('abort', onAbort, { once: true })
   })
 }
 
@@ -103,6 +130,48 @@ export async function blobFor(filePath) {
   return new Blob([await fsp.readFile(filePath)])
 }
 
+/** Every JSON answer here is small; read it whole as text. */
+async function readText(res) {
+  let text = ''
+  res.setEncoding('utf8')
+  for await (const chunk of res) text += chunk
+  return text
+}
+
+function parseJson(text) {
+  try {
+    return JSON.parse(text)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Is this upload task finished?
+ *
+ * `state` is the field that says so, but its vocabulary is not documented and
+ * differs between forks, so `end_time` (null while running, per the API docs)
+ * and a 100% progress are accepted as well.
+ */
+function isUploadTaskDone(task, progress) {
+  const state = String(task?.state || '').toLowerCase()
+  if (TASK_DONE_STATES.has(state)) return true
+  return Boolean(task?.end_time) || progress >= 100
+}
+
+/** A status the server picked on its own, as opposed to a dead connection. */
+function isRefusal(status) {
+  return Number.isFinite(status) && status >= 300
+}
+
+/** Human size for the one message that talks about the file, not about bytes. */
+function formatBytes(bytes) {
+  const value = Number(bytes) || 0
+  if (value >= 1024 ** 3) return `${(value / 1024 ** 3).toFixed(2)} GB`
+  if (value >= 1024 ** 2) return `${(value / 1024 ** 2).toFixed(1)} MB`
+  return `${Math.max(1, Math.round(value / 1024))} KB`
+}
+
 export class RemoteClient {
   /**
    * @param {{
@@ -125,6 +194,22 @@ export class RemoteClient {
 
   /** Backends that implement [uploadMultipart] flip this on. */
   supportsMultipartUpload = false
+
+  /**
+   * How this particular server gets uploaded to.
+   *
+   * - `task`   raw body + `As-Task`: byte progress, then the server's own
+   *            upload task for the storage half. Needs a build that takes the
+   *            body before answering, which is what `WebPutAsTask` does.
+   * - `stream` raw body, synchronous: byte progress, and the answer only
+   *            arrives once the file is really in the storage backend.
+   * - `form`   the multipart endpoint of the first version: no byte-level
+   *            progress, but the most compatible of the three.
+   *
+   * A failed attempt only ever moves this downwards, so a server that does not
+   * like one strategy pays for that discovery once — not once per file.
+   */
+  uploadMode = 'task'
 
   async #post(path, body) {
     let res
@@ -266,9 +351,22 @@ export class RemoteClient {
    * on when the backend has one. Servers without the feature report
    * `multipartUnsupported` and fall back to the classic form upload.
    *
+   * Progress is reported as `{ sent, stored, phase }`:
+   *
+   *  - `sent`   bytes the server has taken delivery of;
+   *  - `stored` bytes it reports having written through to the storage
+   *             backend, or `null` while that is unknowable;
+   *  - `phase`  `'uploading'` (the body is moving) or `'storing'` (the body
+   *             is delivered and the server is still writing to the cloud).
+   *
+   * Those two numbers are what the UI draws as one bar. They differ because
+   * AList relays the upload to the driver: on a throttled server the cloud
+   * write outlives the transfer that fed it, so the transfer finishing says
+   * nothing about the file being there yet.
+   *
    * @param {string} absPath destination path including the file name
    * @param {string} filePath local source
-   * @param {{ signal?: AbortSignal, onProgress?: (ratio: number) => void }} [options]
+   * @param {{ signal?: AbortSignal, onProgress?: (progress: object) => void }} [options]
    */
   async upload(absPath, filePath, { signal, onProgress } = {}) {
     const stat = await fsp.stat(filePath)
@@ -280,10 +378,284 @@ export class RemoteClient {
       } catch (err) {
         if (signal?.aborted) throw new Error(t('errors.cancelled'))
         if (!err.multipartUnsupported) throw err
-        // Older/disabled server: use the form API below.
+        // Older/disabled server: use the plain endpoints below.
       }
     }
-    return this.#uploadForm(absPath, filePath, { signal })
+
+    for (;;) {
+      try {
+        if (this.uploadMode === 'form') {
+          return await this.#uploadForm(absPath, filePath, {
+            signal,
+            onProgress,
+            size: stat.size,
+          })
+        }
+        return await this.#uploadStream(absPath, filePath, stat.size, {
+          signal,
+          onProgress,
+          asTask: this.uploadMode === 'task',
+        })
+      } catch (err) {
+        if (signal?.aborted) throw new Error(t('errors.cancelled'))
+        const next = this.#degrade(err, this.uploadMode)
+        if (!next) throw err
+        // Left in the main-process log on purpose: a silent downgrade would
+        // hide a server that keeps refusing the better strategy, and that is
+        // the one thing worth reporting.
+        console.warn(`[upload] ${this.uploadMode} → ${next}: ${err.message}`)
+        this.uploadMode = next
+      }
+    }
+  }
+
+  /**
+   * Which simpler strategy to retry with, or `''` to hand the error over.
+   *
+   * Only two kinds of failure are worth another attempt: a connection that
+   * died before the server said anything (some builds answer a raw-body upload
+   * and hang up, which is indistinguishable from a broken network here), and
+   * an endpoint this deployment does not serve. Everything else is a real
+   * answer from the server and must reach the user unchanged.
+   */
+  #degrade(err, mode) {
+    // Nothing is left below the form endpoint.
+    if (mode === 'form') return ''
+    if (err.fallbackToForm) return 'form'
+    if (!err.network) return ''
+    return mode === 'task' ? 'stream' : 'form'
+  }
+
+  /**
+   * The error for a status the server chose itself.
+   *
+   * `fallbackToForm` is only set for statuses that mean "this endpoint is not
+   * here". Everything else is a real answer, and 413 is the one that must never
+   * be retried: it comes from the proxy in front of AList, so every other
+   * strategy hits the same wall — after the whole file has crossed the wire
+   * again.
+   *
+   * `via` is the `Server` header: without it the advice is "some proxy in
+   * front of AList", with it the user is told which one said no.
+   */
+  #uploadRefusal(status, json, size, via = '') {
+    if (status === 413) {
+      const server = String(via || '').trim()
+      const message = server
+        ? t('errors.uploadTooLargeVia', { size: formatBytes(size), server })
+        : t('errors.uploadTooLarge', { size: formatBytes(size) })
+      return new RemoteError(message, status)
+    }
+    const err = new RemoteError(
+      json?.message || t('errors.httpStatus', { status }),
+      json?.code ?? status,
+    )
+    err.fallbackToForm = UPLOAD_FALLBACK_STATUS.has(status) || (status >= 300 && status < 400)
+    return err
+  }
+
+  /**
+   * `PUT /api/fs/put` with the file itself as the raw body.
+   *
+   * The only path that can measure the first half honestly: the container is
+   * streamed off disk, so each chunk reported here has really been handed to
+   * the server. With `asTask`, `As-Task: true` asks the server to do the
+   * storage write as a background task and to hand back its id — and that task
+   * is what makes the second half observable, since it carries the server's
+   * own progress towards the cloud.
+   */
+  async #uploadStream(absPath, filePath, size, { signal, onProgress, asTask = true } = {}) {
+    const url = new URL(`${this.server}/api/fs/put`)
+    const transport = url.protocol === 'https:' ? https : http
+
+    const req = transport.request(url, {
+      method: 'PUT',
+      headers: {
+        ...(this.token ? { Authorization: this.token } : {}),
+        // The path travels percent-encoded; the server unescapes it itself.
+        'File-Path': normalizeUploadPath(absPath),
+        'Content-Type': 'application/octet-stream',
+        // Read by the server instead of a multipart part header.
+        'Content-Length': String(size),
+        ...(asTask ? { 'As-Task': 'true' } : {}),
+      },
+    })
+
+    const source = createReadStream(filePath)
+    let sent = 0
+
+    // Cancelling has to stop reading the disk too: an aborted 4 GiB container
+    // that keeps being read is not cancelled.
+    const onAbort = () => {
+      source.destroy()
+      req.destroy()
+    }
+    signal?.addEventListener('abort', onAbort, { once: true })
+
+    const responded = new Promise((resolve, reject) => {
+      req.once('response', resolve)
+      req.once('error', reject)
+    })
+    const flushed = new Promise((resolve) => {
+      req.once('finish', resolve)
+      // A peer that hangs up counts as "no more bytes are going out"; the
+      // status code above decides whether that was acceptable.
+      req.once('error', resolve)
+    })
+
+    // `data` respects the pipe's backpressure, so this counts bytes handed to
+    // the socket rather than bytes read ahead from disk.
+    source.on('data', (chunk) => {
+      // `restart` tells the queue this attempt starts from zero: a downgraded
+      // retry re-sends the whole file and the bar must not sit at 100%.
+      onProgress?.({
+        sent,
+        stored: null,
+        phase: 'uploading',
+        restart: sent === 0,
+      })
+      sent += chunk.length
+    })
+    source.once('error', (err) => req.destroy(err))
+    source.pipe(req)
+
+    try {
+      let response
+      try {
+        response = await responded
+      } catch (err) {
+        if (signal?.aborted) throw new Error(t('errors.cancelled'))
+        const failure = new RemoteError(t('errors.uploadFailedReason', { message: err.message }))
+        // Nothing came back: the connection, not the server, ended this.
+        failure.network = true
+        throw failure
+      }
+
+      let raw = ''
+      try {
+        raw = await readText(response)
+      } catch (err) {
+        if (signal?.aborted) throw new Error(t('errors.cancelled'))
+        // A proxy that refuses a body it has been reading usually hangs up on
+        // the way out too. The status is still the server's answer, so a dead
+        // read must not turn a 413 into a "network error" that gets retried
+        // with another strategy — that would only cost a second transfer.
+        if (!isRefusal(response.statusCode)) {
+          const failure = new RemoteError(t('errors.uploadFailedReason', { message: err.message }))
+          failure.network = true
+          throw failure
+        }
+      }
+
+      const json = parseJson(raw)
+      if (!json || json.code !== 200) {
+        // The server has already answered; stop pushing the rest of the file.
+        source.destroy()
+        req.destroy()
+        throw this.#uploadRefusal(response.statusCode, json, size, response.headers.server)
+      }
+
+      // Task mode answers as soon as the task exists, which can be before the
+      // last chunk is flushed — wait for the send side before claiming delivery.
+      await flushed
+      onProgress?.({ sent: size, stored: null, phase: 'uploading' })
+
+      const taskId = json?.data?.task?.id
+      if (!taskId) {
+        // Synchronous write: the response only exists once the file is in the
+        // storage backend, so both numbers are the full size.
+        onProgress?.({ sent: size, stored: size, phase: 'storing' })
+        return { sent: size, stored: size }
+      }
+
+      // The task id travels with the progress so the queue can persist it:
+      // if the app closes now, the server keeps writing and this id is the only
+      // way to pick the upload back up on the next launch.
+      onProgress?.({ sent: size, stored: null, phase: 'storing', taskId })
+      await this.#followUploadTask(taskId, size, { signal, onProgress })
+      return { sent: size, stored: size }
+    } finally {
+      signal?.removeEventListener('abort', onAbort)
+      source.destroy()
+    }
+  }
+
+  /**
+   * Watch one upload task until the server is done with it.
+   *
+   * A task that cannot be read (older build, or a fork without the endpoint)
+   * must not fail an upload the server already accepted: the caller keeps the
+   * bytes it delivered and simply has no storage figure. Cancelling is the
+   * opposite — it has to reach the server, or the cloud write keeps running
+   * after the user stopped it.
+   */
+  async #followUploadTask(tid, size, { signal, onProgress, strict = false } = {}) {
+    const query = `/api/task/upload/info?tid=${encodeURIComponent(tid)}`
+    let completed = false
+
+    try {
+      for (;;) {
+        await delay(TASK_POLL_MS, signal)
+
+        let task
+        try {
+          const data = await this.#post(query, {})
+          // Documented as an array; some builds answer with the task alone.
+          task = Array.isArray(data) ? data.find((item) => item?.id === tid) : data?.task || data
+        } catch (err) {
+          if (signal?.aborted) throw err
+          if (strict) throw new RemoteError(t('errors.uploadTaskGone'))
+          return
+        }
+        if (!task) {
+          if (strict) throw new RemoteError(t('errors.uploadTaskGone'))
+          return
+        }
+
+        const progress = Math.max(0, Math.min(100, Number(task.progress) || 0))
+        onProgress?.({
+          sent: size,
+          stored: Math.round((size * progress) / 100),
+          phase: 'storing',
+        })
+
+        if (!isUploadTaskDone(task, progress)) continue
+        completed = true
+        if (task.error || TASK_FAILED_STATES.has(String(task.state || '').toLowerCase())) {
+          throw new RemoteError(task.error || t('errors.uploadTaskFailed'))
+        }
+        onProgress?.({ sent: size, stored: size, phase: 'storing' })
+        return
+      }
+    } catch (err) {
+      if (signal?.aborted) this.#taskAction('cancel', tid)
+      throw err
+    } finally {
+      // Finished rows pile up in the server's task list otherwise.
+      if (completed) this.#taskAction('delete', tid)
+    }
+  }
+
+  /**
+   * Take over an upload task the server is still running.
+   *
+   * The request that created the task is long gone — the app may have been
+   * closed and restarted while the storage backend was still writing — so the
+   * task id is the only handle left. Unlike the polling inside [upload], a
+   * vanished task is an error here: mid-upload "no answer" means `no news worth
+   * failing over`, but after a restart it means we genuinely do not know
+   * whether the file landed.
+   *
+   * @param {string} tid task id returned by `As-Task`
+   * @param {{ size?: number, signal?: AbortSignal, onProgress?: Function }} [options]
+   */
+  async waitForUploadTask(tid, { size = 0, signal, onProgress } = {}) {
+    await this.#followUploadTask(tid, size, { signal, onProgress, strict: true })
+  }
+
+  /** Best effort: a task that is already gone must not fail an upload. */
+  #taskAction(name, tid) {
+    this.#post(`/api/task/upload/${name}?tid=${encodeURIComponent(tid)}`, {}).catch(() => {})
   }
 
   /** Chunked upload, overridden by backends that support it. */
@@ -299,8 +671,13 @@ export class RemoteClient {
    * real server answered 「上传文件路径不能为空」. The file is opened as a
    * `Blob` rather than read into memory, so a multi-gigabyte container still
    * streams off disk.
+   *
+   * This is the fallback for servers without `/api/fs/put`, and it is
+   * deliberately progress-free: the runtime writes the multipart body itself
+   * and reports nothing about it. The bar therefore holds until the response
+   * arrives, which is also the moment the file is in the storage backend.
    */
-  async #uploadForm(absPath, filePath, { signal } = {}) {
+  async #uploadForm(absPath, filePath, { signal, onProgress, size = 0 } = {}) {
     const target = normalizeUploadPath(absPath)
     const filename = path.basename(absPath).replace(/["\r\n]/g, '')
     const form = new FormData()
@@ -322,7 +699,7 @@ export class RemoteClient {
       throw new RemoteError(t('errors.uploadFailedReason', { message: err.message }))
     }
 
-    if (!res.ok) throw new RemoteError(t('errors.httpStatus', { status: res.status }), res.status)
+    if (!res.ok) throw this.#uploadRefusal(res.status, null, size, res.headers.get('server'))
 
     const json = await readJson(res)
     if (!json) throw new RemoteError(t('errors.notJson', { label: this.label }))
@@ -336,6 +713,10 @@ export class RemoteClient {
         json.code,
       )
     }
-    return true
+
+    // The form endpoint is synchronous: reaching here means the driver already
+    // wrote the file, so both halves are complete.
+    onProgress?.({ sent: size, stored: size, phase: 'storing' })
+    return { sent: size, stored: size }
   }
 }

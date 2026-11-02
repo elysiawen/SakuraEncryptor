@@ -12,6 +12,7 @@
     :description="description"
     :busy="busy"
     :error="error"
+    :layer="layer"
     @cancel="cancel"
   >
     <template #footer>
@@ -38,6 +39,8 @@ const props = defineProps({
   confirmText: { type: String, default: '' },
   busy: { type: Boolean, default: false },
   error: { type: String, default: '' },
+  /** Stacking order, for a confirm opened on top of another dialog. */
+  layer: { type: Number, default: 0 },
 })
 
 const confirmLabel = computed(() => props.confirmText || t('common.delete'))

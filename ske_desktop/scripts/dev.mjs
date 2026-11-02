@@ -76,6 +76,10 @@ function startElectron() {
  * reloads — while the old code keeps running, which is exactly how a fixed bug
  * can still appear broken. Restart Electron whenever main or preload changes.
  *
+ * `shared/` is watched too, because the main process imports the locale tables
+ * from there: editing a message without restarting leaves new code reading an
+ * old table, and a missing key surfaces in the UI as its own name.
+ *
  * Note this does not cover a production build: there the app must be quit
  * completely, and closing the window only hides it to the tray when that
  * setting is on.
@@ -84,7 +88,8 @@ function watchMainProcess() {
   const watcher = fs.watch(path.join(root, 'src'), { recursive: true }, (_event, file) => {
     if (!file) return
     const changed = String(file).replace(/\\/g, '/')
-    if (!changed.startsWith('main/') && !changed.startsWith('preload/')) return
+    const owned = ['main/', 'preload/', 'shared/']
+    if (!owned.some((prefix) => changed.startsWith(prefix))) return
 
     // Editors write in bursts (temp file + rename); restart once per burst.
     clearTimeout(restartTimer)
