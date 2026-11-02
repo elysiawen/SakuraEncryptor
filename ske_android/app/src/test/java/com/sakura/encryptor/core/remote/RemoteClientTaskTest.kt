@@ -58,8 +58,10 @@ class RemoteClientTaskTest {
             fileName = "movie.ske",
             file = file,
             asTask = true,
-            onProgress = { sent, _ -> progress += sent },
-            onTaskId = { taskId = it },
+            onProgress = { report ->
+                report.sent?.let { progress += it }
+                report.taskId?.let { taskId = it }
+            },
         )
 
         assertEquals("t-1", taskId)
@@ -84,7 +86,7 @@ class RemoteClientTaskTest {
             fileName = "movie.ske",
             file = payload(),
             asTask = true,
-            onTaskId = { taskId = it },
+            onProgress = { report -> report.taskId?.let { taskId = it } },
         )
 
         assertNull(taskId)
@@ -115,7 +117,7 @@ class RemoteClientTaskTest {
             fileName = "movie.ske",
             file = payload(),
             asTask = true,
-            onTaskId = { taskId = it },
+            onProgress = { report -> report.taskId?.let { taskId = it } },
         )
 
         assertEquals(1, mock.formCalls.get())

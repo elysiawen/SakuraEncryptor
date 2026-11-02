@@ -8,6 +8,7 @@ import com.sakura.encryptor.core.crypto.SkeCrypto
 import com.sakura.encryptor.core.crypto.SkeFormat
 import com.sakura.encryptor.core.local.CryptoTaskRunner
 import com.sakura.encryptor.core.remote.RemoteRepository
+import com.sakura.encryptor.core.remote.UploadStage
 import com.sakura.encryptor.core.session.VaultSession
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -61,8 +62,22 @@ data class UploadTask(
     val displayName: String,
     val dir: String,
     val encrypt: Boolean,
+    /** Size of the picked document, before encryption. */
     val totalBytes: Long = 0,
-    val doneBytes: Long = 0,
+    /** Size of the bytes actually sent: the `.ske` container, or the plain file. */
+    val uploadBytes: Long = 0,
+    /** Local encryption progress, 0..1 — the offline half of the job. */
+    val encryptRatio: Float = 0f,
+    /** Bytes the server has taken delivery of. */
+    val sentBytes: Long = 0,
+    /**
+     * Bytes the server reports having written to the storage backend.
+     *
+     * `null` means it cannot say — a chunked merge reports nothing, and not
+     * every driver keeps its task progress current — which is not the same as
+     * zero and must not be drawn as a stalled bar.
+     */
+    val storedBytes: Long? = null,
     val status: UploadStatus = UploadStatus.QUEUED,
     val phase: UploadPhase = UploadPhase.ENCRYPTING,
     val error: String? = null,
@@ -231,7 +246,11 @@ class UploadManager(
             dir = entry.dir,
             encrypt = entry.encrypt,
             totalBytes = entry.totalBytes,
-            doneBytes = 0,
+            uploadBytes = entry.totalBytes,
+            // The whole container crossed before this row was written.
+            encryptRatio = if (entry.encrypt) 1f else 0f,
+            sentBytes = entry.totalBytes,
+            storedBytes = null,
             status = UploadStatus.RUNNING,
             phase = UploadPhase.STORING,
             createdAt = entry.startedAt,
@@ -273,7 +292,10 @@ class UploadManager(
                     dir = entry.dir,
                     encrypt = entry.encrypt,
                     totalBytes = entry.totalBytes,
-                    doneBytes = 0,
+                    uploadBytes = entry.totalBytes,
+                    encryptRatio = if (entry.encrypt) 1f else 0f,
+                    sentBytes = 0,
+                    storedBytes = null,
                     status = UploadStatus.FAILED,
                     phase = UploadPhase.UPLOADING,
                     error = t(R.string.upload_payload_missing),
@@ -291,7 +313,11 @@ class UploadManager(
             dir = entry.dir,
             encrypt = entry.encrypt,
             totalBytes = entry.totalBytes,
-            doneBytes = 0,
+            uploadBytes = entry.totalBytes,
+            // The container is already on disk: only the transfer is left.
+            encryptRatio = if (entry.encrypt) 1f else 0f,
+            sentBytes = 0,
+            storedBytes = null,
             status = UploadStatus.RUNNING,
             phase = UploadPhase.UPLOADING,
             createdAt = entry.startedAt,
@@ -314,15 +340,21 @@ class UploadManager(
                 fileName = task.remoteName,
                 file = payload,
                 asTask = false,
-                onProgress = { sent, total ->
+                onProgress = { progress ->
                     update(id) { current ->
                         if (current.status != UploadStatus.RUNNING) {
                             current
                         } else {
+                            val total = if (progress.total > 0) progress.total else current.uploadBytes
                             current.copy(
-                                phase = UploadPhase.UPLOADING,
-                                doneBytes = sent.coerceAtLeast(0),
-                                totalBytes = if (total > 0) total else current.totalBytes,
+                                phase = if (progress.stage == UploadStage.STORING) {
+                                    UploadPhase.STORING
+                                } else {
+                                    UploadPhase.UPLOADING
+                                },
+                                sentBytes = (progress.sent ?: current.sentBytes).coerceAtLeast(0),
+                                storedBytes = progress.stored,
+                                uploadBytes = total,
                             )
                         }
                     }
@@ -335,7 +367,8 @@ class UploadManager(
                 } else {
                     current.copy(
                         status = UploadStatus.DONE,
-                        doneBytes = current.totalBytes,
+                        sentBytes = current.uploadBytes,
+                        storedBytes = current.uploadBytes,
                         finishedAt = System.currentTimeMillis(),
                         error = null,
                     )
@@ -407,15 +440,17 @@ class UploadManager(
     private suspend fun watch(task: UploadTask) {
         val id = task.id
         try {
-            repository.waitForUploadTask(task.taskId, task.totalBytes) { stored, total ->
+            val size = task.uploadBytes.takeIf { it > 0 } ?: task.totalBytes
+            repository.waitForUploadTask(task.taskId, size) { progress ->
                 update(id) { current ->
                     if (current.status != UploadStatus.RUNNING) {
                         current
                     } else {
                         current.copy(
                             phase = UploadPhase.STORING,
-                            doneBytes = stored.coerceAtLeast(0),
-                            totalBytes = if (total > 0) total else current.totalBytes,
+                            sentBytes = size,
+                            storedBytes = progress.stored,
+                            uploadBytes = if (progress.total > 0) progress.total else size,
                         )
                     }
                 }
@@ -428,7 +463,8 @@ class UploadManager(
                     current.copy(
                         status = UploadStatus.DONE,
                         phase = UploadPhase.STORING,
-                        doneBytes = current.totalBytes,
+                        sentBytes = current.uploadBytes,
+                        storedBytes = current.uploadBytes,
                         finishedAt = System.currentTimeMillis(),
                         error = null,
                     )
@@ -490,16 +526,34 @@ class UploadManager(
         var payload: File? = null
         val throttle = ProgressThrottle()
 
-        fun report(phase: UploadPhase, done: Long, total: Long) {
-            if (!throttle.shouldEmit(done, total, phase)) return
+        /**
+         * Publish one report, dropping the ones that would not move the bar.
+         *
+         * [stored] null means the server cannot say how far its own write got,
+         * which the UI draws as a sweep instead of a stalled segment.
+         */
+        fun report(
+            phase: UploadPhase,
+            sent: Long,
+            stored: Long?,
+            total: Long,
+            ratio: Float? = null,
+        ) {
+            val size = total.coerceAtLeast(0)
+            val sentPercent = percentOf(sent, size)
+            val storedPercent = if (stored == null) -1 else percentOf(stored, size)
+            val ratioPercent = if (ratio == null) -1 else (ratio * 100).toInt()
+            if (!throttle.shouldEmit(phase, sentPercent, storedPercent, ratioPercent)) return
             update(id) { current ->
                 if (current.status != UploadStatus.RUNNING) {
                     current
                 } else {
                     current.copy(
                         phase = phase,
-                        doneBytes = done.coerceAtLeast(0),
-                        totalBytes = if (total > 0) total else current.totalBytes,
+                        sentBytes = sent.coerceAtLeast(0),
+                        storedBytes = stored,
+                        uploadBytes = if (size > 0) size else current.uploadBytes,
+                        encryptRatio = ratio ?: current.encryptRatio,
                     )
                 }
             }
@@ -525,10 +579,15 @@ class UploadManager(
                     } else {
                         0f
                     }
+                    // Encryption is its own 0..100, not the first half of the
+                    // transfer: folding it into one number is what made the bar
+                    // read half-full before a byte had left the device.
                     report(
                         UploadPhase.ENCRYPTING,
-                        (sourceTotal * 0.5f * fraction).toLong(),
-                        sourceTotal,
+                        sent = 0,
+                        stored = null,
+                        total = sourceTotal,
+                        ratio = fraction,
                     )
                 }
             } else {
@@ -537,7 +596,6 @@ class UploadManager(
             payload = built
 
             if (sourceTotal <= 0) sourceTotal = built.length()
-            val size = sourceTotal
 
             // A chunked upload is the only kind this app can pick back up by
             // itself: the server keeps a half-finished session, not the file, so
@@ -545,7 +603,7 @@ class UploadManager(
             // `cacheDir` (which the system may clear) is what makes the row in
             // [pending] usable on the next launch.
             var body = built
-            if (repository.usesChunkedUpload(size)) {
+            if (repository.usesChunkedUpload(built.length())) {
                 body = keepPayload(built, id)
                 payload = body
                 pending.upsert(
@@ -558,12 +616,17 @@ class UploadManager(
                         mode = PendingMode.CHUNK,
                         remoteName = remoteName,
                         payloadPath = body.absolutePath,
-                        totalBytes = size,
+                        totalBytes = body.length(),
                         startedAt = currentTask(id)?.startedAt ?: System.currentTimeMillis(),
                         updatedAt = System.currentTimeMillis(),
                     ),
                 )
             }
+
+            // The denominator is what actually goes on the wire: an encrypted
+            // container is larger than its source, so measuring against the
+            // source finishes the bar past 100%.
+            val uploadTotal = body.length()
 
             update(id) { current ->
                 if (current.status != UploadStatus.RUNNING) {
@@ -571,8 +634,11 @@ class UploadManager(
                 } else {
                     current.copy(
                         phase = UploadPhase.UPLOADING,
-                        totalBytes = size,
-                        doneBytes = if (task.encrypt) size / 2 else 0,
+                        totalBytes = sourceTotal,
+                        uploadBytes = uploadTotal,
+                        encryptRatio = if (task.encrypt) 1f else 0f,
+                        sentBytes = 0,
+                        storedBytes = null,
                     )
                 }
             }
@@ -587,39 +653,40 @@ class UploadManager(
                 fileName = remoteName,
                 file = body,
                 asTask = true,
-                onProgress = { sent, length ->
-                    val bodySize = if (length > 0) length else body.length()
-                    val fraction = if (bodySize > 0) {
-                        (sent.toFloat() / bodySize).coerceIn(0f, 1f)
+                onProgress = { progress ->
+                    val total = if (progress.total > 0) progress.total else uploadTotal
+                    val phase = if (progress.stage == UploadStage.STORING) {
+                        UploadPhase.STORING
                     } else {
-                        0f
+                        UploadPhase.UPLOADING
                     }
-                    val done = if (task.encrypt) {
-                        size / 2 + (size * 0.5f * fraction).toLong()
-                    } else {
-                        (size * fraction).toLong()
-                    }
-                    report(currentTask(id)?.phase ?: UploadPhase.UPLOADING, done, size)
-                },
-                onTaskId = { taskId ->
-                    // From here the server owns the write. This row is the only
-                    // handle on the task once this process is gone.
-                    update(id) { it.copy(taskId = taskId, phase = UploadPhase.STORING) }
-                    pending.upsert(
-                        PendingUpload(
-                            id = id,
-                            server = repository.server,
-                            dir = task.parentPath,
-                            name = task.displayName,
-                            encrypt = task.encrypt,
-                            mode = PendingMode.TASK,
-                            taskId = taskId,
-                            remoteName = remoteName,
-                            totalBytes = size,
-                            startedAt = currentTask(id)?.startedAt ?: System.currentTimeMillis(),
-                            updatedAt = System.currentTimeMillis(),
-                        ),
+                    report(
+                        phase = phase,
+                        sent = progress.sent ?: currentTask(id)?.sentBytes ?: 0L,
+                        stored = progress.stored,
+                        total = total,
                     )
+                    val newTaskId = progress.taskId
+                    if (newTaskId != null && newTaskId != currentTask(id)?.taskId) {
+                        // From here the server owns the write. This row is the
+                        // only handle on the task once this process is gone.
+                        update(id) { it.copy(taskId = newTaskId) }
+                        pending.upsert(
+                            PendingUpload(
+                                id = id,
+                                server = repository.server,
+                                dir = task.parentPath,
+                                name = task.displayName,
+                                encrypt = task.encrypt,
+                                mode = PendingMode.TASK,
+                                taskId = newTaskId,
+                                remoteName = remoteName,
+                                totalBytes = uploadTotal,
+                                startedAt = currentTask(id)?.startedAt ?: System.currentTimeMillis(),
+                                updatedAt = System.currentTimeMillis(),
+                            ),
+                        )
+                    }
                 },
                 onCall = { call -> calls[id] = call },
             ).getOrThrow()
@@ -631,9 +698,12 @@ class UploadManager(
                 } else {
                     current.copy(
                         status = UploadStatus.DONE,
-                        phase = UploadPhase.UPLOADING,
-                        doneBytes = size,
-                        totalBytes = size,
+                        phase = UploadPhase.STORING,
+                        sentBytes = uploadTotal,
+                        storedBytes = uploadTotal,
+                        uploadBytes = uploadTotal,
+                        totalBytes = sourceTotal,
+                        encryptRatio = if (task.encrypt) 1f else 0f,
                         error = null,
                         finishedAt = System.currentTimeMillis(),
                     )
@@ -672,28 +742,49 @@ class UploadManager(
         }
     }
 
+    /**
+     * Drop reports that would not move the bar.
+     *
+     * The upload body calls back every few kilobytes, which is far more often
+     * than a 5 dp bar can show: a whole-percent step is the useful granularity,
+     * and the -1 sentinel means "this number is not being reported".
+     */
     private class ProgressThrottle {
-        private var lastPercent = -1
         private var lastPhase: UploadPhase? = null
-        private var lastDone = 0L
+        private var lastSentPercent = -1
+        private var lastStoredPercent = -1
+        private var lastRatioPercent = -1
 
-        fun shouldEmit(done: Long, total: Long, phase: UploadPhase): Boolean {
-            val percent = if (total > 0) ((done * 100) / total).toInt() else -1
-            val advanced = done - lastDone >= PROGRESS_STEP
-            if (phase == lastPhase && percent == lastPercent && !advanced) return false
+        fun shouldEmit(
+            phase: UploadPhase,
+            sentPercent: Int,
+            storedPercent: Int,
+            ratioPercent: Int,
+        ): Boolean {
+            if (phase == lastPhase &&
+                sentPercent == lastSentPercent &&
+                storedPercent == lastStoredPercent &&
+                ratioPercent == lastRatioPercent
+            ) {
+                return false
+            }
             lastPhase = phase
-            lastPercent = percent
-            lastDone = done
+            lastSentPercent = sentPercent
+            lastStoredPercent = storedPercent
+            lastRatioPercent = ratioPercent
             return true
         }
     }
 
     companion object {
         private const val DEFAULT_CONCURRENT = 2
-        private const val PROGRESS_STEP = 256 * 1024L
 
         /** Extension of a container kept for a resumable upload. */
         private const val PAYLOAD_SUFFIX = ".payload"
+
+        /** Whole percent of [value] out of [total], for the throttle's comparison. */
+        private fun percentOf(value: Long, total: Long): Int =
+            if (total > 0) ((value.coerceIn(0, total) * 100) / total).toInt() else 0
     }
 }
 

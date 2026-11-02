@@ -57,6 +57,40 @@ class RemoteException(
     var multipartUnsupported: Boolean = false
 }
 
+/** Which half of an upload the numbers describe. */
+enum class UploadStage {
+    /** The body is crossing the network; [UploadProgress.sent] is advancing. */
+    UPLOADING,
+
+    /** Every byte is on the server, which is still writing it to storage. */
+    STORING,
+}
+
+/**
+ * One progress report from [RemoteClient.upload].
+ *
+ * The two counters are kept apart because AList relays the body to the storage
+ * driver: "the server has taken delivery" and "the file is in the cloud" are
+ * not the same moment, and on a throttled server the second half outlives the
+ * transfer that fed it. Reporting only the first one is what made the bar look
+ * finished while the cloud write had barely started.
+ *
+ * [stored] is null while the server cannot say — a chunked merge reports
+ * nothing, and not every driver keeps its task progress up to date — which must
+ * not be read as "nothing written yet".
+ */
+data class UploadProgress(
+    /** Bytes the server has taken delivery of; null when this report does not say. */
+    val sent: Long? = null,
+    /** Bytes the server reports written through to storage; null when unknown. */
+    val stored: Long? = null,
+    /** Size the percentages are out of: the container on the wire. */
+    val total: Long = 0,
+    val stage: UploadStage? = null,
+    /** Server-side task id, once `As-Task` handed one out. */
+    val taskId: String? = null,
+)
+
 /**
  * Transport shared by every remote backend.
  *
@@ -266,13 +300,13 @@ abstract class RemoteClient(
         fileName: String,
         file: File,
         asTask: Boolean = false,
-        onProgress: ((bytesWritten: Long, contentLength: Long) -> Unit)? = null,
-        onTaskId: ((String) -> Unit)? = null,
+        onProgress: ((UploadProgress) -> Unit)? = null,
         onCall: ((Call) -> Unit)? = null,
     ) {
         val remotePath = normalizeUploadPath(dirPath, fileName)
+        val size = file.length()
 
-        if (usesChunkedUpload(file.length())) {
+        if (usesChunkedUpload(size)) {
             try {
                 uploadMultipart(server, token, remotePath, file, onProgress, onCall)
                 return
@@ -283,8 +317,9 @@ abstract class RemoteClient(
         }
 
         // `As-Task` is what makes the second half observable — and, with the id
-        // handed to [onTaskId], recoverable after this process is gone.
-        if (asTask && uploadAsTask(server, token, remotePath, file, onProgress, onTaskId, onCall)) {
+        // carried in [UploadProgress.taskId], recoverable after this process is
+        // gone.
+        if (asTask && uploadAsTask(server, token, remotePath, file, onProgress, onCall)) {
             return
         }
 
@@ -296,8 +331,16 @@ abstract class RemoteClient(
             server, token, remotePath, fileName, file, asTask, onProgress, onCall,
         )
         if (taskId != null) {
-            onTaskId?.invoke(taskId)
-            waitForUploadTask(server, token, taskId, file.length(), onProgress)
+            onProgress?.invoke(
+                UploadProgress(
+                    sent = size,
+                    stored = null,
+                    total = size,
+                    stage = UploadStage.STORING,
+                    taskId = taskId,
+                ),
+            )
+            waitForUploadTask(server, token, taskId, size, onProgress)
         }
     }
 
@@ -317,13 +360,20 @@ abstract class RemoteClient(
         token: String,
         remotePath: String,
         file: File,
-        onProgress: ((Long, Long) -> Unit)?,
-        onTaskId: ((String) -> Unit)?,
+        onProgress: ((UploadProgress) -> Unit)?,
         onCall: ((Call) -> Unit)?,
     ): Boolean = withContext(Dispatchers.IO) {
         val size = file.length()
         val fileBody = file.asRequestBody(OCTET_MEDIA)
-        val body = if (onProgress != null) ProgressRequestBody(fileBody, onProgress) else fileBody
+        val body = if (onProgress != null) {
+            ProgressRequestBody(fileBody) { sent, total ->
+                onProgress.invoke(
+                    UploadProgress(sent = sent, total = total, stage = UploadStage.UPLOADING),
+                )
+            }
+        } else {
+            fileBody
+        }
         val request = Request.Builder()
             .url(url(server, "/api/fs/put"))
             .put(body)
@@ -348,13 +398,23 @@ abstract class RemoteClient(
         val taskId = taskIdOf(envelope.data)
         if (taskId == null) {
             // Synchronous write: the answer only exists once the file is stored.
-            onProgress?.invoke(size, size)
+            onProgress?.invoke(
+                UploadProgress(sent = size, stored = size, total = size, stage = UploadStage.STORING),
+            )
             return@withContext true
         }
 
         // Told before the wait starts, so a launch that dies mid-write still
         // leaves the id somewhere the next one can find it.
-        onTaskId?.invoke(taskId)
+        onProgress?.invoke(
+            UploadProgress(
+                sent = size,
+                stored = null,
+                total = size,
+                stage = UploadStage.STORING,
+                taskId = taskId,
+            ),
+        )
         waitForUploadTask(server, token, taskId, size, onProgress)
         true
     }
@@ -372,7 +432,7 @@ abstract class RemoteClient(
         token: String,
         taskId: String,
         size: Long,
-        onProgress: ((Long, Long) -> Unit)? = null,
+        onProgress: ((UploadProgress) -> Unit)? = null,
         strict: Boolean = false,
     ) {
         var completed = false
@@ -386,7 +446,16 @@ abstract class RemoteClient(
                 }
 
                 val percent = task.progress.coerceIn(0.0, 100.0)
-                if (size > 0) onProgress?.invoke((size * percent / 100.0).toLong(), size)
+                if (size > 0) {
+                    onProgress?.invoke(
+                        UploadProgress(
+                            sent = size,
+                            stored = (size * percent / 100.0).toLong(),
+                            total = size,
+                            stage = UploadStage.STORING,
+                        ),
+                    )
+                }
 
                 val state = task.state?.lowercase().orEmpty()
                 if (state in TASK_FAILED_STATES) {
@@ -394,7 +463,9 @@ abstract class RemoteClient(
                 }
                 if (state in TASK_DONE_STATES || percent >= 100.0) {
                     completed = true
-                    onProgress?.invoke(size, size)
+                    onProgress?.invoke(
+                        UploadProgress(sent = size, stored = size, total = size, stage = UploadStage.STORING),
+                    )
                     return
                 }
             }
@@ -423,7 +494,7 @@ abstract class RemoteClient(
         token: String,
         remotePath: String,
         file: File,
-        onProgress: ((Long, Long) -> Unit)?,
+        onProgress: ((UploadProgress) -> Unit)?,
         onCall: ((Call) -> Unit)?,
     ) {
         throw RemoteException(-1, t(R.string.remote_support_chunked_upload, label)).also { it.multipartUnsupported = true }
@@ -453,11 +524,19 @@ abstract class RemoteClient(
         fileName: String,
         file: File,
         asTask: Boolean,
-        onProgress: ((Long, Long) -> Unit)?,
+        onProgress: ((UploadProgress) -> Unit)?,
         onCall: ((Call) -> Unit)?,
     ): String? = withContext(Dispatchers.IO) {
         val fileBody = file.asRequestBody(OCTET_MEDIA)
-        val partBody = if (onProgress != null) ProgressRequestBody(fileBody, onProgress) else fileBody
+        val partBody = if (onProgress != null) {
+            ProgressRequestBody(fileBody) { sent, total ->
+                onProgress.invoke(
+                    UploadProgress(sent = sent, total = total, stage = UploadStage.UPLOADING),
+                )
+            }
+        } else {
+            fileBody
+        }
         val body = MultipartBody.Builder()
             .setType(MultipartBody.FORM)
             .addFormDataPart("file", fileName, partBody)

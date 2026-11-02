@@ -183,8 +183,7 @@ class RemoteRepository(
         fileName: String,
         file: File,
         asTask: Boolean = false,
-        onProgress: ((bytesWritten: Long, contentLength: Long) -> Unit)? = null,
-        onTaskId: ((String) -> Unit)? = null,
+        onProgress: ((UploadProgress) -> Unit)? = null,
         onCall: ((Call) -> Unit)? = null,
     ): Result<Unit> = runCatching {
         activeApi.upload(
@@ -195,7 +194,6 @@ class RemoteRepository(
             file = file,
             asTask = asTask,
             onProgress = onProgress,
-            onTaskId = onTaskId,
             onCall = onCall,
         )
     }
@@ -213,7 +211,7 @@ class RemoteRepository(
     suspend fun waitForUploadTask(
         taskId: String,
         size: Long,
-        onProgress: ((Long, Long) -> Unit)? = null,
+        onProgress: ((UploadProgress) -> Unit)? = null,
     ): Result<Unit> = runCatching {
         activeApi.waitForUploadTask(
             server = session.server,

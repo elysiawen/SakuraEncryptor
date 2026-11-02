@@ -3,20 +3,30 @@ package com.sakura.encryptor.ui.screens.transfers
 import com.sakura.encryptor.R
 import com.sakura.encryptor.ui.i18n.t
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -42,7 +52,6 @@ import androidx.compose.material.icons.rounded.UploadFile
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -55,6 +64,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
@@ -73,6 +83,7 @@ import com.sakura.encryptor.ui.components.SakuraTopBar
 import com.sakura.encryptor.ui.components.StateMessage
 import com.sakura.encryptor.ui.rememberAppViewModel
 import com.sakura.encryptor.ui.util.formatBytes
+import com.sakura.encryptor.ui.util.formatPercent
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
@@ -427,11 +438,11 @@ private fun UploadCard(
     onDelete: () -> Unit,
 ) {
     val active = task.status == UploadStatus.QUEUED || task.status == UploadStatus.RUNNING
-    val fraction = if (task.totalBytes > 0) {
-        (task.doneBytes.toFloat() / task.totalBytes).coerceIn(0f, 1f)
-    } else {
-        0f
-    }
+    val uploadTotal = uploadTotalOf(task)
+    val sentFraction = fractionOf(task.sentBytes, uploadTotal)
+    val storedFraction = fractionOf(task.storedBytes ?: 0L, uploadTotal)
+    val storedKnown = task.storedBytes != null
+    val encryptFraction = task.encryptRatio.coerceIn(0f, 1f)
     val tone = when (task.status) {
         UploadStatus.QUEUED -> Tone(
             MaterialTheme.colorScheme.surfaceVariant,
@@ -443,9 +454,20 @@ private fun UploadCard(
             MaterialTheme.colorScheme.secondaryContainer,
             MaterialTheme.colorScheme.onSecondaryContainer,
             when (task.phase) {
-                UploadPhase.ENCRYPTING -> t(R.string.transfers_encrypting)
-                UploadPhase.UPLOADING -> t(R.string.transfers_uploading)
-                UploadPhase.STORING -> t(R.string.transfers_storing_cloud)
+                UploadPhase.ENCRYPTING ->
+                    "${t(R.string.transfers_encrypting)} ${formatPercent(encryptFraction)}"
+
+                UploadPhase.UPLOADING ->
+                    "${t(R.string.transfers_uploading)} ${formatPercent(sentFraction)}"
+
+                // The second half of the upload: the server has every byte and
+                // is still writing them to the cloud. Without its own figure
+                // this says so instead of showing a percentage nobody has.
+                UploadPhase.STORING -> if (storedKnown) {
+                    "${t(R.string.transfers_storing_cloud)} ${formatPercent(storedFraction)}"
+                } else {
+                    t(R.string.transfers_storing_cloud)
+                }
             },
         )
 
@@ -507,9 +529,23 @@ private fun UploadCard(
             StatusBadge(tone)
         }
 
-        if (active && task.totalBytes > 0) {
+        if (active && uploadTotal > 0) {
             Spacer(Modifier.height(10.dp))
-            TransferProgress(fraction)
+            if (task.phase == UploadPhase.ENCRYPTING) {
+                TransferProgress(
+                    sentFraction = encryptFraction,
+                    storedFraction = null,
+                    sweeping = false,
+                )
+            } else {
+                TransferProgress(
+                    sentFraction = sentFraction,
+                    storedFraction = storedFraction,
+                    // Delivered, but the server has not said how far its own
+                    // write got: sweep instead of faking a percentage.
+                    sweeping = task.phase == UploadPhase.STORING && !storedKnown,
+                )
+            }
         }
 
         if (active) {
@@ -694,15 +730,74 @@ private fun StatusBadge(tone: Tone) {
 
 @Composable
 private fun TransferProgress(fraction: Float) {
-    LinearProgressIndicator(
-        progress = { fraction },
+    TransferProgress(sentFraction = fraction, storedFraction = null, sweeping = false)
+}
+
+/**
+ * Two-layer upload bar.
+ *
+ * [sentFraction] is what the server has taken delivery of (light); the solid
+ * layer on top is [storedFraction], what it has written through to the storage
+ * backend. They differ because AList relays the body to the driver, so the
+ * transfer finishing says nothing about the file being in the cloud yet.
+ *
+ * [sweeping] is the honest answer to "the server does not report that number":
+ * a highlight runs across the delivered part instead of a percentage nobody has.
+ */
+@Composable
+private fun TransferProgress(
+    sentFraction: Float,
+    storedFraction: Float?,
+    sweeping: Boolean,
+) {
+    val deliveredColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
+    val storedColor = MaterialTheme.colorScheme.primary
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
             .height(5.dp)
-            .clip(CircleShape),
-        color = MaterialTheme.colorScheme.primary,
-        trackColor = MaterialTheme.colorScheme.surfaceVariant,
-    )
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.surfaceVariant),
+    ) {
+        Box(
+            Modifier
+                .fillMaxHeight()
+                .fillMaxWidth(sentFraction.coerceIn(0f, 1f))
+                .background(deliveredColor),
+        )
+        if (storedFraction != null && storedFraction > 0f) {
+            Box(
+                Modifier
+                    .fillMaxHeight()
+                    .fillMaxWidth(storedFraction.coerceIn(0f, 1f))
+                    .background(storedColor),
+            )
+        }
+        if (sweeping && sentFraction > 0f) {
+            val barWidth = maxWidth
+            val transition = rememberInfiniteTransition(label = "storing")
+            val shift by transition.animateFloat(
+                initialValue = -1f,
+                targetValue = 2f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(durationMillis = 1400, easing = LinearEasing),
+                    repeatMode = RepeatMode.Restart,
+                ),
+                label = "storingSweep",
+            )
+            Box(
+                Modifier
+                    .fillMaxHeight()
+                    .fillMaxWidth(0.35f)
+                    .offset(x = barWidth * shift)
+                    .background(
+                        Brush.horizontalGradient(
+                            listOf(Color.Transparent, storedColor.copy(alpha = 0.6f), Color.Transparent),
+                        ),
+                    ),
+            )
+        }
+    }
 }
 
 @Composable
@@ -715,19 +810,38 @@ private fun RowActions(content: @Composable RowScope.() -> Unit) {
     )
 }
 
-private fun uploadDetail(task: UploadTask): String = when (task.status) {
-    UploadStatus.QUEUED -> t(R.string.transfers_waiting_start)
-    UploadStatus.RUNNING -> when (task.phase) {
-        UploadPhase.ENCRYPTING -> t(R.string.transfers_encrypting_device)
-        UploadPhase.UPLOADING ->
-            "${formatBytes(task.doneBytes)} / ${formatBytes(task.totalBytes)}"
+/** What actually goes on the wire: the container, not the source document. */
+private fun uploadTotalOf(task: UploadTask): Long =
+    if (task.uploadBytes > 0) task.uploadBytes else task.totalBytes
 
-        UploadPhase.STORING -> t(R.string.transfers_waiting_cloud_write)
+private fun fractionOf(value: Long, total: Long): Float =
+    if (total > 0) (value.toFloat() / total).coerceIn(0f, 1f) else 0f
+
+private fun uploadDetail(task: UploadTask): String {
+    val total = uploadTotalOf(task)
+    return when (task.status) {
+        UploadStatus.QUEUED -> t(R.string.transfers_waiting_start)
+        UploadStatus.RUNNING -> when (task.phase) {
+            UploadPhase.ENCRYPTING -> t(R.string.transfers_encrypting_device)
+            UploadPhase.UPLOADING ->
+                "${formatBytes(task.sentBytes)} / ${formatBytes(total)}"
+
+            UploadPhase.STORING -> {
+                val stored = task.storedBytes
+                if (stored == null) {
+                    t(R.string.transfers_waiting_cloud_write)
+                } else {
+                    "${formatBytes(task.sentBytes)} / ${formatBytes(total)} · " +
+                        "${t(R.string.transfers_storing_cloud)} " +
+                        formatPercent(fractionOf(stored, total))
+                }
+            }
+        }
+
+        UploadStatus.DONE -> t(R.string.transfers_saved, task.dir)
+        UploadStatus.FAILED -> task.error ?: t(R.string.upload_upload_failed)
+        UploadStatus.CANCELLED -> t(R.string.transfers_cancelled)
     }
-
-    UploadStatus.DONE -> t(R.string.transfers_saved, task.dir)
-    UploadStatus.FAILED -> task.error ?: t(R.string.upload_upload_failed)
-    UploadStatus.CANCELLED -> t(R.string.transfers_cancelled)
 }
 
 private fun downloadDetail(task: DownloadTaskEntity, status: DownloadStatus): String = when (status) {

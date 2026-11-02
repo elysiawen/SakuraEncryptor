@@ -76,7 +76,7 @@ class OpenListChunkedUploadTest {
             dirPath = "/movies",
             fileName = "movie.ske",
             file = file,
-            onProgress = { sent, _ -> progress += sent },
+            onProgress = { report -> report.sent?.let { progress += it } },
         )
 
         assertEquals(file.length().toString(), mock.initFileSize)

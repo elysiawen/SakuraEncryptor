@@ -5,6 +5,8 @@ import com.sakura.encryptor.ui.i18n.t
 
 import com.sakura.encryptor.core.remote.RemoteClient
 import com.sakura.encryptor.core.remote.RemoteException
+import com.sakura.encryptor.core.remote.UploadProgress
+import com.sakura.encryptor.core.remote.UploadStage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
@@ -58,7 +60,7 @@ class OpenListApi(
         token: String,
         remotePath: String,
         file: File,
-        onProgress: ((Long, Long) -> Unit)?,
+        onProgress: ((UploadProgress) -> Unit)?,
         onCall: ((Call) -> Unit)?,
     ) = withContext(Dispatchers.IO) {
         val total = file.length()
@@ -100,7 +102,9 @@ class OpenListApi(
             }
         }
         var receivedBytes = init.receivedBytes ?: 0L
-        onProgress?.invoke(receivedBytes, total)
+        onProgress?.invoke(
+            UploadProgress(sent = receivedBytes, total = total, stage = UploadStage.UPLOADING),
+        )
 
         try {
             for (index in 0 until totalChunks) {
@@ -120,8 +124,16 @@ class OpenListApi(
 
                 val chunkData = sendChunk(chunkRequest, index, onCall)
                 receivedBytes = maxOf(receivedBytes, chunkData?.receivedBytes ?: (start + length))
-                onProgress?.invoke(receivedBytes, total)
+                onProgress?.invoke(
+                    UploadProgress(sent = receivedBytes, total = total, stage = UploadStage.UPLOADING),
+                )
             }
+
+            // Every part is on the server; the merge is what moves the bytes
+            // into the storage backend, and it reports nothing of its own.
+            onProgress?.invoke(
+                UploadProgress(sent = total, stored = null, total = total, stage = UploadStage.STORING),
+            )
 
             val completeRequest = Request.Builder()
                 .url(url(server, "/api/fs/multipart/complete"))
@@ -133,7 +145,11 @@ class OpenListApi(
             if (!complete.ok) {
                 throw RemoteException(complete.code, complete.message ?: t(R.string.openlist_could_merge_uploaded_chunks))
             }
-            if (onProgress != null) onProgress(total, total)
+            if (onProgress != null) {
+                onProgress(
+                    UploadProgress(sent = total, stored = total, total = total, stage = UploadStage.STORING),
+                )
+            }
         } catch (e: Throwable) {
             // Never leave a half-written session (and its temp chunks) behind.
             withContext(NonCancellable) {
